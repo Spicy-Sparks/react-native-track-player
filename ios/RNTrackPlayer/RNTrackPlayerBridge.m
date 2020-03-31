@@ -12,11 +12,11 @@
 
 @interface RCT_EXTERN_REMAP_MODULE(TrackPlayerModule, RNTrackPlayer, NSObject)
 
-RCT_EXTERN_METHOD(updateOptions:(NSDictionary *)options:
+RCT_EXTERN_METHOD(updateOptions:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
-RCT_EXTERN_METHOD(setNowPlaying:(NSDictionary *)object:
+RCT_EXTERN_METHOD(setNowPlaying:(NSDictionary *)trackDict:
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
