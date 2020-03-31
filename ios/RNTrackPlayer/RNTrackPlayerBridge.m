@@ -16,11 +16,11 @@ RCT_EXTERN_METHOD(updateOptions:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
-RCT_EXTERN_METHOD(setNowPlaying:(NSDictionary *)trackDict:
+RCT_EXTERN_METHOD(setNowPlaying:(NSDictionary *)trackDict
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
-RCT_EXTERN_METHOD(updatePlayback:(NSDictionary *)properties:
+RCT_EXTERN_METHOD(updatePlayback:(NSDictionary *)properties
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
