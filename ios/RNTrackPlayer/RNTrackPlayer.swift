@@ -22,12 +22,6 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     private var placeHolderImageArtwork : MPMediaItemArtwork? = nil
     
-    // MARK: - Lifecycle Methods
-    
-    deinit {
-        reset(resolve: { _ in }, reject: { _, _, _  in })
-    }
-    
     // MARK: - RCTEventEmitter
     
     override public static func requiresMainQueueSetup() -> Bool {
@@ -41,10 +35,6 @@ public class RNTrackPlayer: RCTEventEmitter {
             "STATE_PLAYING": PlayState.playing,
             "STATE_PAUSED": PlayState.paused,
             "STATE_STOPPED": PlayState.stopped,
-            
-            "PITCH_ALGORITHM_LINEAR": PitchAlgorithm.linear.rawValue,
-            "PITCH_ALGORITHM_MUSIC": PitchAlgorithm.music.rawValue,
-            "PITCH_ALGORITHM_VOICE": PitchAlgorithm.voice.rawValue,
 
             "CAPABILITY_PLAY": Capability.play.rawValue,
             "CAPABILITY_PLAY_FROM_ID": "NOOP",
@@ -139,8 +129,6 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         let center = MPRemoteCommandCenter.shared()
 
-        //player.enableRemoteCommands(remoteCommands)
-        
             if #available(iOS 9.1, *) {
                 center.changePlaybackPositionCommand.addTarget { (commandEvent) -> MPRemoteCommandHandlerStatus in
                         if let event = commandEvent as? MPChangePlaybackPositionCommandEvent {
@@ -199,10 +187,7 @@ public class RNTrackPlayer: RCTEventEmitter {
             }
             
             center.togglePlayPauseCommand.addTarget { (commandEvent) -> MPRemoteCommandHandlerStatus in
-                    /*if self.player.playerState == .paused {
-                        self.sendEvent(withName: "remote-play", body: nil)
-                        return MPRemoteCommandHandlerStatus.success*/
-                    self.sendEvent(withName: "remote-playPause", body: nil)
+                    self.sendEvent(withName: "remote-play-pause", body: nil)
                            return MPRemoteCommandHandlerStatus.success
             }
             
@@ -225,9 +210,13 @@ public class RNTrackPlayer: RCTEventEmitter {
         hasInitialized = true
     }
     
-    @objc(destroy)
-    public func destroy() {
-        print("Destroying player")
+    @objc(reset)
+    public func reset() {
+        print("Resetting player.")
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        DispatchQueue.main.async {
+            UIApplication.shared.endReceivingRemoteControlEvents();
+        }
     }
     
     @objc(updateOptions:resolver:rejecter:)
@@ -305,25 +294,6 @@ public class RNTrackPlayer: RCTEventEmitter {
 
         currentTrack = Track(dictionary: trackDict)
         updatePlayback(properties: trackDict)
-    }
-    
-    @objc(remove:resolver:rejecter:)
-    public func remove(tracks ids: [String], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Removing tracks:", ids)
-        /*var indexesToRemove: [Int] = []
-        
-        for id in ids {
-            if let index = player.queueManager.items.firstIndex(where: { ($0 as! Track).id == id }) {
-                if index == player.queueManager.currentIndex { return }
-                indexesToRemove.append(index)
-            }
-        }
-        
-        for index in indexesToRemove {
-            try? player.removeItem(at: index)
-        }*/
-        
-        resolve(NSNull())
     }
     
     @objc(updatePlayback:)
@@ -429,170 +399,5 @@ public class RNTrackPlayer: RCTEventEmitter {
                     }
                 }
         }
-    }
-    
-    @objc(removeUpcomingTracks:rejecter:)
-    public func removeUpcomingTracks(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Removing upcoming tracks")
-        //player.removeUpcomingItems()
-        resolve(NSNull())
-    }
-    
-    @objc(skip:resolver:rejecter:)
-    public func skip(to trackId: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        /*guard let trackIndex = player.queueManager.items.firstIndex(where: { ($0 as! Track).id == trackId })
-        else {
-            reject("track_not_in_queue", "Given track ID was not found in queue", nil)
-            return
-        }
-        
-        sendEvent(withName: "playback-track-changed", body: [
-            "track": (player.currentItem as? Track)?.id,
-            "position": player.currentTime,
-            "nextTrack": trackId,
-        ])
-        
-        print("Skipping to track:", trackId)
-        try? player.jumpToItem(atIndex: trackIndex, playWhenReady: player.playerState == .playing)
-        resolve(NSNull())*/
-    }
-    
-    @objc(skipToNext:rejecter:)
-    public func skipToNext(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        /*print("Skipping to next track")
-        do {
-            sendEvent(withName: "playback-track-changed", body: [
-                "track": (player.currentItem as? Track)?.id,
-                "position": player.currentTime,
-                "nextTrack": (player.nextItems.first as? Track)?.id,
-            ])
-            try player.next()
-            resolve(NSNull())
-        } catch (_) {
-            reject("queue_exhausted", "There is no tracks left to play", nil)
-        }*/
-    }
-
-    @objc(skipToPrevious:rejecter:)
-    public func skipToPrevious(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        /*print("Skipping to next track")
-        do {
-            sendEvent(withName: "playback-track-changed", body: [
-                "track": (player.currentItem as? Track)?.id,
-                "position": player.currentTime,
-                "nextTrack": (player.previousItems.last as? Track)?.id,
-            ])
-            try player.previous()
-            resolve(NSNull())
-        } catch (_) {
-            reject("no_previous_track", "There is no previous track", nil)
-        }*/
-    }
-    
-    @objc(reset:rejecter:)
-    public func reset(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Resetting player.")
-        //player.stop()
-        resolve(NSNull())
-        DispatchQueue.main.async {
-            UIApplication.shared.endReceivingRemoteControlEvents();
-        }
-    }
-    
-    @objc(play:rejecter:)
-    public func play(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Starting/Resuming playback")
-        //try? AVAudioSession.sharedInstance().setActive(true)
-        //player.play()
-        resolve(NSNull())
-    }
-    
-    @objc(pause:rejecter:)
-    public func pause(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Pausing playback")
-        //player.pause()
-        resolve(NSNull())
-    }
-    
-    @objc(stop:rejecter:)
-    public func stop(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Stopping playback")
-        //player.stop()
-        resolve(NSNull())
-    }
-    
-    @objc(seekTo:resolver:rejecter:)
-    public func seek(to time: Double, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Seeking to \(time) seconds")
-        //player.seek(to: time)
-        resolve(NSNull())
-    }
-    
-    @objc(setVolume:resolver:rejecter:)
-    public func setVolume(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Setting volume to \(level)")
-        //player.volume = level
-        resolve(NSNull())
-    }
-    
-    @objc(getVolume:rejecter:)
-    public func getVolume(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Getting current volume")
-        //resolve(player.volume)
-    }
-    
-    @objc(setRate:resolver:rejecter:)
-    public func setRate(rate: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Setting rate to \(rate)")
-        //player.rate = rate
-        resolve(NSNull())
-    }
-    
-    @objc(getRate:rejecter:)
-    public func getRate(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Getting current rate")
-        //resolve(player.rate)
-    }
-    
-    @objc(getTrack:resolver:rejecter:)
-    public func getTrack(id: String, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        /*guard let track = player.queueManager.items.first(where: { ($0 as! Track).id == id })
-        else {
-            reject("track_not_in_queue", "Given track ID was not found in queue", nil)
-            return
-        }*/
-        
-        //resolve((track as? Track)?.toObject())
-    }
-    
-    @objc(getQueue:rejecter:)
-    public func getQueue(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        //let serializedQueue = player.queueManager.items.map { ($0 as! Track).toObject() }
-        //resolve(serializedQueue)
-    }
-    
-    @objc(getCurrentTrack:rejecter:)
-    public func getCurrentTrack(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        resolve(currentTrack)
-    }
-    
-    @objc(getDuration:rejecter:)
-    public func getDuration(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        //resolve(player.duration)
-    }
-    
-    @objc(getBufferedPosition:rejecter:)
-    public func getBufferedPosition(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        //resolve(player.bufferedPosition)
-    }
-    
-    @objc(getPosition:rejecter:)
-    public func getPosition(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        //resolve(player.currentTime)
-    }
-    
-    @objc(getState:rejecter:)
-    public func getState(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        //resolve(player.playerState.rawValue)
     }
 }

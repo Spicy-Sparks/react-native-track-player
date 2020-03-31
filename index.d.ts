@@ -38,7 +38,6 @@ declare namespace RNTrackPlayer {
   type State = string | number;
   type RatingType = string | number;
   type Capability = string | number;
-  type PitchAlgorithm = string | number;
 
   type EventHandler = (type: EventType, ...args: any[]) => void;
   export function registerEventHandler(handler: EventHandler): void;
@@ -116,44 +115,15 @@ declare namespace RNTrackPlayer {
   // General
 
   export function setupPlayer(options?: PlayerOptions): Promise<void>;
-  export function destroy(): void;
 
   // Player Queue Commands
 
   export function setNowPlaying(track: Track): Promise<void>;
   export function updatePlayback(data: any): Promise<void>;
-  export function remove(trackIds: string | string[]): Promise<void>;
-  export function skip(trackId: string): Promise<void>;
-  export function skipToNext(): Promise<void>;
-  export function skipToPrevious(): Promise<void>;
-  export function removeUpcomingTracks(): Promise<void>;
 
   // Control Center / Notification Metadata Commands
   export function updateOptions(options: MetadataOptions): void;
   export function updateMetadataForTrack(id: string, metadata: TrackMetadata) : Promise<void>;
-
-  // Player Playback Commands
-
-  export function reset(): Promise<void>;
-  export function play(): Promise<void>;
-  export function pause(): Promise<void>;
-  export function stop(): Promise<void>;
-  export function seekTo(seconds: number): Promise<void>;
-  export function setVolume(level: number): Promise<void>;
-  export function setRate(rate: number): Promise<void>;
-
-  // Player Getters
-
-  export function getQueue(): Promise<Track[]>;
-  export function getTrack(id: string): Promise<Track>;
-  export function getCurrentTrack(): Promise<string>;
-  export function getVolume(): Promise<number>;
-  export function getDuration(): Promise<number>;
-  export function getPosition(): Promise<number>;
-  export function getBufferedPosition(): Promise<number>;
-  export function getState(): Promise<State>;
-  export function getRate(): Promise<number>;
-
   // Components
 
   export interface ProgressComponentState {
@@ -198,9 +168,5 @@ declare namespace RNTrackPlayer {
   export const CAPABILITY_LIKE: Capability;
   export const CAPABILITY_DISLIKE: Capability;
   export const CAPABILITY_BOOKMARK: Capability;
-
-  export const PITCH_ALGORITHM_LINEAR: PitchAlgorithm;
-  export const PITCH_ALGORITHM_MUSIC: PitchAlgorithm;
-  export const PITCH_ALGORITHM_VOICE: PitchAlgorithm;
 
 }
