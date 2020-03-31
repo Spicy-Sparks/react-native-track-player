@@ -37,10 +37,10 @@ public class RNTrackPlayer: RCTEventEmitter {
     @objc(constantsToExport)
     override public func constantsToExport() -> [AnyHashable: Any] {
         return [
-            "STATE_NONE": PlayState.none,
-            "STATE_PLAYING": PlayState.playing,
-            "STATE_PAUSED": PlayState.paused,
-            "STATE_STOPPED": PlayState.stopped,
+            "STATE_NONE": PlayState.none.rawValue,
+            "STATE_PLAYING": PlayState.playing.rawValue,
+            "STATE_PAUSED": PlayState.paused.rawValue,
+            "STATE_STOPPED": PlayState.stopped.rawValue,
 
             "CAPABILITY_PLAY": Capability.play.rawValue,
             "CAPABILITY_PLAY_FROM_ID": "NOOP",
