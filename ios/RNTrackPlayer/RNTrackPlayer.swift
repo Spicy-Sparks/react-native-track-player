@@ -9,7 +9,7 @@
 import Foundation
 import MediaPlayer
 
-@objc(RNTrackPlayer)
+
 public class RNTrackPlayer: RCTEventEmitter {
     
     // MARK: - Attributes
@@ -123,10 +123,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
     }
 
-    // MARK: - Bridged Methods
-    
-    @objc(setupPlayer)
-    public func setupPlayer() {
+    private func setupPlayer() {
         if hasInitialized {
             return
         }
@@ -226,8 +223,8 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
     }
     
-    @objc(updateOptions:)
-    public func update(options: [String: Any]) {
+    @objc(updateOptions:resolve:rejecter:)
+    public func update(options: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         let capabilitiesStr = options["capabilities"] as? [String]
         let capabilities = capabilitiesStr?.compactMap { Capability(rawValue: $0) } ?? []
         
@@ -283,10 +280,12 @@ public class RNTrackPlayer: RCTEventEmitter {
                 placeHolderImageArtwork = MPMediaItemArtwork(image: placeHolderImage)
             }
         }
+        
+        resolve(nil)
     }
     
-    @objc(setNowPlaying:)
-    public func setNowPlaying(trackDict: [String: Any]) {
+    @objc(setNowPlaying:resolve:rejecter:)
+    public func setNowPlaying(trackDict: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         
         if(!hasInitialized){
             setupPlayer()
@@ -297,11 +296,13 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
 
         currentTrack = Track(dictionary: trackDict)
-        updatePlayback(properties: trackDict)
+        updatePlayback(properties: trackDict, resolve: resolve, reject: reject)
+        
+        
     }
     
-    @objc(updatePlayback:)
-    public func updatePlayback(properties: [String: Any]) {
+    @objc(updatePlayback:resolve:reject:)
+    public func updatePlayback(properties: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         /*guard let track = player.queueManager.items.first(where: { ($0 as! Track).id == trackId }) as? Track
             else {
                 reject("track_not_in_queue", "Given track ID was not found in queue", nil)
@@ -331,6 +332,8 @@ public class RNTrackPlayer: RCTEventEmitter {
                 center.playbackState = MPNowPlayingPlaybackState.stopped;
             }
         }
+        
+        resolve(nil)
     }
     
     @objc(updateMetadataForTrack:)
@@ -350,10 +353,10 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         var newNowPlaying = center.nowPlayingInfo
         
-        newNowPlaying![MPMediaItemPropertyTitle] = properties["title"] ?? center.nowPlayingInfo![MPMediaItemPropertyTitle]
-        newNowPlaying![MPMediaItemPropertyArtist] = properties["artist"] ?? center.nowPlayingInfo![MPMediaItemPropertyArtist]
-        newNowPlaying![MPMediaItemPropertyAlbumTitle] = properties["album"] ?? center.nowPlayingInfo![MPMediaItemPropertyAlbumTitle]
-        newNowPlaying![MPMediaItemPropertyPlaybackDuration] = properties["duration"] ?? center.nowPlayingInfo![MPMediaItemPropertyPlaybackDuration]
+        newNowPlaying![MPMediaItemPropertyTitle] = currentTrack?.title ?? center.nowPlayingInfo![MPMediaItemPropertyTitle]
+        newNowPlaying![MPMediaItemPropertyArtist] = currentTrack?.artist ?? center.nowPlayingInfo![MPMediaItemPropertyArtist]
+        newNowPlaying![MPMediaItemPropertyAlbumTitle] = currentTrack?.album ?? center.nowPlayingInfo![MPMediaItemPropertyAlbumTitle]
+        newNowPlaying![MPMediaItemPropertyPlaybackDuration] = currentTrack?.duration ?? center.nowPlayingInfo![MPMediaItemPropertyPlaybackDuration]
         newNowPlaying![MPNowPlayingInfoPropertyElapsedPlaybackTime] = properties["elapsedTime"] ?? center.nowPlayingInfo![MPNowPlayingInfoPropertyElapsedPlaybackTime]
         
         let newArtworkUrl = properties["artwork"] as? String
@@ -361,8 +364,9 @@ public class RNTrackPlayer: RCTEventEmitter {
         //add placeholder while image is loading
         if(newArtworkUrl != nil){
             newNowPlaying![MPMediaItemPropertyArtwork] = placeHolderImageArtwork
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = newNowPlaying
         }
+        
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = newNowPlaying
         
         updateArtworkIfNeeded(artworkUrl: newArtworkUrl, newNowPlaying: newNowPlaying!)
         
@@ -374,9 +378,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         if(artworkUrl == nil || artworkUrl == "" || artworkUrl == self.previousArtworkUrl){
             return
         }
-        
-        var _newNowPlaying = newNowPlaying
-        
+                
         self.previousArtworkUrl = artworkUrl
         
         DispatchQueue.global(qos: .default).async {
@@ -400,8 +402,7 @@ public class RNTrackPlayer: RCTEventEmitter {
                                 artwork = MPMediaItemArtwork(image: image)
                             }
                             
-                            _newNowPlaying[MPMediaItemPropertyArtwork] = artwork
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo = _newNowPlaying
+                            MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
                         }
                     }
                 }
