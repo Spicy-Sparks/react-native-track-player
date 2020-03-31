@@ -9,7 +9,7 @@
 import Foundation
 import MediaPlayer
 
-
+@objc(RNTrackPlayer)
 public class RNTrackPlayer: RCTEventEmitter {
     
     // MARK: - Attributes
