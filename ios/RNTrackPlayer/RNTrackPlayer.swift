@@ -342,6 +342,9 @@ public class RNTrackPlayer: RCTEventEmitter {
             center.nowPlayingInfo = [
                 MPMediaItemPropertyTitle: "",
                 MPMediaItemPropertyArtist: "",
+                MPMediaItemPropertyAlbumTitle: "",
+                MPMediaItemPropertyPlaybackDuration: 0,
+                MPNowPlayingInfoPropertyElapsedPlaybackTime: 0,
             ]
         }
         
