@@ -13,22 +13,17 @@
 @interface RCT_EXTERN_REMAP_MODULE(TrackPlayerModule, RNTrackPlayer, NSObject)
 
 RCT_EXTERN_METHOD(updateOptions:(NSDictionary *)options:
-                  (RCTPromiseResolveBlock)resolve
+                  resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
 RCT_EXTERN_METHOD(setNowPlaying:(NSDictionary *)object:
-                  (RCTPromiseResolveBlock)resolve
+                  resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
 RCT_EXTERN_METHOD(updatePlayback:(NSDictionary *)properties:
-                  (RCTPromiseResolveBlock)resolve
+                  resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
 
 RCT_EXTERN_METHOD(reset:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject);
-
-RCT_EXTERN_METHOD(updateMetadataForTrack:properties:(NSDictionary *)properties:
-                  (RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject);
-
 @end
