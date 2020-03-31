@@ -2,8 +2,6 @@ package com.guichaguri.trackplayer.service;
 
 import android.os.Binder;
 import android.os.Bundle;
-import com.facebook.react.bridge.Promise;
-import com.guichaguri.trackplayer.service.player.ExoPlayback;
 
 /**
  * @author Guichaguri
