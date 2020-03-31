@@ -108,25 +108,6 @@ class Track: NSObject {
             handler(nil)
         }
     }
-
-    // MARK: - TimePitching Protocol
-
-    func getPitchAlgorithmType() -> AVAudioTimePitchAlgorithm {
-        if let pitchAlgorithm = pitchAlgorithm {
-            switch pitchAlgorithm {
-            case PitchAlgorithm.linear.rawValue:
-                return .varispeed
-            case PitchAlgorithm.music.rawValue:
-                return .spectral
-            case PitchAlgorithm.voice.rawValue:
-                return .timeDomain
-            default:
-                return .lowQualityZeroLatency
-            }
-        }
-        
-        return .lowQualityZeroLatency
-    }
     
     // MARK: - Authorizing Protocol
     
