@@ -223,7 +223,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
     }
     
-    @objc(updateOptions:resolve:rejecter:)
+    @objc(updateOptions:resolver:rejecter:)
     public func update(options: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         let capabilitiesStr = options["capabilities"] as? [String]
         let capabilities = capabilitiesStr?.compactMap { Capability(rawValue: $0) } ?? []
@@ -284,7 +284,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         resolve(nil)
     }
     
-    @objc(setNowPlaying:resolve:rejecter:)
+    @objc(setNowPlaying:resolver:rejecter:)
     public func setNowPlaying(trackDict: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         
         if(!hasInitialized){
@@ -301,7 +301,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         
     }
     
-    @objc(updatePlayback:resolve:reject:)
+    @objc(updatePlayback:resolver:rejecter:)
     public func updatePlayback(properties: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         /*guard let track = player.queueManager.items.first(where: { ($0 as! Track).id == trackId }) as? Track
             else {
@@ -336,7 +336,6 @@ public class RNTrackPlayer: RCTEventEmitter {
         resolve(nil)
     }
     
-    @objc(updateMetadataForTrack:)
     public func updateMetadata(properties: [String: Any]) {
         
         let center = MPNowPlayingInfoCenter.default()
