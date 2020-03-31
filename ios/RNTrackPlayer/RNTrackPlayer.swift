@@ -16,6 +16,12 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     private var hasInitialized = false
     
+    // MARK: - Lifecycle Methods
+    
+    deinit {
+        reset(resolve: { _ in }, reject: { _, _, _  in })
+    }
+    
     private var currentTrack: Track? = nil
     
     private var previousArtworkUrl : String? = nil
@@ -210,17 +216,18 @@ public class RNTrackPlayer: RCTEventEmitter {
         hasInitialized = true
     }
     
-    @objc(reset)
-    public func reset() {
+    @objc(reset:rejecter:)
+    public func reset(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         print("Resetting player.")
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        resolve(NSNull())
         DispatchQueue.main.async {
             UIApplication.shared.endReceivingRemoteControlEvents();
         }
     }
     
-    @objc(updateOptions:resolver:rejecter:)
-    public func update(options: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+    @objc(updateOptions:)
+    public func update(options: [String: Any]) {
         let capabilitiesStr = options["capabilities"] as? [String]
         let capabilities = capabilitiesStr?.compactMap { Capability(rawValue: $0) } ?? []
         
@@ -276,9 +283,6 @@ public class RNTrackPlayer: RCTEventEmitter {
                 placeHolderImageArtwork = MPMediaItemArtwork(image: placeHolderImage)
             }
         }
-
-               
-        resolve(NSNull())
     }
     
     @objc(setNowPlaying:)
