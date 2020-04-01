@@ -37,10 +37,10 @@ public class RNTrackPlayer: RCTEventEmitter {
     @objc(constantsToExport)
     override public func constantsToExport() -> [AnyHashable: Any] {
         return [
-            "STATE_NONE": PlayState.none.rawValue,
-            "STATE_PLAYING": PlayState.playing.rawValue,
-            "STATE_PAUSED": PlayState.paused.rawValue,
-            "STATE_STOPPED": PlayState.stopped.rawValue,
+            "STATE_NONE": PlayState.none,
+            "STATE_PLAYING": PlayState.playing,
+            "STATE_PAUSED": PlayState.paused,
+            "STATE_STOPPED": PlayState.stopped,
 
             "CAPABILITY_PLAY": Capability.play.rawValue,
             "CAPABILITY_PLAY_FROM_ID": "NOOP",
@@ -281,7 +281,7 @@ public class RNTrackPlayer: RCTEventEmitter {
             }
         }
         
-        resolve(nil)
+       resolve(NSNull())
     }
     
     @objc(setNowPlaying:resolver:rejecter:)
@@ -303,11 +303,6 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     @objc(updatePlayback:resolver:rejecter:)
     public func updatePlayback(properties: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        /*guard let track = player.queueManager.items.first(where: { ($0 as! Track).id == trackId }) as? Track
-            else {
-                reject("track_not_in_queue", "Given track ID was not found in queue", nil)
-                return
-        }*/
         
         let center = MPNowPlayingInfoCenter.default()
         
@@ -315,7 +310,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         currentTrack?.updateMetadata(dictionary: properties)
         
-        updateMetadata(properties: properties)
+        updateMetadata(properties: properties, state: state)
         
         let commandCenter = MPRemoteCommandCenter.shared()
         
@@ -333,10 +328,10 @@ public class RNTrackPlayer: RCTEventEmitter {
             }
         }
         
-        resolve(nil)
+        resolve(NSNull())
     }
     
-    public func updateMetadata(properties: [String: Any]) {
+    private func updateMetadata(properties: [String: Any], state: PlayState) {
         
         let center = MPNowPlayingInfoCenter.default()
         
@@ -357,6 +352,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         newNowPlaying![MPMediaItemPropertyAlbumTitle] = currentTrack?.album ?? center.nowPlayingInfo![MPMediaItemPropertyAlbumTitle]
         newNowPlaying![MPMediaItemPropertyPlaybackDuration] = currentTrack?.duration ?? center.nowPlayingInfo![MPMediaItemPropertyPlaybackDuration]
         newNowPlaying![MPNowPlayingInfoPropertyElapsedPlaybackTime] = properties["elapsedTime"] ?? center.nowPlayingInfo![MPNowPlayingInfoPropertyElapsedPlaybackTime]
+        newNowPlaying![MPNowPlayingInfoPropertyPlaybackRate] = state == PlayState.paused ? 0 : 1.0
         
         let newArtworkUrl = properties["artwork"] as? String
         
