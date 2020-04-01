@@ -30,6 +30,8 @@ import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.guichaguri.trackplayer.module.MusicEvents;
 import com.guichaguri.trackplayer.service.metadata.MetadataManager;
 import com.guichaguri.trackplayer.service.models.Track;
+import com.guichaguri.trackplayer.service.player.ExoPlayback;
+import com.guichaguri.trackplayer.service.player.LocalPlayback;
 
 import static com.google.android.exoplayer2.DefaultLoadControl.*;
 
@@ -118,9 +120,62 @@ public class MusicManager implements OnAudioFocusChangeListener {
         onPlayerStateChanged();
     }
 
+    /*public void switchPlayback(ExoPlayback playback) {
+        if(this.playback != null) {
+            this.playback.stop();
+            this.playback.destroy();
+        }
+
+        this.playback = playback;
+
+        if(this.playback != null) {
+            this.playback.initialize();
+        }
+    }
+
+    public LocalPlayback createLocalPlayback(Bundle options) {
+        int minBuffer = (int)Utils.toMillis(options.getDouble("minBuffer", Utils.toSeconds(DEFAULT_MIN_BUFFER_MS)));
+        int maxBuffer = (int)Utils.toMillis(options.getDouble("maxBuffer", Utils.toSeconds(DEFAULT_MAX_BUFFER_MS)));
+        int playBuffer = (int)Utils.toMillis(options.getDouble("playBuffer", Utils.toSeconds(DEFAULT_BUFFER_FOR_PLAYBACK_MS)));
+        int backBuffer = (int)Utils.toMillis(options.getDouble("backBuffer", Utils.toSeconds(DEFAULT_BACK_BUFFER_DURATION_MS)));
+        long cacheMaxSize = (long)(options.getDouble("maxCacheSize", 0) * 1024);
+        int multiplier = DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS / DEFAULT_BUFFER_FOR_PLAYBACK_MS;
+
+        LoadControl control = new DefaultLoadControl.Builder()
+                .setBufferDurationsMs(minBuffer, maxBuffer, playBuffer, playBuffer * multiplier)
+                .setBackBuffer(backBuffer, false)
+                .createDefaultLoadControl();
+
+        SimpleExoPlayer player = ExoPlayerFactory.newSimpleInstance(service, new DefaultRenderersFactory(service), new DefaultTrackSelector(), control);
+
+        player.setAudioAttributes(new com.google.android.exoplayer2.audio.AudioAttributes.Builder()
+                .setContentType(C.CONTENT_TYPE_MUSIC).setUsage(C.USAGE_MEDIA).build());
+
+        return new LocalPlayback(service, this, player, cacheMaxSize);
+    }*/
+
     @SuppressLint("WakelockTimeout")
     public void onPlay() {
         Log.d(Utils.LOG, "onPlay");
+        /*if(playback == null) return;
+
+        Track track = playback.getCurrentTrack();
+        if(track == null) return;
+
+        if(!playback.isRemote()) {
+            requestFocus();
+
+            if(!receivingNoisyEvents) {
+                receivingNoisyEvents = true;
+                service.registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+            }
+
+            if(!wakeLock.isHeld()) wakeLock.acquire();
+
+            if(!Utils.isLocal(track.uri)) {
+                if(!wifiLock.isHeld()) wifiLock.acquire();
+            }
+        }*/
 
         requestFocus();
 
@@ -130,6 +185,10 @@ public class MusicManager implements OnAudioFocusChangeListener {
         }
 
         if(!wakeLock.isHeld()) wakeLock.acquire();
+
+        /*if(!Utils.isLocal(currentTrack.uri)) {
+            if(!wifiLock.isHeld()) wifiLock.acquire();
+        }*/
 
         metadata.setActive(true);
     }
@@ -254,9 +313,10 @@ public class MusicManager implements OnAudioFocusChangeListener {
         boolean ducking = false;
 
         switch(focus) {
-            case AudioManager.AUDIOFOCUS_LOSS:
+            /*case AudioManager.AUDIOFOCUS_LOSS:
                 permanent = true;
-                abandonFocus();
+                abandonFocus();*/
+            case AudioManager.AUDIOFOCUS_LOSS:
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 paused = true;
                 break;
