@@ -307,7 +307,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         let center = MPNowPlayingInfoCenter.default()
         
-        let state = properties["state"] as? PlayState ?? PlayState.none
+        let state = PlayState(rawValue: properties["state"] as! String)
         
         currentTrack?.updateMetadata(dictionary: properties)
         
