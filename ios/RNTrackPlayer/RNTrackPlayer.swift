@@ -305,7 +305,7 @@ public class RNTrackPlayer: RCTEventEmitter {
     public func updatePlayback(properties: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         
         let center = MPNowPlayingInfoCenter.default()
-        
+
         let state = PlayState(rawValue: properties["state"] as! String)
         
         currentTrack?.updateMetadata(dictionary: properties)
@@ -331,7 +331,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         resolve(NSNull())
     }
     
-    private func updateMetadata(properties: [String: Any], state: PlayState) {
+    private func updateMetadata(properties: [String: Any], state: PlayState!) {
         
         let center = MPNowPlayingInfoCenter.default()
         
