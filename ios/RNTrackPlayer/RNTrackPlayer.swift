@@ -305,8 +305,10 @@ public class RNTrackPlayer: RCTEventEmitter {
     public func updatePlayback(properties: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         
         let center = MPNowPlayingInfoCenter.default()
+        
+        let stateRaw = properties["state"] as? String
 
-        let state = PlayState(rawValue: properties["state"] as! String)
+        let state = stateRaw != nil ? PlayState(rawValue: stateRaw!) : PlayState.none
         
         currentTrack?.updateMetadata(dictionary: properties)
         
@@ -345,13 +347,16 @@ public class RNTrackPlayer: RCTEventEmitter {
             ]
         }
         
+
+        let elapsedTime = properties["elapsedTime"] as? Double
+        
         var newNowPlaying = center.nowPlayingInfo
         
         newNowPlaying![MPMediaItemPropertyTitle] = currentTrack?.title ?? center.nowPlayingInfo![MPMediaItemPropertyTitle]
         newNowPlaying![MPMediaItemPropertyArtist] = currentTrack?.artist ?? center.nowPlayingInfo![MPMediaItemPropertyArtist]
         newNowPlaying![MPMediaItemPropertyAlbumTitle] = currentTrack?.album ?? center.nowPlayingInfo![MPMediaItemPropertyAlbumTitle]
         newNowPlaying![MPMediaItemPropertyPlaybackDuration] = currentTrack?.duration ?? center.nowPlayingInfo![MPMediaItemPropertyPlaybackDuration]
-        newNowPlaying![MPNowPlayingInfoPropertyElapsedPlaybackTime] = properties["elapsedTime"] ?? center.nowPlayingInfo![MPNowPlayingInfoPropertyElapsedPlaybackTime]
+        newNowPlaying![MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsedTime ?? center.nowPlayingInfo![MPNowPlayingInfoPropertyElapsedPlaybackTime]
         newNowPlaying![MPNowPlayingInfoPropertyPlaybackRate] = state == PlayState.paused ? 0 : 1.0
         
         let newArtworkUrl = properties["artwork"] as? String
