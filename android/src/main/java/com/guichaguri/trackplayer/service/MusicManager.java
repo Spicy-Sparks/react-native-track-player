@@ -40,7 +40,8 @@ public class MusicManager implements OnAudioFocusChangeListener {
 
     private int state;
     private int previousState;
-    //private ExoPlayback playback;
+    private long position;
+    private long bufferedPosition;
 
     @RequiresApi(26)
     private AudioFocusRequest focus = null;
@@ -73,10 +74,6 @@ public class MusicManager implements OnAudioFocusChangeListener {
         wifiLock.setReferenceCounted(false);
     }
 
-    /*public ExoPlayback getPlayback() {
-        return playback;
-    }*/
-
     public Track getCurrentTrack(){return currentTrack;}
     public void setCurrentTrack(Track track){currentTrack = track;}
 
@@ -104,8 +101,12 @@ public class MusicManager implements OnAudioFocusChangeListener {
         return state;
     }
 
-    public void setState(int state){
+    public void setState(int state, long position){
         this.state = state;
+        if(position != -1) {
+            this.position = position;
+            this.bufferedPosition = position;
+        }
         onPlayerStateChanged();
     }
 
@@ -226,7 +227,7 @@ public class MusicManager implements OnAudioFocusChangeListener {
                 this.onStop();
             }
 
-            this.onStateChange(state);
+            this.onStateChange(state, position, bufferedPosition);
             previousState = state;
 
             if(state == PlaybackStateCompat.STATE_STOPPED) {
@@ -235,13 +236,13 @@ public class MusicManager implements OnAudioFocusChangeListener {
         }
     }
 
-    public void onStateChange(int state) {
+    public void onStateChange(int state, long position, long bufferedPosition) {
         Log.d(Utils.LOG, "onStateChange");
 
         Bundle bundle = new Bundle();
         bundle.putInt("state", state);
         service.emit(MusicEvents.PLAYBACK_STATE, bundle);
-        metadata.updatePlayback(state, 0, 0, 0);
+        metadata.updatePlayback(state, position, bufferedPosition, 0);
     }
 
     public void onTrackUpdate(Track previous, long prevPos, Track next) {
