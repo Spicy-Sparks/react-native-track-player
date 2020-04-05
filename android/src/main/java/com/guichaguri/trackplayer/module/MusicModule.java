@@ -17,7 +17,6 @@ import com.guichaguri.trackplayer.service.MusicBinder;
 import com.guichaguri.trackplayer.service.MusicService;
 import com.guichaguri.trackplayer.service.Utils;
 import com.guichaguri.trackplayer.service.models.Track;
-import com.guichaguri.trackplayer.service.player.ExoPlayback;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
