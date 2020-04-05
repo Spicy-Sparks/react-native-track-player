@@ -20,20 +20,9 @@ import androidx.annotation.RequiresApi;
 
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
-import com.google.android.exoplayer2.C;
-import com.google.android.exoplayer2.DefaultLoadControl;
-import com.google.android.exoplayer2.DefaultRenderersFactory;
-import com.google.android.exoplayer2.ExoPlayerFactory;
-import com.google.android.exoplayer2.LoadControl;
-import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.guichaguri.trackplayer.module.MusicEvents;
 import com.guichaguri.trackplayer.service.metadata.MetadataManager;
 import com.guichaguri.trackplayer.service.models.Track;
-import com.guichaguri.trackplayer.service.player.ExoPlayback;
-import com.guichaguri.trackplayer.service.player.LocalPlayback;
-
-import static com.google.android.exoplayer2.DefaultLoadControl.*;
 
 /**
  * @author Guichaguri
