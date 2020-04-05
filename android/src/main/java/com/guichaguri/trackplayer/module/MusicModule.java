@@ -198,10 +198,14 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
         waitForConnection(() -> {
             try {
+                int state = trackMap.hasKey("state") ? trackMap.getInt("state") : 0;
+                long elapsedTime = trackMap.hasKey("elapsedTime") ? (long)trackMap.getDouble("elapsedTime") : -1;
+                binder.getManager().setState(trackMap.getInt("state"), elapsedTime);
+
                 Track track = new Track(getReactApplicationContext(), bundle, binder.getRatingType());
                 binder.getManager().setCurrentTrack(track);
                 binder.getManager().getMetadata().updateMetadata(track);
-                binder.getManager().setState(trackMap.getInt("state"));
+                binder.getManager().setState(state, elapsedTime);
             } catch(Exception ex) {
                 callback.reject("invalid_track_object", ex);
                 return;
@@ -220,7 +224,9 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
         waitForConnection(() -> {
             try {
-                binder.getManager().setState(trackMap.getInt("state"));
+                int state = trackMap.hasKey("state") ? trackMap.getInt("state") : 0;
+                long elapsedTime = trackMap.hasKey("elapsedTime") ? (long)trackMap.getDouble("elapsedTime") : -1;
+                binder.getManager().setState(state, elapsedTime);
             } catch (Exception ex) {
                 callback.reject("invalid_track_object", ex);
                 return;
