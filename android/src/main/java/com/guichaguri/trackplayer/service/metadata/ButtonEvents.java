@@ -30,21 +30,21 @@ public class ButtonEvents extends MediaSessionCompat.Callback {
     @Override
     public void onPlay() {
         manager.onPlay();
-        manager.setState(PlaybackStateCompat.STATE_PLAYING);
+        manager.setState(PlaybackStateCompat.STATE_PLAYING, -1);
         service.emit(MusicEvents.BUTTON_PLAY, null);
     }
 
     @Override
     public void onPause() {
         manager.onPause();
-        manager.setState(PlaybackStateCompat.STATE_PAUSED);
+        manager.setState(PlaybackStateCompat.STATE_PAUSED, -1);
         service.emit(MusicEvents.BUTTON_PAUSE, null);
     }
 
     @Override
     public void onStop() {
         manager.onStop();
-        manager.setState(PlaybackStateCompat.STATE_STOPPED);
+        manager.setState(PlaybackStateCompat.STATE_STOPPED, -1);
         service.emit(MusicEvents.BUTTON_STOP, null);
     }
 
