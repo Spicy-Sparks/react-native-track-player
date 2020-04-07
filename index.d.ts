@@ -64,7 +64,6 @@ declare namespace RNTrackPlayer {
     type?: TrackType;
     userAgent?: string;
     contentType?: string;
-    pitchAlgorithm?: PitchAlgorithm;
     [key: string]: any;
   }
 
