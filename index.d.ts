@@ -119,6 +119,7 @@ declare namespace RNTrackPlayer {
 
   export function setNowPlaying(track: Track): Promise<void>;
   export function updatePlayback(data: any): Promise<void>;
+  export function reset(): Promise<void>;
 
   // Control Center / Notification Metadata Commands
   export function updateOptions(options: MetadataOptions): Promise<void>;
