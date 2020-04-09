@@ -227,6 +227,9 @@ public class MusicService extends HeadlessJsTaskService {
     }
 
     private void cachePlayer() {
+        
+        if(manager == null)
+            return;
         // Make editor
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
         SharedPreferences.Editor editor = prefs.edit();
