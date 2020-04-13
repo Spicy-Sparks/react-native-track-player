@@ -123,6 +123,7 @@ public class MusicService extends HeadlessJsTaskService {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if(intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+            onStartForeground();
             // Check if the app is on background, then starts a foreground service and then ends it right after
             /*onStartForeground();
             
