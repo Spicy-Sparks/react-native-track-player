@@ -215,7 +215,6 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     @objc(reset:rejecter:)
     public func reset(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        print("Resetting player.")
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         resolve(NSNull())
         DispatchQueue.main.async {
@@ -382,15 +381,15 @@ public class RNTrackPlayer: RCTEventEmitter {
         self.previousArtworkUrl = artworkUrl
         
         DispatchQueue.global(qos: .default).async {
-        
-            if(self.previousArtworkUrl != artworkUrl){
-                return
-            }
             
             self.currentTrack?.getArtwork { image in
                     if let image = image {
                         
                         DispatchQueue.main.async {
+                            
+                            if(self.previousArtworkUrl != artworkUrl){
+                                return
+                            }
                             
                             var artwork : MPMediaItemArtwork;
                             
