@@ -100,7 +100,7 @@ class Track: NSObject {
                 }).resume()
             } else {
                 if(FileManager.default.fileExists(atPath: artworkURL.value.absoluteString)){
-                    let artwork = UIImage(contentsOfFile: artworkURL.value.absoluteString)
+                    let artwork = UIImage(named: artworkURL.value.absoluteString)
                     handler(artwork)
                 }
             }
