@@ -28,6 +28,8 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     private var placeHolderImageArtwork : MPMediaItemArtwork? = nil
     
+    private var isPlaceholderSet = false
+    
     // MARK: - RCTEventEmitter
     
     override public static func requiresMainQueueSetup() -> Bool {
@@ -270,14 +272,16 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         //load placeholder
         if(placeHolderImageArtwork == nil && options["placeholderImage"] != nil){
-            let placeHolderImage : UIImage = RCTConvert.uiImage(options["placeholderImage"])
-            
-            if #available(iOS 10.0, *) {
-                placeHolderImageArtwork = MPMediaItemArtwork.init(boundsSize: placeHolderImage.size, requestHandler: { (size) -> UIImage in
-                    return placeHolderImage
-                })
-            } else {
-                placeHolderImageArtwork = MPMediaItemArtwork(image: placeHolderImage)
+             DispatchQueue.main.async {
+                let placeHolderImage : UIImage = RCTConvert.uiImage(options["placeholderImage"])
+                
+                if #available(iOS 10.0, *) {
+                    self.placeHolderImageArtwork = MPMediaItemArtwork.init(boundsSize: placeHolderImage.size, requestHandler: { (size) -> UIImage in
+                        return placeHolderImage
+                    })
+                } else {
+                    self.placeHolderImageArtwork = MPMediaItemArtwork(image: placeHolderImage)
+                }
             }
         }
         
@@ -364,48 +368,53 @@ public class RNTrackPlayer: RCTEventEmitter {
         //add placeholder while image is loading
         if(newArtworkUrl != nil && newArtworkUrl != self.previousArtworkUrl){
             newNowPlaying![MPMediaItemPropertyArtwork] = placeHolderImageArtwork
+            isPlaceholderSet = true
         }
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = newNowPlaying
         
-        updateArtworkIfNeeded(artworkUrl: newArtworkUrl, newNowPlaying: newNowPlaying!)
+        //updateArtworkIfNeeded(artworkUrl: newArtworkUrl, newNowPlaying: newNowPlaying!)
         
-        
-    }
-    
-    private func updateArtworkIfNeeded(artworkUrl: String?, newNowPlaying: [String: Any]){
-        
-        if(artworkUrl == nil || artworkUrl == "" || artworkUrl == self.previousArtworkUrl){
-            return
+        if(newArtworkUrl == nil || newArtworkUrl == ""){
+                return
         }
-                
-        self.previousArtworkUrl = artworkUrl
-        
-        DispatchQueue.global(qos: .background).async {
             
-            self.currentTrack?.getArtwork { image in
+        if(self.previousArtworkUrl == newArtworkUrl && !isPlaceholderSet){
+                return
+        }
+        
+        self.previousArtworkUrl = newArtworkUrl
+            
+            
+        DispatchQueue.global(qos: .default).async {
+                
+            self.currentTrack?.getArtwork { [weak self] image in
                     if let image = image {
-                        
+                            
                         DispatchQueue.main.async {
-                            
-                            if(self.previousArtworkUrl != artworkUrl){
+                                
+                            /*if(self?.previousArtworkUrl != newArtworkUrl){
                                 return
-                            }
-                            
-                            var artwork : MPMediaItemArtwork;
-                            
-                            if #available(iOS 10.0, *) {
-                                artwork = MPMediaItemArtwork.init(boundsSize: image.size, requestHandler: { (size) -> UIImage in
-                                    return image
-                                })
-                            } else {
-                                artwork = MPMediaItemArtwork(image: image)
-                            }
-                            
+                            }*/
+                                
+                            var artwork : MPMediaItemArtwork
+
+                                /*if #available(iOS 10.0, *) {
+                                    artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: { (size) -> UIImage in
+                                        return image
+                                    })
+                                } else {
+                                    artwork = MPMediaItemArtwork(image: image)
+                                }*/
+                                
+                            artwork = MPMediaItemArtwork(image: image)
+                                
                             MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
+                            self?.isPlaceholderSet = false
                         }
                     }
                 }
         }
     }
+
 }
