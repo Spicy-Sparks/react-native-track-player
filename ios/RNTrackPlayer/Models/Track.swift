@@ -89,24 +89,26 @@ class Track: NSObject {
 
     
     func getArtwork(_ handler: @escaping (UIImage?) -> Void) {
-        if let artworkURL = artworkURL {
-            if (!artworkURL.isLocal) {
-                URLSession.shared.dataTask(with: artworkURL.value, completionHandler: { (data, _, error) in
+       if let artworkURL = artworkURL?.value {
+            if(self.artworkURL?.isLocal ?? false){
+                
+                if(FileManager.default.fileExists(atPath: artworkURL.path)){
+                    let image = UIImage.init(contentsOfFile: artworkURL.path);
+                    handler(image);
+                }
+                
+            } else {
+                URLSession.shared.dataTask(with: artworkURL, completionHandler: { (data, _, error) in
                     if let data = data, let artwork = UIImage(data: data), error == nil {
                         handler(artwork)
                     }
-                    
+
                     handler(nil)
                 }).resume()
-            } else {
-                if(FileManager.default.fileExists(atPath: artworkURL.value.absoluteString)){
-                    let artwork = UIImage(named: artworkURL.value.absoluteString)
-                    handler(artwork)
-                }
             }
-        
-            handler(nil)
         }
+        
+        handler(nil)
     }
     
     // MARK: - Authorizing Protocol
