@@ -19,12 +19,12 @@ struct MediaURL {
         
         if let localObject = object as? [String: Any] {
             let uri = localObject["uri"] as! String
-            isLocal = uri.contains("http") ? false : true
+            isLocal = uri.lowercased().contains("http") ? false : true
             let encodedURI = uri.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
             value = URL(string: encodedURI.replacingOccurrences(of: "file://", with: ""))!
         } else {
             let url = object as! String
-            isLocal = !url.contains("http")//url.lowercased().hasPrefix("file://")
+            isLocal = url.lowercased().contains("http") ? false : true
             value = URL(string: url.replacingOccurrences(of: "file://", with: ""))!
         }
     }
