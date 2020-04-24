@@ -28,7 +28,8 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     private var placeHolderImageArtwork : MPMediaItemArtwork? = nil
     
-    private var isPlaceholderSet = false
+    private var artworkUrl : MediaURL? = nil
+
     
     // MARK: - RCTEventEmitter
     
@@ -365,56 +366,79 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         let newArtworkUrl = properties["artwork"] as? String
         
+        self.artworkUrl = MediaURL(object: newArtworkUrl)
+        
         //add placeholder while image is loading
-        if(newArtworkUrl != nil && newArtworkUrl != self.previousArtworkUrl){
+        if(newArtworkUrl != nil && newArtworkUrl != self.previousArtworkUrl && !(self.artworkUrl?.isLocal ?? false)){
             newNowPlaying![MPMediaItemPropertyArtwork] = placeHolderImageArtwork
-            isPlaceholderSet = true
         }
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = newNowPlaying
         
         //updateArtworkIfNeeded(artworkUrl: newArtworkUrl, newNowPlaying: newNowPlaying!)
         
-        if(newArtworkUrl == nil || newArtworkUrl == ""){
+        
+        if(newArtworkUrl == nil){
                 return
         }
             
-        if(self.previousArtworkUrl == newArtworkUrl && !isPlaceholderSet){
+        if(self.previousArtworkUrl == newArtworkUrl && newNowPlaying![MPMediaItemPropertyArtwork] != nil){
                 return
         }
         
         self.previousArtworkUrl = newArtworkUrl
             
             
-        DispatchQueue.global(qos: .default).async {
-                
-            self.currentTrack?.getArtwork { [weak self] image in
-                    if let image = image {
+        DispatchQueue.global(qos: .background).async {
+            
+            
+            if(newArtworkUrl == ""){
+                return
+            }
+            
+            self.getArtwork { [weak self] image in
+                if let image = image {
+                    
+                    // check whether image is loaded
+                    if (image.cgImage == nil && image.ciImage == nil) {
+                        return;
+                    }
+                        
+                    DispatchQueue.main.async {
                             
-                        DispatchQueue.main.async {
-                                
-                            /*if(self?.previousArtworkUrl != newArtworkUrl){
-                                return
-                            }*/
-                                
-                            var artwork : MPMediaItemArtwork
-
-                                /*if #available(iOS 10.0, *) {
-                                    artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: { (size) -> UIImage in
-                                        return image
-                                    })
-                                } else {
-                                    artwork = MPMediaItemArtwork(image: image)
-                                }*/
-                                
-                            artwork = MPMediaItemArtwork(image: image)
-                                
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
-                            self?.isPlaceholderSet = false
+                        if(self?.previousArtworkUrl != newArtworkUrl){
+                            return
                         }
+                            
+                        let artwork = MPMediaItemArtwork(image: image)
+
+                        MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
                     }
                 }
+            }
         }
     }
+    
+    func getArtwork(_ handler: @escaping (UIImage?) -> Void) {
+        if let artworkURL = self.artworkUrl?.value {
+            if(self.artworkUrl?.isLocal ?? false){
+                
+                if(FileManager.default.fileExists(atPath: artworkURL.path)){
+                    let image = UIImage.init(named: artworkURL.path);
+                    handler(image);
+                }
+                
+            } else {
+                URLSession.shared.dataTask(with: artworkURL, completionHandler: { (data, _, error) in
+                    if let data = data, let artwork = UIImage(data: data), error == nil {
+                        handler(artwork)
+                    }
 
+                    handler(nil)
+                }).resume()
+            }
+        }
+        
+        handler(nil)
+    }
 }
