@@ -91,12 +91,8 @@ class Track: NSObject {
     func getArtwork(_ handler: @escaping (UIImage?) -> Void) {
        if let artworkURL = artworkURL?.value {
             if(self.artworkURL?.isLocal ?? false){
-                
-                if(FileManager.default.fileExists(atPath: artworkURL.path)){
-                    let image = UIImage.init(named: artworkURL.path);
-                    handler(image);
-                }
-                
+              let image = UIImage.init(contentsOfFile: artworkURL.path);
+              handler(image);
             } else {
                 URLSession.shared.dataTask(with: artworkURL, completionHandler: { (data, _, error) in
                     if let data = data, let artwork = UIImage(data: data), error == nil {
