@@ -369,7 +369,7 @@ public class RNTrackPlayer: RCTEventEmitter {
         self.artworkUrl = MediaURL(object: newArtworkUrl)
         
         //add placeholder while image is loading
-        if(newArtworkUrl != nil && newArtworkUrl != self.previousArtworkUrl && !(self.artworkUrl?.isLocal ?? false)){
+        if(newArtworkUrl != nil && newArtworkUrl != self.previousArtworkUrl /*&& !(self.artworkUrl?.isLocal ?? false)*/){
             newNowPlaying![MPMediaItemPropertyArtwork] = placeHolderImageArtwork
         }
         
