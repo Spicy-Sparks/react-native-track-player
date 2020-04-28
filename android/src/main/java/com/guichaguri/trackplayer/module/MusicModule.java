@@ -199,7 +199,17 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
         waitForConnection(() -> {
             try {
                 int state = trackMap.hasKey("state") ? trackMap.getInt("state") : 0;
-                long elapsedTime = trackMap.hasKey("elapsedTime") ?  Utils.toMillis(trackMap.getDouble("elapsedTime")) : -1;
+
+                long elapsedTime = -1;
+
+                if(trackMap.hasKey("elapsedTime")) {
+                    try {
+                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+                    }
+                    catch(Exception ex){
+                        elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
+                    }
+                }
 
                 Track track = new Track(getReactApplicationContext(), bundle, binder.getRatingType());
                 binder.getManager().setCurrentTrack(track);
@@ -224,8 +234,27 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
         waitForConnection(() -> {
             try {
                 int state = trackMap.hasKey("state") ? trackMap.getInt("state") : 0;
-                long elapsedTime = trackMap.hasKey("elapsedTime") ? Utils.toMillis(trackMap.getDouble("elapsedTime")) : -1;
-                long duration = trackMap.hasKey("duration") ? Utils.toMillis(trackMap.getDouble("duration")) : -1;
+                long elapsedTime = -1;
+
+                if(trackMap.hasKey("elapsedTime")) {
+                    try {
+                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+                    }
+                    catch(Exception ex){
+                        elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
+                    }
+                }
+                
+                long duration = -1;
+                
+                if(trackMap.hasKey("duration")) {
+                    try {
+                        duration = Utils.toMillis(trackMap.getDouble("duration"));
+                    }
+                    catch(Exception ex){
+                        duration = Utils.toMillis(trackMap.getInt("duration"));
+                    }
+                }
                 //update current track duration
                 Track currentTrack = binder.getManager().getCurrentTrack();
                 if(currentTrack != null && duration > -1)
