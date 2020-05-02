@@ -12,7 +12,6 @@ import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import com.facebook.react.bridge.*;
-import com.google.android.exoplayer2.C;
 import com.guichaguri.trackplayer.service.MusicBinder;
 import com.guichaguri.trackplayer.service.MusicService;
 import com.guichaguri.trackplayer.service.Utils;
@@ -204,10 +203,10 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
                 if(trackMap.hasKey("elapsedTime")) {
                     try {
-                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+                        elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
                     }
                     catch(Exception ex){
-                        elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
+                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
                     }
                 }
 
@@ -238,21 +237,21 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
                 if(trackMap.hasKey("elapsedTime")) {
                     try {
-                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
-                    }
-                    catch(Exception ex){
                         elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
                     }
+                    catch(Exception ex){
+                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+                    }
                 }
-                
+
                 long duration = -1;
-                
+
                 if(trackMap.hasKey("duration")) {
                     try {
-                        duration = Utils.toMillis(trackMap.getDouble("duration"));
+                        duration = Utils.toMillis(trackMap.getInt("duration"));
                     }
                     catch(Exception ex){
-                        duration = Utils.toMillis(trackMap.getInt("duration"));
+                        duration = Utils.toMillis(trackMap.getDouble("duration"));
                     }
                 }
                 //update current track duration
