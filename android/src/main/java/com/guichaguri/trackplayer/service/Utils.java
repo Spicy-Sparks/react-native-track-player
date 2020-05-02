@@ -14,7 +14,6 @@ import android.util.Log;
 
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.views.imagehelper.ResourceDrawableIdHelper;
-import com.google.android.exoplayer2.upstream.RawResourceDataSource;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -56,7 +55,6 @@ public class Utils {
                 scheme.equals(ContentResolver.SCHEME_FILE) ||
                 scheme.equals(ContentResolver.SCHEME_ANDROID_RESOURCE) ||
                 scheme.equals(ContentResolver.SCHEME_CONTENT) ||
-                scheme.equals(RawResourceDataSource.RAW_RESOURCE_SCHEME) ||
                 scheme.equals("res") ||
                 host == null ||
                 host.equals("localhost") ||
