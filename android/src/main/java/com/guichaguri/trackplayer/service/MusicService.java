@@ -228,7 +228,6 @@ public class MusicService extends HeadlessJsTaskService {
     }
 
     private void cachePlayer() {
-        
         if(manager == null)
             return;
         // Make editor
@@ -289,6 +288,7 @@ public class MusicService extends HeadlessJsTaskService {
         super.onTaskRemoved(rootIntent);
 
         if (manager == null || manager.shouldStopWithApp()) {
+            destroy();
             stopSelf();
         }
     }
