@@ -87,7 +87,12 @@ public class Track {
         album = bundle.getString("album");
         date = bundle.getString("date");
         genre = bundle.getString("genre");
-        duration = Utils.toMillis(bundle.getDouble("duration", 0));
+        try {
+            int durationInt = bundle.getInt("duration", 0);
+            duration = Utils.toMillis(durationInt);
+        }catch(Exception ex){
+            duration = Utils.toMillis(bundle.getDouble("duration", 0));
+        }
 
         rating = Utils.getRating(bundle, "rating", ratingType);
 
