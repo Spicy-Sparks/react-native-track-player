@@ -226,8 +226,13 @@ public class Utils {
                 bundle.putIntegerArrayList(key,value);
             } else if (key.equals("duration")) {
                 // this check should be in Track
-                Double value = jsonObject.getDouble(key);
-                bundle.putDouble(key, value);
+                try {
+                    int value = jsonObject.getInt(key);
+                    bundle.putInt(key, value);
+                }catch(Exception ex){
+                    Double value = jsonObject.getDouble(key);
+                    bundle.putDouble(key, value);
+                }
             } else {
                 String value = jsonObject.getString(key);
                 bundle.putString(key,value);
