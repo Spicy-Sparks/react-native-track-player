@@ -203,10 +203,11 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
                 if(trackMap.hasKey("elapsedTime")) {
                     try {
-                        elapsedTime = Utils.toMillis((long)trackMap.getInt("elapsedTime"));
+                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+
                     }
                     catch(Exception ex){
-                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+                        elapsedTime = Utils.toMillis((long)trackMap.getInt("elapsedTime"));
                     }
                 }
 
