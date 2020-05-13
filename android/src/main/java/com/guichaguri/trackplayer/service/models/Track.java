@@ -88,10 +88,11 @@ public class Track {
         date = bundle.getString("date");
         genre = bundle.getString("genre");
         try {
-            int durationInt = bundle.getInt("duration", 0);
-            duration = Utils.toMillis(durationInt);
-        }catch(Exception ex){
             duration = Utils.toMillis(bundle.getDouble("duration", 0));
+
+        }catch(Exception ex){
+            int durationInt = bundle.getInt("duration", 0);
+            duration = Utils.toMillis((long)durationInt);
         }
 
         rating = Utils.getRating(bundle, "rating", ratingType);
