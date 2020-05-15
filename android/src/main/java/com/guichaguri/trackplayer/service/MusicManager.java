@@ -218,21 +218,20 @@ public class MusicManager implements OnAudioFocusChangeListener {
     }
 
     public void onPlayerStateChanged() {
-        if(state != previousState) {
-            if(Utils.isPlaying(state) && !Utils.isPlaying(previousState)) {
-                this.onPlay();
-            } else if(Utils.isPaused(state) && !Utils.isPaused(previousState)) {
-                this.onPause();
-            } else if(Utils.isStopped(state) && !Utils.isStopped(previousState)) {
-                this.onStop();
-            }
 
-            this.onStateChange(state, position, bufferedPosition);
-            previousState = state;
+        if(Utils.isPlaying(state) && !Utils.isPlaying(previousState)) {
+            this.onPlay();
+        } else if(Utils.isPaused(state) && !Utils.isPaused(previousState)) {
+            this.onPause();
+        } else if(Utils.isStopped(state) && !Utils.isStopped(previousState)) {
+            this.onStop();
+        }
 
-            if(state == PlaybackStateCompat.STATE_STOPPED) {
-                this.onEnd(getCurrentTrack(), 0);
-            }
+        this.onStateChange(state, position, bufferedPosition);
+        previousState = state;
+
+        if(state == PlaybackStateCompat.STATE_STOPPED) {
+            this.onEnd(getCurrentTrack(), 0);
         }
     }
 
