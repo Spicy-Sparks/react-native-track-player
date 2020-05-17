@@ -159,7 +159,7 @@ public class MusicManager implements OnAudioFocusChangeListener {
                 receivingNoisyEvents = true;
                 service.registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
             }
-initialize
+
             if(!wakeLock.isHeld()) wakeLock.acquire();
 
             if(!Utils.isLocal(track.uri)) {
