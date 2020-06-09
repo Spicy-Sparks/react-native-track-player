@@ -21,11 +21,11 @@ struct MediaURL {
             let uri = localObject["uri"] as! String
             isLocal = uri.lowercased().contains("http") ? false : true
             let encodedURI = uri.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
-            value = URL(string: encodedURI.replacingOccurrences(of: "file://", with: ""))!
+            value = RCTConvert.nsurl(encodedURI.replacingOccurrences(of: "file://", with: ""))
         } else {
             let url = object as! String
             isLocal = url.lowercased().contains("http") ? false : true
-            value = URL(string: url.replacingOccurrences(of: "file://", with: ""))!
+            value = RCTConvert.nsurl(url.replacingOccurrences(of: "file://", with: ""))
         }
     }
 }
