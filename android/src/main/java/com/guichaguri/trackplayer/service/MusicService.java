@@ -25,7 +25,6 @@ import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.jstasks.HeadlessJsTaskConfig;
 import com.guichaguri.trackplayer.R;
-import com.guichaguri.trackplayer.service.Utils;
 import com.guichaguri.trackplayer.service.metadata.ButtonEvents;
 import com.guichaguri.trackplayer.service.models.Track;
 
@@ -121,6 +120,19 @@ public class MusicService extends HeadlessJsTaskService {
     }
 
     @Override
+    public void onCreate() {
+        onStartForeground();
+
+        if (manager == null)
+            manager = new MusicManager(this);
+
+        if(handler == null)
+            handler = new Handler();
+
+        super.onCreate();
+    }
+
+    @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if(intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
             onStartForeground();
@@ -157,12 +169,11 @@ public class MusicService extends HeadlessJsTaskService {
             }
         }
 
-        if (manager == null) {
+        if (manager == null)
             manager = new MusicManager(this);
-        }
 
-        manager = new MusicManager(this);
-        handler = new Handler();
+        if(handler == null)
+            handler = new Handler();
 
         super.onStartCommand(intent, flags, startId);
         return START_NOT_STICKY;
