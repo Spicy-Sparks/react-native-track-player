@@ -413,7 +413,9 @@ public class RNTrackPlayer: RCTEventEmitter {
                         let artwork = MPMediaItemArtwork(image: image)
 
                         if(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil)
+                        {
                             MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
+                        }
                     }
                 }
             }
