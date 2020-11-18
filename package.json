@@ -39,9 +39,5 @@
   },
   "scripts": {
     "prepublishOnly": "git submodule update --init --recursive"
-  },
-  "peerDependencies": {
-    "react": ">=16.8.6",
-    "react-native": ">=0.60.0-rc.2"
   }
 }
