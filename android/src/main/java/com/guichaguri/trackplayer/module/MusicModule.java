@@ -203,10 +203,11 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
                 if(trackMap.hasKey("elapsedTime")) {
                     try {
-                        elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
+                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+
                     }
                     catch(Exception ex){
-                        elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
+                        elapsedTime = Utils.toMillis((long)trackMap.getInt("elapsedTime"));
                     }
                 }
 
@@ -237,7 +238,7 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
                 if(trackMap.hasKey("elapsedTime")) {
                     try {
-                        elapsedTime = Utils.toMillis(trackMap.getInt("elapsedTime"));
+                        elapsedTime = Utils.toMillis((long)trackMap.getInt("elapsedTime"));
                     }
                     catch(Exception ex){
                         elapsedTime = Utils.toMillis(trackMap.getDouble("elapsedTime"));
@@ -248,7 +249,7 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
 
                 if(trackMap.hasKey("duration")) {
                     try {
-                        duration = Utils.toMillis(trackMap.getInt("duration"));
+                        duration = Utils.toMillis((long)trackMap.getInt("duration"));
                     }
                     catch(Exception ex){
                         duration = Utils.toMillis(trackMap.getDouble("duration"));
