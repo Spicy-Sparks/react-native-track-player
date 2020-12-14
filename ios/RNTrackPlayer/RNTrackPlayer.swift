@@ -386,37 +386,29 @@ public class RNTrackPlayer: RCTEventEmitter {
                 return
         }
         
+        if(newArtworkUrl == ""){
+            return
+        }
+        
         self.previousArtworkUrl = newArtworkUrl
-            
-            
-        DispatchQueue.global(qos: .background).async {
-            
-            
-            if(newArtworkUrl == ""){
-                return
-            }
-            
-            self.getArtwork { [weak self] image in
-                if let image = image {
+        
+        self.getArtwork { [weak self] image in
+            if let image = image {
+                
+                // check whether image is loaded
+                if (image.cgImage == nil && image.ciImage == nil) {
+                    return;
+                }
+                
+                if(self?.previousArtworkUrl != newArtworkUrl){
+                    return
+                }
                     
-                    // check whether image is loaded
-                    if (image.cgImage == nil && image.ciImage == nil) {
-                        return;
-                    }
-                        
-                    DispatchQueue.main.async {
-                            
-                        if(self?.previousArtworkUrl != newArtworkUrl){
-                            return
-                        }
-                            
-                        let artwork = MPMediaItemArtwork(image: image)
+                let artwork = MPMediaItemArtwork(image: image)
 
-                        if(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil)
-                        {
-                            MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
-                        }
-                    }
+                if(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil)
+                {
+                    MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
                 }
             }
         }
