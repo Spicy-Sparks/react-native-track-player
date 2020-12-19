@@ -121,7 +121,10 @@ public class MusicService extends HeadlessJsTaskService {
 
     @Override
     public void onCreate() {
-        onStartForeground();
+
+        super.onCreate();
+
+        //onStartForeground();
 
         if (manager == null)
             manager = new MusicManager(this);
@@ -129,7 +132,10 @@ public class MusicService extends HeadlessJsTaskService {
         if(handler == null)
             handler = new Handler();
 
-        super.onCreate();
+        String channel = Utils.getNotificationChannel((Context) this);
+
+        // Sets the service to foreground with an empty notification
+        startForeground(1, new NotificationCompat.Builder(this, channel).build());
     }
 
     @Override
@@ -291,6 +297,8 @@ public class MusicService extends HeadlessJsTaskService {
             manager.destroy(intentToStop);
             manager = null;
         }
+
+        stopForeground(true);
         //destroy();
     }
 
