@@ -8,6 +8,7 @@
 
 import Foundation
 import MediaPlayer
+import WidgetKit
 
 @objc(RNTrackPlayer)
 public class RNTrackPlayer: RCTEventEmitter {
@@ -227,53 +228,53 @@ public class RNTrackPlayer: RCTEventEmitter {
     }
     
     @objc(updateOptions:resolver:rejecter:)
-    public func update(options: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        let capabilitiesStr = options["capabilities"] as? [String]
-        let capabilities = capabilitiesStr?.compactMap { Capability(rawValue: $0) } ?? []
-        
-        let jumpInterval = options["jumpInterval"] as? NSNumber
-        let likeOptions = options["likeOptions"] as? [String: Any]
-        let dislikeOptions = options["dislikeOptions"] as? [String: Any]
-        let bookmarkOptions = options["bookmarkOptions"] as? [String: Any]
-        
-        let center = MPRemoteCommandCenter.shared()
-        
-        
-        if #available(iOS 9.1, *) {
-            center.changePlaybackPositionCommand.isEnabled = capabilities.contains(.seek)
-        }
-        
-        center.togglePlayPauseCommand.isEnabled = capabilities.contains(.play)
-        
-        center.playCommand.isEnabled = capabilities.contains(.play)
-        center.pauseCommand.isEnabled = capabilities.contains(.pause)
-        center.nextTrackCommand.isEnabled = capabilities.contains(.next)
-        center.previousTrackCommand.isEnabled = capabilities.contains(.previous)
-        
-        center.skipBackwardCommand.isEnabled = capabilities.contains(.jumpBackward)
-        center.skipBackwardCommand.preferredIntervals = [jumpInterval ?? 15]
-        
-        center.skipForwardCommand.isEnabled = capabilities.contains(.jumpForward)
-        center.skipForwardCommand.preferredIntervals = [jumpInterval ?? 15]
-        
-        center.stopCommand.isEnabled = capabilities.contains(.stop)
-        
-        center.likeCommand.isEnabled = likeOptions?["isActive"] as? Bool ?? false//capabilities.contains(.like)
-        center.likeCommand.localizedTitle = likeOptions?["title"] as? String ?? "Like"
-        center.likeCommand.localizedShortTitle = likeOptions?["title"] as? String ?? "Like"
-        
-        center.dislikeCommand.isEnabled = dislikeOptions?["isActive"] as? Bool ?? false//capabilities.contains(.like)
-        center.dislikeCommand.localizedTitle = dislikeOptions?["title"] as? String ?? "Dislike"
-        center.dislikeCommand.localizedShortTitle = dislikeOptions?["title"] as? String ?? "Dislike"
-        
-        center.bookmarkCommand.isEnabled = bookmarkOptions?["isActive"] as? Bool ?? false//capabilities.contains(.like)
-        center.bookmarkCommand.localizedTitle = bookmarkOptions?["title"] as? String ?? "Bookmark"
-        center.bookmarkCommand.localizedShortTitle = bookmarkOptions?["title"] as? String ?? "Bookmark"
-        
-        
-        //load placeholder
-        if(placeHolderImageArtwork == nil && options["placeholderImage"] != nil){
-             DispatchQueue.main.async {
+    public func update(options: [String: Any], resolve: @escaping RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        DispatchQueue.main.async {
+            let capabilitiesStr = options["capabilities"] as? [String]
+            let capabilities = capabilitiesStr?.compactMap { Capability(rawValue: $0) } ?? []
+            
+            let jumpInterval = options["jumpInterval"] as? NSNumber
+            let likeOptions = options["likeOptions"] as? [String: Any]
+            let dislikeOptions = options["dislikeOptions"] as? [String: Any]
+            let bookmarkOptions = options["bookmarkOptions"] as? [String: Any]
+            
+            let center = MPRemoteCommandCenter.shared()
+            
+            
+            if #available(iOS 9.1, *) {
+                center.changePlaybackPositionCommand.isEnabled = capabilities.contains(.seek)
+            }
+            
+            center.togglePlayPauseCommand.isEnabled = capabilities.contains(.play)
+            
+            center.playCommand.isEnabled = capabilities.contains(.play)
+            center.pauseCommand.isEnabled = capabilities.contains(.pause)
+            center.nextTrackCommand.isEnabled = capabilities.contains(.next)
+            center.previousTrackCommand.isEnabled = capabilities.contains(.previous)
+            
+            center.skipBackwardCommand.isEnabled = capabilities.contains(.jumpBackward)
+            center.skipBackwardCommand.preferredIntervals = [jumpInterval ?? 15]
+            
+            center.skipForwardCommand.isEnabled = capabilities.contains(.jumpForward)
+            center.skipForwardCommand.preferredIntervals = [jumpInterval ?? 15]
+            
+            center.stopCommand.isEnabled = capabilities.contains(.stop)
+            
+            center.likeCommand.isEnabled = likeOptions?["isActive"] as? Bool ?? false//capabilities.contains(.like)
+            center.likeCommand.localizedTitle = likeOptions?["title"] as? String ?? "Like"
+            center.likeCommand.localizedShortTitle = likeOptions?["title"] as? String ?? "Like"
+            
+            center.dislikeCommand.isEnabled = dislikeOptions?["isActive"] as? Bool ?? false//capabilities.contains(.like)
+            center.dislikeCommand.localizedTitle = dislikeOptions?["title"] as? String ?? "Dislike"
+            center.dislikeCommand.localizedShortTitle = dislikeOptions?["title"] as? String ?? "Dislike"
+            
+            center.bookmarkCommand.isEnabled = bookmarkOptions?["isActive"] as? Bool ?? false//capabilities.contains(.like)
+            center.bookmarkCommand.localizedTitle = bookmarkOptions?["title"] as? String ?? "Bookmark"
+            center.bookmarkCommand.localizedShortTitle = bookmarkOptions?["title"] as? String ?? "Bookmark"
+            
+            
+            //load placeholder
+            if(self.placeHolderImageArtwork == nil && options["placeholderImage"] != nil){
                 let placeHolderImage : UIImage = RCTConvert.uiImage(options["placeholderImage"])
                 
                 if #available(iOS 10.0, *) {
@@ -284,9 +285,10 @@ public class RNTrackPlayer: RCTEventEmitter {
                     self.placeHolderImageArtwork = MPMediaItemArtwork(image: placeHolderImage)
                 }
             }
+            
+           resolve(NSNull())
         }
-        
-       resolve(NSNull())
+
     }
     
     @objc(setNowPlaying:resolver:rejecter:)
@@ -302,7 +304,6 @@ public class RNTrackPlayer: RCTEventEmitter {
 
         currentTrack = Track(dictionary: trackDict)
         updatePlayback(properties: trackDict, resolve: resolve, reject: reject)
-        
         
     }
     
