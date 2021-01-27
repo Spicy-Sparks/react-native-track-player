@@ -141,17 +141,9 @@ public class MusicService extends HeadlessJsTaskService {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if(intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
-            onStartForeground();
             // Check if the app is on background, then starts a foreground service and then ends it right after
-            /*onStartForeground();
-            
-            if(manager != null) {
-                MediaButtonReceiver.handleIntent(manager.getMetadata().getSession(), intent);
-            }
-            
-            return START_NOT_STICKY;*/
+            onStartForeground();
 
-            // Interpret event
             KeyEvent intentExtra = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
             if (intentExtra.getKeyCode() == KEYCODE_MEDIA_STOP) {
                 intentToStop = true;
@@ -161,25 +153,15 @@ public class MusicService extends HeadlessJsTaskService {
                 intentToStop = false;
             }
 
-            if (manager != null && manager.getMetadata().getSession() != null) {
+            if(manager != null) {
                 MediaButtonReceiver.handleIntent(manager.getMetadata().getSession(), intent);
-                return START_NOT_STICKY;
-            } else if (manager == null) {
-                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
-                String cachedCurrentTrack = prefs.getString("cachedCurrentTrack", null);
-                if (cachedCurrentTrack != null) {
-                    manager = new MusicManager(this);
-                    recoverLostPlayer(intentExtra.getKeyCode());
-                    return START_REDELIVER_INTENT;
-                }
             }
+
+            return START_NOT_STICKY;
         }
 
-        if (manager == null)
-            manager = new MusicManager(this);
-
-        if(handler == null)
-            handler = new Handler();
+        manager = new MusicManager(this);
+        handler = new Handler();
 
         super.onStartCommand(intent, flags, startId);
         return START_NOT_STICKY;
@@ -291,12 +273,8 @@ public class MusicService extends HeadlessJsTaskService {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (!intentToStop) {
-            cachePlayer();
-        } else {
-            manager.destroy(intentToStop);
-            manager = null;
-        }
+        manager.destroy(intentToStop);
+        manager = null;
 
         stopForeground(true);
         //destroy();
