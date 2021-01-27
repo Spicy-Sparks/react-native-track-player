@@ -1,406 +1,342 @@
-package com.guichaguri.trackplayer.service;
+package com.guichaguri.trackplayer.service.metadata;
 
-import android.annotation.SuppressLint;
-import android.content.BroadcastReceiver;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
-import android.media.AudioManager.OnAudioFocusChangeListener;
-import android.net.wifi.WifiManager;
-import android.net.wifi.WifiManager.WifiLock;
+import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.PowerManager;
-import android.os.PowerManager.WakeLock;
-import androidx.annotation.RequiresApi;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationCompat.Action;
+import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.RatingCompat;
 
+import androidx.core.app.NotificationManagerCompat;
+import androidx.media.app.NotificationCompat.MediaStyle;
+import androidx.media.session.MediaButtonReceiver;
+import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
-import android.util.Log;
-import com.guichaguri.trackplayer.module.MusicEvents;
-import com.guichaguri.trackplayer.service.metadata.MetadataManager;
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.RequestManager;
+import com.bumptech.glide.request.target.SimpleTarget;
+import com.bumptech.glide.request.transition.Transition;
+import com.facebook.react.bridge.ReactContext;
+import com.facebook.react.views.imagehelper.ResourceDrawableIdHelper;
+import com.guichaguri.trackplayer.R;
+import com.guichaguri.trackplayer.service.MusicManager;
+import com.guichaguri.trackplayer.service.MusicService;
+import com.guichaguri.trackplayer.service.Utils;
 import com.guichaguri.trackplayer.service.models.Track;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author Guichaguri
  */
-public class MusicManager implements OnAudioFocusChangeListener {
+public class MetadataManager {
 
     private final MusicService service;
+    private final MusicManager manager;
+    private final MediaSessionCompat session;
 
-    private final WakeLock wakeLock;
-    private final WifiLock wifiLock;
+    private int ratingType = RatingCompat.RATING_NONE;
+    private int jumpInterval = 15;
+    private long actions = 0;
+    private long compactActions = 0;
+    private SimpleTarget<Bitmap> artworkTarget;
+    private NotificationCompat.Builder builder;
+    private Bundle optionsBundle = null;
 
-    private MetadataManager metadata;
+    private Action previousAction, rewindAction, playAction, pauseAction, stopAction, forwardAction, nextAction;
 
-    private Track currentTrack;
-
-    private int state;
-    private int previousState;
-    private long position;
-    private long bufferedPosition;
-
-    @RequiresApi(26)
-    private AudioFocusRequest focus = null;
-    private boolean hasAudioFocus = false;
-    private boolean wasDucking = false;
-
-    private BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            service.emit(MusicEvents.BUTTON_PAUSE, null);
-        }
-    };
-    private boolean receivingNoisyEvents = false;
-
-    private boolean stopWithApp = false;
-    private boolean alwaysPauseOnInterruption = false;
-
-    @SuppressLint("InvalidWakeLockTag")
-    public MusicManager(MusicService service) {
+    public MetadataManager(MusicService service, MusicManager manager) {
         this.service = service;
-        this.metadata = new MetadataManager(service, this);
+        this.manager = manager;
 
-        PowerManager powerManager = (PowerManager)service.getSystemService(Context.POWER_SERVICE);
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "track-player-wake-lock");
-        wakeLock.setReferenceCounted(false);
+        String channel = Utils.getNotificationChannel((Context) service);
+        this.builder = new NotificationCompat.Builder(service, channel);
+        this.session = new MediaSessionCompat(service, "TrackPlayer", null, null);
 
-        // Android 7: Use the application context here to prevent any memory leaks
-        WifiManager wifiManager = (WifiManager)service.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-        wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL, "track-player-wifi-lock");
-        wifiLock.setReferenceCounted(false);
-    }
+        session.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS | MediaSessionCompat.FLAG_HANDLES_QUEUE_COMMANDS);
+        session.setCallback(new ButtonEvents(service, manager));
 
-    public Track getCurrentTrack(){return currentTrack;}
-    public void setCurrentTrack(Track track){currentTrack = track;}
+        Context context = service.getApplicationContext();
+        String packageName = context.getPackageName();
+        Intent openApp = context.getPackageManager().getLaunchIntentForPackage(packageName);
 
-    public boolean shouldStopWithApp() {
-        return stopWithApp;
-    }
-
-    public void setStopWithApp(boolean stopWithApp) {
-        this.stopWithApp = stopWithApp;
-    }
-
-    public void setAlwaysPauseOnInterruption(boolean alwaysPauseOnInterruption) {
-        this.alwaysPauseOnInterruption = alwaysPauseOnInterruption;
-    }
-
-    public MetadataManager getMetadata() {
-        return metadata;
-    }
-
-    public Handler getHandler() {
-        return service.handler;
-    }
-
-    public long getState(){
-        return state;
-    }
-
-    public void setState(int state, long position){
-        this.state = state;
-        if(position != -1) {
-            this.position = position;
-            this.bufferedPosition = position;
-        }
-        onPlayerStateChanged();
-    }
-
-    /*public void switchPlayback(ExoPlayback playback) {
-        if(this.playback != null) {
-            this.playback.stop();
-            this.playback.destroy();
+        if (openApp == null) {
+            openApp = new Intent();
+            openApp.setPackage(packageName);
+            openApp.addCategory(Intent.CATEGORY_LAUNCHER);
         }
 
-        this.playback = playback;
+        // Prevent the app from launching a new instance
+        openApp.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
 
-        if(this.playback != null) {
-            this.playback.initialize();
-        }
+        // Add the Uri data so apps can identify that it was a notification click
+        openApp.setAction(Intent.ACTION_VIEW);
+        openApp.setData(Uri.parse("trackplayer://notification.click"));
+
+        builder.setContentIntent(PendingIntent.getActivity(context, 0, openApp, PendingIntent.FLAG_CANCEL_CURRENT));
+
+        builder.setSmallIcon(R.drawable.play);
+        builder.setCategory(NotificationCompat.CATEGORY_TRANSPORT);
+
+        // Stops the playback when the notification is swiped away
+        builder.setDeleteIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(service, PlaybackStateCompat.ACTION_STOP));
+
+        // Make it visible in the lockscreen
+        builder.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
     }
 
-    public LocalPlayback createLocalPlayback(Bundle options) {
-        int minBuffer = (int)Utils.toMillis(options.getDouble("minBuffer", Utils.toSeconds(DEFAULT_MIN_BUFFER_MS)));
-        int maxBuffer = (int)Utils.toMillis(options.getDouble("maxBuffer", Utils.toSeconds(DEFAULT_MAX_BUFFER_MS)));
-        int playBuffer = (int)Utils.toMillis(options.getDouble("playBuffer", Utils.toSeconds(DEFAULT_BUFFER_FOR_PLAYBACK_MS)));
-        int backBuffer = (int)Utils.toMillis(options.getDouble("backBuffer", Utils.toSeconds(DEFAULT_BACK_BUFFER_DURATION_MS)));
-        long cacheMaxSize = (long)(options.getDouble("maxCacheSize", 0) * 1024);
-        int multiplier = DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS / DEFAULT_BUFFER_FOR_PLAYBACK_MS;
+    public MediaSessionCompat getSession() {
+        return session;
+    }
 
-        LoadControl control = new DefaultLoadControl.Builder()
-                .setBufferDurationsMs(minBuffer, maxBuffer, playBuffer, playBuffer * multiplier)
-                .setBackBuffer(backBuffer, false)
-                .createDefaultLoadControl();
+    /**
+     * Updates the metadata options
+     * @param options The options
+     */
+    public void updateOptions(Bundle options) {
+        optionsBundle = options;
+        List<Integer> capabilities = options.getIntegerArrayList("capabilities");
+        List<Integer> notification = options.getIntegerArrayList("notificationCapabilities");
+        List<Integer> compact = options.getIntegerArrayList("compactCapabilities");
 
-        SimpleExoPlayer player = ExoPlayerFactory.newSimpleInstance(service, new DefaultRenderersFactory(service), new DefaultTrackSelector(), control);
+        actions = 0;
+        compactActions = 0;
 
-        player.setAudioAttributes(new com.google.android.exoplayer2.audio.AudioAttributes.Builder()
-                .setContentType(C.CONTENT_TYPE_MUSIC).setUsage(C.USAGE_MEDIA).build());
+        if(capabilities != null) {
+            // Create the actions mask
+            for(int cap : capabilities) actions |= cap;
 
-        return new LocalPlayback(service, this, player, cacheMaxSize);
-    }*/
+            // If there is no notification capabilities defined, we'll show all capabilities available
+            if(notification == null) notification = capabilities;
 
-    @SuppressLint("WakelockTimeout")
-    public void onPlay() {
-        Log.d(Utils.LOG, "onPlay");
-        /*if(playback == null) return;
+            // Initialize all actions based on the options
 
-        Track track = playback.getCurrentTrack();
+            previousAction = createAction(notification, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS, "Previous",
+                    getIcon(options, "previousIcon", R.drawable.previous));
+            rewindAction = createAction(notification, PlaybackStateCompat.ACTION_REWIND, "Rewind",
+                    getIcon(options, "rewindIcon", R.drawable.rewind));
+            playAction = createAction(notification, PlaybackStateCompat.ACTION_PLAY, "Play",
+                    getIcon(options, "playIcon", R.drawable.play));
+            pauseAction = createAction(notification, PlaybackStateCompat.ACTION_PAUSE, "Pause",
+                    getIcon(options, "pauseIcon", R.drawable.pause));
+            stopAction = createAction(notification, PlaybackStateCompat.ACTION_STOP, "Stop",
+                    getIcon(options, "stopIcon", R.drawable.stop));
+            forwardAction = createAction(notification, PlaybackStateCompat.ACTION_FAST_FORWARD, "Forward",
+                    getIcon(options, "forwardIcon", R.drawable.forward));
+            nextAction = createAction(notification, PlaybackStateCompat.ACTION_SKIP_TO_NEXT, "Next",
+                    getIcon(options, "nextIcon", R.drawable.next));
+
+            // Update the action mask for the compact view
+            if(compact != null) {
+                for(int cap : compact) compactActions |= cap;
+            }
+        }
+
+        // Update the color
+        builder.setColor(Utils.getInt(options, "color", NotificationCompat.COLOR_DEFAULT));
+
+        // Update the icon
+        builder.setSmallIcon(getIcon(options, "icon", R.drawable.play));
+
+        // Update the jump interval
+        jumpInterval = Utils.getInt(options, "jumpInterval", 15);
+
+        // Update the rating type
+        ratingType = Utils.getInt(options, "ratingType", RatingCompat.RATING_NONE);
+        session.setRatingType(ratingType);
+
+        updateNotification();
+    }
+
+    public Bundle getOptionsBundle() { return optionsBundle; }
+
+    public int getRatingType() {
+        return ratingType;
+    }
+
+    public int getJumpInterval() {
+        return jumpInterval;
+    }
+
+    public void removeNotifications() {
+        String ns = Context.NOTIFICATION_SERVICE;
+        Context context = service.getApplicationContext();
+        NotificationManager manager = (NotificationManager) context.getSystemService(ns);
+        manager.cancelAll();
+    }
+
+    /**
+     * Updates the artwork
+     * @param bitmap The new artwork
+     */
+    protected void updateArtwork(Bitmap bitmap) {
+        Track track = manager.getCurrentTrack();
         if(track == null) return;
 
-        if(!playback.isRemote()) {
-            requestFocus();
+        MediaMetadataCompat.Builder metadata = track.toMediaMetadata();
 
-            if(!receivingNoisyEvents) {
-                receivingNoisyEvents = true;
-                service.registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap);
+        builder.setLargeIcon(bitmap);
+
+        session.setMetadata(metadata.build());
+        updateNotification();
+    }
+
+    /**
+     * Updates the current track
+     * @param track The new track
+     */
+    public void updateMetadata(Track track) {
+        MediaMetadataCompat.Builder metadata = track.toMediaMetadata();
+
+        RequestManager rm = Glide.with(service.getApplicationContext());
+        if(artworkTarget != null) rm.clear(artworkTarget);
+
+        if(track.artwork != null) {
+            artworkTarget = rm.asBitmap()
+                    .load(track.artwork)
+                    .into(new SimpleTarget<Bitmap>() {
+                        @Override
+                        public void onResourceReady(Bitmap resource, Transition<? super Bitmap> transition) {
+                            metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, resource);
+                            builder.setLargeIcon(resource);
+
+                            session.setMetadata(metadata.build());
+                            updateNotification();
+                            artworkTarget = null;
+                        }
+                    });
+        }
+
+        builder.setContentTitle(track.title);
+        builder.setContentText(track.artist);
+        builder.setSubText(track.album);
+
+        session.setMetadata(metadata.build());
+        updateNotification();
+    }
+
+    /**
+     * Updates the playback state
+     * @param state The player
+     */
+    public void updatePlayback(int state, long position, long bufferedPosition, int rate) {
+        boolean playing = Utils.isPlaying(state);
+        List<Integer> compact = new ArrayList<>();
+        builder.mActions.clear();
+
+        // Adds the media buttons to the notification
+
+        addAction(previousAction, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS, compact);
+        addAction(rewindAction, PlaybackStateCompat.ACTION_REWIND, compact);
+
+        if(playing) {
+            addAction(pauseAction, PlaybackStateCompat.ACTION_PAUSE, compact);
+        } else {
+            addAction(playAction, PlaybackStateCompat.ACTION_PLAY, compact);
+        }
+
+        addAction(stopAction, PlaybackStateCompat.ACTION_STOP, compact);
+        addAction(forwardAction, PlaybackStateCompat.ACTION_FAST_FORWARD, compact);
+        addAction(nextAction, PlaybackStateCompat.ACTION_SKIP_TO_NEXT, compact);
+
+        // Prevent the media style from being used in older Huawei devices that don't support custom styles
+        if(!Build.MANUFACTURER.toLowerCase().contains("huawei") || Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+
+            MediaStyle style = new MediaStyle();
+
+            if(playing) {
+                style.setShowCancelButton(false);
+            } else {
+                // Shows the cancel button on pre-lollipop versions due to a bug
+                style.setShowCancelButton(true);
+                style.setCancelButtonIntent(MediaButtonReceiver.buildMediaButtonPendingIntent(service,
+                        PlaybackStateCompat.ACTION_STOP));
             }
 
-            if(!wakeLock.isHeld()) wakeLock.acquire();
+            // Links the media session
+            style.setMediaSession(session.getSessionToken());
 
-            if(!Utils.isLocal(track.uri)) {
-                if(!wifiLock.isHeld()) wifiLock.acquire();
+            // Updates the compact media buttons for the notification
+            if (!compact.isEmpty()) {
+                int[] compactIndexes = new int[compact.size()];
+
+                for (int i = 0; i < compact.size(); i++) compactIndexes[i] = compact.get(i);
+
+                style.setShowActionsInCompactView(compactIndexes);
             }
-        }*/
 
-        requestFocus();
+            builder.setStyle(style);
 
-        if(!receivingNoisyEvents) {
-            receivingNoisyEvents = true;
-            service.registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
         }
 
-        if(!wakeLock.isHeld()) wakeLock.acquire();
+        // Updates the media session state
+        PlaybackStateCompat.Builder pb = new PlaybackStateCompat.Builder();
+        pb.setActions(actions);
+        pb.setState(state, position, rate);
+        pb.setBufferedPosition(bufferedPosition);
 
-        /*if(!Utils.isLocal(currentTrack.uri)) {
-            if(!wifiLock.isHeld()) wifiLock.acquire();
-        }*/
-
-        metadata.setActive(true);
+        session.setPlaybackState(pb.build());
+        updateNotification();
     }
 
-    public void onPause() {
-        Log.d(Utils.LOG, "onPause");
+    public void setActive(boolean active) {
+        this.session.setActive(active);
 
-        // Unregisters the noisy receiver
-        if(receivingNoisyEvents) {
-            service.unregisterReceiver(noisyReceiver);
-            receivingNoisyEvents = false;
-        }
-
-        // Release the wake and the wifi locks
-        if(wakeLock.isHeld()) wakeLock.release();
-        if(wifiLock.isHeld()) wifiLock.release();
-
-        metadata.setActive(true);
+        updateNotification();
     }
 
-    public void onStop() {
-        Log.d(Utils.LOG, "onStop");
+    public void destroy(Boolean intentToStop) {
+        service.stopForeground(false);
 
-        // Unregisters the noisy receiver
-        if(receivingNoisyEvents) {
-            service.unregisterReceiver(noisyReceiver);
-            receivingNoisyEvents = false;
-        }
-
-        // Release the wake and the wifi locks
-        if(wakeLock.isHeld()) wakeLock.release();
-        if(wifiLock.isHeld()) wifiLock.release();
-
-        abandonFocus();
-
-        metadata.setActive(false);
-    }
-
-    public void onPlayerStateChanged() {
-
-        if(Utils.isPlaying(state) && !Utils.isPlaying(previousState)) {
-            this.onPlay();
-        } else if(Utils.isPaused(state) && !Utils.isPaused(previousState)) {
-            this.onPause();
-        } else if(Utils.isStopped(state) && !Utils.isStopped(previousState)) {
-            this.onStop();
-        }
-
-        this.onStateChange(state, position, bufferedPosition);
-        previousState = state;
-
-        if(state == PlaybackStateCompat.STATE_STOPPED) {
-            this.onEnd(getCurrentTrack(), 0);
-        }
-    }
-
-    public void onStateChange(int state, long position, long bufferedPosition) {
-        Log.d(Utils.LOG, "onStateChange");
-
-        Bundle bundle = new Bundle();
-        bundle.putInt("state", state);
-        service.emit(MusicEvents.PLAYBACK_STATE, bundle);
-        metadata.updatePlayback(state, position, bufferedPosition, 1);
-    }
-
-    public void onTrackUpdate(Track previous, long prevPos, Track next) {
-        Log.d(Utils.LOG, "onTrackUpdate");
-
-        if(next != null) metadata.updateMetadata(next);
-
-        Bundle bundle = new Bundle();
-        bundle.putString("track", previous != null ? previous.id : null);
-        bundle.putDouble("position", Utils.toSeconds(prevPos));
-        bundle.putString("nextTrack", next != null ? next.id : null);
-        service.emit(MusicEvents.PLAYBACK_TRACK_CHANGED, bundle);
-    }
-
-    public void onReset() {
-        metadata.removeNotifications();
-    }
-
-    public void onEnd(Track previous, long prevPos) {
-        Log.d(Utils.LOG, "onEnd");
-
-        Bundle bundle = new Bundle();
-        bundle.putString("track", previous != null ? previous.id : null);
-        bundle.putDouble("position", Utils.toSeconds(prevPos));
-        service.emit(MusicEvents.PLAYBACK_QUEUE_ENDED, bundle);
-    }
-
-    public void onMetadataReceived(String source, String title, String url, String artist, String album, String date, String genre) {
-        Log.d(Utils.LOG, "onMetadataReceived: " + source);
-
-        Bundle bundle = new Bundle();
-        bundle.putString("source", source);
-        bundle.putString("title", title);
-        bundle.putString("url", url);
-        bundle.putString("artist", artist);
-        bundle.putString("album", album);
-        bundle.putString("date", date);
-        bundle.putString("genre", genre);
-        service.emit(MusicEvents.PLAYBACK_METADATA, bundle);
-    }
-
-    public void onError(String code, String error) {
-        Log.d(Utils.LOG, "onError");
-        Log.e(Utils.LOG, "Playback error: " + code + " - " + error);
-
-        Bundle bundle = new Bundle();
-        bundle.putString("code", code);
-        bundle.putString("message", error);
-        service.emit(MusicEvents.PLAYBACK_ERROR, bundle);
-    }
-
-    @Override
-    public void onAudioFocusChange(int focus) {
-        Log.d(Utils.LOG, "onDuck");
-
-        boolean permanent = false;
-        boolean paused = false;
-        boolean ducking = false;
-
-        switch(focus) {
-            /*case AudioManager.AUDIOFOCUS_LOSS:
-                permanent = true;
-                abandonFocus();*/
-            case AudioManager.AUDIOFOCUS_LOSS:
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                paused = true;
-                break;
-            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                if (alwaysPauseOnInterruption)
-                    paused = true;
-                else
-                    ducking = true;
-                break;
-            default:
-                break;
-        }
-
-        if (ducking) {
-            //playback.setVolumeMultiplier(0.5F);
-            wasDucking = true;
-        } else if (wasDucking) {
-            //playback.setVolumeMultiplier(1.0F);
-            wasDucking = false;
-        }
-
-        Bundle bundle = new Bundle();
-        bundle.putBoolean("permanent", permanent);
-        bundle.putBoolean("paused", paused);
-        bundle.putBoolean("ducking", ducking);
-        service.emit(MusicEvents.BUTTON_DUCK, bundle);
-    }
-
-    private void requestFocus() {
-        if(hasAudioFocus) return;
-        Log.d(Utils.LOG, "Requesting audio focus...");
-
-        AudioManager manager = (AudioManager)service.getSystemService(Context.AUDIO_SERVICE);
-        int r;
-
-        if(manager == null) {
-            r = AudioManager.AUDIOFOCUS_REQUEST_FAILED;
-        } else if(Build.VERSION.SDK_INT >= 26) {
-            focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setOnAudioFocusChangeListener(this)
-                    .setAudioAttributes(new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build())
-                    .setWillPauseWhenDucked(alwaysPauseOnInterruption)
-                    .build();
-
-            r = manager.requestAudioFocus(focus);
+        if (!intentToStop) {
+            updateNotification();
         } else {
-            //noinspection deprecation
-            r = manager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+            session.setActive(false);
+            session.release();
         }
-
-        hasAudioFocus = r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
     }
 
-    private void abandonFocus() {
-        if(!hasAudioFocus) return;
-        Log.d(Utils.LOG, "Abandoning audio focus...");
-
-        AudioManager manager = (AudioManager)service.getSystemService(Context.AUDIO_SERVICE);
-        int r;
-
-        if(manager == null) {
-            r = AudioManager.AUDIOFOCUS_REQUEST_FAILED;
-        } else if(Build.VERSION.SDK_INT >= 26) {
-            r = manager.abandonAudioFocusRequest(focus);
+    private void updateNotification() {
+        if(session.isActive()) {
+            service.startForeground(1, builder.build());
         } else {
-            //noinspection deprecation
-            r = manager.abandonAudioFocus(this);
+            service.stopForeground(true);
         }
-
-        hasAudioFocus = r != AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
     }
 
-    public void destroy(boolean intentToStop) {
-        Log.d(Utils.LOG, "Releasing service resources...");
+    private int getIcon(Bundle options, String propertyName, int defaultIcon) {
+        if(!options.containsKey(propertyName)) return defaultIcon;
 
-        // Disable audio focus
-        abandonFocus();
+        Bundle bundle = options.getBundle(propertyName);
+        if(bundle == null) return defaultIcon;
 
-        // Stop receiving audio becoming noisy events
-        if(receivingNoisyEvents) {
-            service.unregisterReceiver(noisyReceiver);
-            receivingNoisyEvents = false;
-        }
+        ResourceDrawableIdHelper helper = ResourceDrawableIdHelper.getInstance();
+        int icon = helper.getResourceDrawableId(service, bundle.getString("uri"));
+        if(icon == 0) return defaultIcon;
 
-        // Release the playback resources
-        //if(playback != null) playback.destroy();
-
-        // Release the metadata resources
-        metadata.destroy(intentToStop);
-
-        // Release the locks
-        if(wifiLock.isHeld()) wifiLock.release();
-        if(wakeLock.isHeld()) wakeLock.release();
+        return icon;
     }
+
+    private Action createAction(List<Integer> caps, long action, String title, int icon) {
+        if(!caps.contains((int)action)) return null;
+
+        return new Action(icon, title, MediaButtonReceiver.buildMediaButtonPendingIntent(service, action));
+    }
+
+    private void addAction(Action action, long id, List<Integer> compact) {
+        if(action == null) return;
+
+        if((compactActions & id) != 0) compact.add(builder.mActions.size());
+        builder.mActions.add(action);
+    }
+
 }
