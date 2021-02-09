@@ -79,8 +79,10 @@ public class MusicService extends HeadlessJsTaskService {
             if (!intentToStop) {
                 cachePlayer();
             } else {
-                manager.destroy(intentToStop);
-                manager = null;
+                if(manager != null) {
+                    manager.destroy(intentToStop);
+                    manager = null;
+                }
             }
         }
     }
@@ -273,6 +275,12 @@ public class MusicService extends HeadlessJsTaskService {
     @Override
     public void onDestroy() {
         super.onDestroy();
+
+        if(handler != null) {
+            handler.removeMessages(0);
+            handler = null;
+        }
+
         if(manager != null) {
             manager.destroy(intentToStop);
             manager = null;
