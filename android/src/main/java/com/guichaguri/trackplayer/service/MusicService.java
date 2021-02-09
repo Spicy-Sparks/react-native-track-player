@@ -273,8 +273,10 @@ public class MusicService extends HeadlessJsTaskService {
     @Override
     public void onDestroy() {
         super.onDestroy();
-        manager.destroy(intentToStop);
-        manager = null;
+        if(manager != null) {
+            manager.destroy(intentToStop);
+            manager = null;
+        }
 
         stopForeground(true);
         //destroy();
