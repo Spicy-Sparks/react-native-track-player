@@ -294,8 +294,10 @@ public class MusicService extends HeadlessJsTaskService {
         if (!intentToStop) {
             cachePlayer();
         } else {
-            manager.destroy(intentToStop);
-            manager = null;
+            if(manager != null) {
+                manager.destroy(intentToStop);
+                manager = null;
+            }
         }
 
         stopForeground(true);
