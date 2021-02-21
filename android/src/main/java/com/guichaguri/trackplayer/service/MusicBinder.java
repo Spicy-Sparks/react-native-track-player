@@ -2,6 +2,7 @@ package com.guichaguri.trackplayer.service;
 
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.Handler;
 
 /**
  * @author Guichaguri
@@ -17,6 +18,12 @@ public class MusicBinder extends Binder {
     }
 
     public void post(Runnable r) {
+        if(service == null)
+            return;
+        
+        if(service.handler == null)
+            service.handler = new Handler();
+
         service.handler.post(r);
     }
 
