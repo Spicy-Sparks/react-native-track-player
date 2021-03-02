@@ -51,6 +51,8 @@ public class MetadataManager {
     private NotificationCompat.Builder builder;
     private Bundle optionsBundle = null;
 
+    private boolean hideArtworkLockScreenBackground;
+
     private Action previousAction, rewindAction, playAction, pauseAction, stopAction, forwardAction, nextAction;
 
     public MetadataManager(MusicService service, MusicManager manager) {
@@ -106,6 +108,8 @@ public class MetadataManager {
         List<Integer> capabilities = options.getIntegerArrayList("capabilities");
         List<Integer> notification = options.getIntegerArrayList("notificationCapabilities");
         List<Integer> compact = options.getIntegerArrayList("compactCapabilities");
+
+        hideArtworkLockScreenBackground = options.getBoolean("hideArtworkLockScreenBackground");
 
         actions = 0;
         compactActions = 0;
@@ -183,7 +187,7 @@ public class MetadataManager {
 
         MediaMetadataCompat.Builder metadata = track.toMediaMetadata();
 
-        metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap);
+        metadata.putBitmap(hideArtworkLockScreenBackground ? MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON : MediaMetadataCompat.METADATA_KEY_ART, bitmap);
         builder.setLargeIcon(bitmap);
 
         session.setMetadata(metadata.build());
@@ -206,7 +210,8 @@ public class MetadataManager {
                     .into(new SimpleTarget<Bitmap>() {
                         @Override
                         public void onResourceReady(Bitmap resource, Transition<? super Bitmap> transition) {
-                            metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, resource);
+                            metadata.putBitmap(hideArtworkLockScreenBackground ? MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON :
+                                    MediaMetadataCompat.METADATA_KEY_ART, resource);
                             builder.setLargeIcon(resource);
 
                             session.setMetadata(metadata.build());
