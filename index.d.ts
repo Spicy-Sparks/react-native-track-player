@@ -93,6 +93,8 @@ declare namespace RNTrackPlayer {
     dislikeOptions?: FeedbackOptions;
     bookmarkOptions?: FeedbackOptions;
     stopWithApp?: boolean;
+    alwaysPauseOnInterruption?: boolean;
+    hideArtworkLockScreenBackground?: boolean;
 
     capabilities?: Capability[];
     notificationCapabilities?: Capability[];
