@@ -188,8 +188,10 @@ public class MusicManager implements OnAudioFocusChangeListener {
 
         // Unregisters the noisy receiver
         if(receivingNoisyEvents) {
-            service.unregisterReceiver(noisyReceiver);
-            receivingNoisyEvents = false;
+            try {
+                service.unregisterReceiver(noisyReceiver);
+                receivingNoisyEvents = false;
+            }catch(Exception e){ }
         }
 
         // Release the wake and the wifi locks
@@ -204,8 +206,10 @@ public class MusicManager implements OnAudioFocusChangeListener {
 
         // Unregisters the noisy receiver
         if(receivingNoisyEvents) {
-            service.unregisterReceiver(noisyReceiver);
-            receivingNoisyEvents = false;
+            try {
+                service.unregisterReceiver(noisyReceiver);
+                receivingNoisyEvents = false;
+            }catch(Exception e){ }
         }
 
         // Release the wake and the wifi locks
@@ -389,8 +393,10 @@ public class MusicManager implements OnAudioFocusChangeListener {
 
         // Stop receiving audio becoming noisy events
         if(receivingNoisyEvents) {
-            service.unregisterReceiver(noisyReceiver);
-            receivingNoisyEvents = false;
+            try {
+                service.unregisterReceiver(noisyReceiver);
+                receivingNoisyEvents = false;
+            }catch(Exception e){ }
         }
 
         // Release the playback resources
