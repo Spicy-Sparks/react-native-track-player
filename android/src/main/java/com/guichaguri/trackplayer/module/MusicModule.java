@@ -221,7 +221,7 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
                 return;
             }
 
-            if(binder.getManager().getCurrentTrack() == null)
+            if(binder != null && binder.getManager() != null && binder.getManager().getCurrentTrack() == null)
                 callback.reject("invalid_track_object", "Track is missing a required key");
 
             callback.resolve(null);
