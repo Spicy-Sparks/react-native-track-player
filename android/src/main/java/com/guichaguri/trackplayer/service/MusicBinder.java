@@ -29,23 +29,6 @@ public class MusicBinder extends Binder {
 
     public MusicManager getManager(){ return this.manager; }
 
-    /*public ExoPlayback getPlayback() {
-        ExoPlayback playback = manager.getPlayback();
-
-        // TODO remove?
-        if(playback == null) {
-            playback = manager.createLocalPlayback(new Bundle());
-            manager.switchPlayback(playback);
-        }
-
-        return playback;
-    }*/
-
-    /*public void setupPlayer(Bundle bundle, Promise promise) {
-        manager.switchPlayback(manager.createLocalPlayback(bundle));
-        promise.resolve(null);
-    }*/
-
     public void updateOptions(Bundle bundle) {
         manager.setStopWithApp(bundle.getBoolean("stopWithApp", false));
         manager.setAlwaysPauseOnInterruption(bundle.getBoolean("alwaysPauseOnInterruption", false));
