@@ -103,7 +103,23 @@ public class RNTrackPlayer: RCTEventEmitter {
             let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
                 return
         }
+        
+        let center = MPNowPlayingInfoCenter.default()
+        
+        if(center.nowPlayingInfo == nil){
+            center.nowPlayingInfo = [
+                MPMediaItemPropertyTitle: "",
+                MPMediaItemPropertyArtist: "",
+                MPMediaItemPropertyAlbumTitle: "",
+                MPMediaItemPropertyPlaybackDuration: 0,
+                MPNowPlayingInfoPropertyElapsedPlaybackTime: 0,
+                MPNowPlayingInfoPropertyPlaybackRate: 0
+            ]
+        }
+        
         if type == .began {
+            
+            center.nowPlayingInfo![MPNowPlayingInfoPropertyPlaybackRate] = 0
             // Interruption began, take appropriate actions
             self.sendEvent(withName: "remote-duck", body: [
                 "paused": true
@@ -114,6 +130,7 @@ public class RNTrackPlayer: RCTEventEmitter {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
                 if options.contains(.shouldResume) {
                     // Interruption Ended - playback should resume
+                    center.nowPlayingInfo![MPNowPlayingInfoPropertyPlaybackRate] = 1.0
                     self.sendEvent(withName: "remote-duck", body: [
                         "paused": false
                         ])
