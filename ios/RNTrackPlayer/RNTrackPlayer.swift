@@ -9,6 +9,7 @@
 import Foundation
 import MediaPlayer
 import WidgetKit
+import React
 
 @objc(RNTrackPlayer)
 public class RNTrackPlayer: RCTEventEmitter {
