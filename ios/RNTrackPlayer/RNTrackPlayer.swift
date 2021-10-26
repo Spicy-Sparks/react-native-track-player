@@ -422,8 +422,9 @@ public class RNTrackPlayer: RCTEventEmitter {
                 if(self?.previousArtworkUrl != newArtworkUrl){
                     return
                 }
+                
                     
-                let artwork = MPMediaItemArtwork(image: image)
+                let artwork = self?.mediaItemArtwork(from: image)//MPMediaItemArtwork(from: image)
 
                 if(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil)
                 {
@@ -454,5 +455,15 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
         
         handler(nil)
+    }
+    
+    fileprivate func mediaItemArtwork(from image: UIImage) -> MPMediaItemArtwork {
+            if #available(iOS 10.0, *) {
+                return MPMediaItemArtwork.init(boundsSize: image.size, requestHandler: { (size: CGSize) -> UIImage in
+                    return image
+                })
+            } else {
+                return MPMediaItemArtwork(image: image)
+            }
     }
 }
