@@ -273,10 +273,9 @@ public class MusicManager implements OnAudioFocusChangeListener {
         boolean ducking = false;
 
         switch(focus) {
-            /*case AudioManager.AUDIOFOCUS_LOSS:
-                permanent = true;
-                abandonFocus();*/
             case AudioManager.AUDIOFOCUS_LOSS:
+                permanent = true;
+                abandonFocus();
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 paused = true;
                 break;
