@@ -120,6 +120,20 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         if type == .began {
             
+            var wasSupended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool
+            if #available(iOS 14.5, *) {
+                let reason = userInfo[AVAudioSessionInterruptionReasonKey] as? NSNumber
+                
+                if(reason != nil && reason == 1){
+                    wasSupended = true
+                }
+            
+            }
+            
+            if(wasSupended != nil && wasSupended == true){
+                return
+            }
+
             center.nowPlayingInfo![MPNowPlayingInfoPropertyPlaybackRate] = 0
             // Interruption began, take appropriate actions
             self.sendEvent(withName: "remote-duck", body: [
@@ -138,6 +152,7 @@ public class RNTrackPlayer: RCTEventEmitter {
                 } else {
                     // Interruption Ended - playback should NOT resume
                     self.sendEvent(withName: "remote-duck", body: [
+                        "paused": true,
                         "permanent": true
                         ])
                 }
@@ -327,33 +342,33 @@ public class RNTrackPlayer: RCTEventEmitter {
     
     @objc(updatePlayback:resolver:rejecter:)
     public func updatePlayback(properties: [String: Any], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
-        
+
         let center = MPNowPlayingInfoCenter.default()
-        
+
         let stateRaw = properties["state"] as? String
 
         let state = stateRaw != nil ? PlayState(rawValue: stateRaw!) : PlayState.none
-        
+
         currentTrack?.updateMetadata(dictionary: properties)
-        
+
         updateMetadata(properties: properties, state: state)
-        
+
         let commandCenter = MPRemoteCommandCenter.shared()
-        
+
         if(state == PlayState.stopped){
-            commandCenter.stopCommand.isEnabled = false
+                commandCenter.stopCommand.isEnabled = false
         }
-        
+
         if #available(iOS 13.0, *) {
             if (state == PlayState.playing) {
                 center.playbackState = MPNowPlayingPlaybackState.playing
             } else if (state == PlayState.paused) {
                 center.playbackState = MPNowPlayingPlaybackState.paused;
             } else if (state == PlayState.stopped) {
-                center.playbackState = MPNowPlayingPlaybackState.stopped;
+                    center.playbackState = MPNowPlayingPlaybackState.stopped;
             }
         }
-        
+
         resolve(NSNull())
     }
     
