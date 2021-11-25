@@ -344,6 +344,16 @@ public class RNTrackPlayer: RCTEventEmitter {
             commandCenter.stopCommand.isEnabled = false
         }
         
+        if #available(iOS 13.0, *) {
+            if (state == PlayState.playing) {
+                center.playbackState = MPNowPlayingPlaybackState.playing
+            } else if (state == PlayState.paused) {
+                center.playbackState = MPNowPlayingPlaybackState.paused;
+            } else if (state == PlayState.stopped) {
+                center.playbackState = MPNowPlayingPlaybackState.stopped;
+            }
+        }
+        
         resolve(NSNull())
     }
     
