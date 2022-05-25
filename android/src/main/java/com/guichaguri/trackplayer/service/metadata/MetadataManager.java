@@ -6,6 +6,7 @@ import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Build;
@@ -314,7 +315,7 @@ public class MetadataManager {
 
     private void updateNotification() {
         if(session.isActive()) {
-            service.startForeground(1, builder.build());
+            service.startForeground(1, builder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         } else {
             service.stopForeground(true);
         }
