@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -98,7 +99,7 @@ public class MusicService extends HeadlessJsTaskService {
                 String channel = Utils.getNotificationChannel((Context) this);
 
                 // Sets the service to foreground with an empty notification
-                startForeground(1, new NotificationCompat.Builder(this, channel).build());
+                startForeground(1, new NotificationCompat.Builder(this, channel).build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
                 // Stops the service right after
                 stopSelf();
             }
@@ -131,7 +132,7 @@ public class MusicService extends HeadlessJsTaskService {
         String channel = Utils.getNotificationChannel((Context) this);
 
         // Sets the service to foreground with an empty notification
-        startForeground(1, new NotificationCompat.Builder(this, channel).build());
+        startForeground(1, new NotificationCompat.Builder(this, channel).build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
     }
 
     @Override
@@ -180,13 +181,13 @@ public class MusicService extends HeadlessJsTaskService {
             String CHANNEL_ID = Utils.NOTIFICATION_CHANNEL;
             String CHANNEL_NAME = "Playback";
 
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_NONE);
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT);
             ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(channel);
 
             Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                     .setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.play).setPriority(PRIORITY_MIN).build();
 
-            startForeground(1, notification);
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         }
     }
 
