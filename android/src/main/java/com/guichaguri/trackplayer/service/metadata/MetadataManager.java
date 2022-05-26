@@ -316,7 +316,7 @@ public class MetadataManager {
     private void updateNotification() {
         if(session.isActive()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                service.startForeground(1, builder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);;
+                service.startForeground(1, builder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
             }else{
                 service.startForeground(1, builder.build());
             }
