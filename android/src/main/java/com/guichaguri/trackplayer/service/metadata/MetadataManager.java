@@ -218,7 +218,9 @@ public class MetadataManager {
                             builder.setLargeIcon(resource);
 
                             session.setMetadata(metadata.build());
-                            updateNotification();
+                            try {
+                                updateNotification();
+                            }catch(Exception ex){}
                             artworkTarget = null;
                         }
                     });
