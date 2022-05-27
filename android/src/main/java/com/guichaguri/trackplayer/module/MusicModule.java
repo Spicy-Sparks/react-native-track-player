@@ -106,11 +106,13 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
         try {
             context.startService(intent);
         } catch (Exception e) {
-            if (Build.VERSION.SDK_INT >= 26) {
-                context.startForegroundService(intent);
-            } else {
-                context.startService(intent);
-            }
+            try {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(intent);
+                } else {
+                    context.startService(intent);
+                }
+            }catch(Exception ex){}
         }
         intent.setAction(Utils.CONNECT_INTENT);
         context.bindService(intent, this, 0);
