@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -88,7 +89,7 @@ public class MetadataManager {
 
         builder.setContentIntent(PendingIntent.getActivity(context, 0, openApp, flags));
 
-        builder.setSmallIcon(R.drawable.play);
+        builder.setSmallIcon(R.drawable.ic_play);
         builder.setCategory(NotificationCompat.CATEGORY_TRANSPORT);
 
         // Stops the playback when the notification is swiped away
@@ -127,19 +128,19 @@ public class MetadataManager {
             // Initialize all actions based on the options
 
             previousAction = createAction(notification, PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS, "Previous",
-                    getIcon(options, "previousIcon", R.drawable.previous));
+                    getIcon(options, "previousIcon", R.drawable.ic_previous));
             rewindAction = createAction(notification, PlaybackStateCompat.ACTION_REWIND, "Rewind",
-                    getIcon(options, "rewindIcon", R.drawable.rewind));
+                    getIcon(options, "rewindIcon", R.drawable.ic_rewind));
             playAction = createAction(notification, PlaybackStateCompat.ACTION_PLAY, "Play",
-                    getIcon(options, "playIcon", R.drawable.play));
+                    getIcon(options, "playIcon", R.drawable.ic_play));
             pauseAction = createAction(notification, PlaybackStateCompat.ACTION_PAUSE, "Pause",
-                    getIcon(options, "pauseIcon", R.drawable.pause));
+                    getIcon(options, "pauseIcon", R.drawable.ic_pause));
             stopAction = createAction(notification, PlaybackStateCompat.ACTION_STOP, "Stop",
-                    getIcon(options, "stopIcon", R.drawable.stop));
+                    getIcon(options, "stopIcon", R.drawable.ic_stop));
             forwardAction = createAction(notification, PlaybackStateCompat.ACTION_FAST_FORWARD, "Forward",
-                    getIcon(options, "forwardIcon", R.drawable.forward));
+                    getIcon(options, "forwardIcon", R.drawable.ic_forward));
             nextAction = createAction(notification, PlaybackStateCompat.ACTION_SKIP_TO_NEXT, "Next",
-                    getIcon(options, "nextIcon", R.drawable.next));
+                    getIcon(options, "nextIcon", R.drawable.ic_next));
 
             // Update the action mask for the compact view
             if(compact != null) {
@@ -151,7 +152,7 @@ public class MetadataManager {
         builder.setColor(Utils.getInt(options, "color", NotificationCompat.COLOR_DEFAULT));
 
         // Update the icon
-        builder.setSmallIcon(getIcon(options, "icon", R.drawable.play));
+        builder.setSmallIcon(getIcon(options, "icon", R.drawable.ic_play));
 
         // Update the jump interval
         jumpInterval = Utils.getInt(options, "jumpInterval", 15);
