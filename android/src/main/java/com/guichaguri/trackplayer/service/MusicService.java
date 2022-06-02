@@ -197,7 +197,7 @@ public class MusicService extends HeadlessJsTaskService {
             ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(channel);
 
             Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_play).setPriority(PRIORITY_MIN).build();
+                    .setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_logo).setPriority(PRIORITY_MIN).build();
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);

@@ -89,7 +89,7 @@ public class MetadataManager {
 
         builder.setContentIntent(PendingIntent.getActivity(context, 0, openApp, flags));
 
-        builder.setSmallIcon(R.drawable.ic_play);
+        builder.setSmallIcon(R.drawable.ic_logo);
         builder.setCategory(NotificationCompat.CATEGORY_TRANSPORT);
 
         // Stops the playback when the notification is swiped away
@@ -152,7 +152,7 @@ public class MetadataManager {
         builder.setColor(Utils.getInt(options, "color", NotificationCompat.COLOR_DEFAULT));
 
         // Update the icon
-        builder.setSmallIcon(getIcon(options, "icon", R.drawable.ic_play));
+        builder.setSmallIcon(getIcon(options, "icon", R.drawable.ic_logo));
 
         // Update the jump interval
         jumpInterval = Utils.getInt(options, "jumpInterval", 15);
