@@ -214,12 +214,12 @@ public class MetadataManager {
                     .into(new SimpleTarget<Bitmap>() {
                         @Override
                         public void onResourceReady(Bitmap resource, Transition<? super Bitmap> transition) {
-                            metadata.putBitmap(hideArtworkLockScreenBackground ? MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON :
-                                    MediaMetadataCompat.METADATA_KEY_ART, resource);
-                            builder.setLargeIcon(resource);
-
-                            session.setMetadata(metadata.build());
                             try {
+                                metadata.putBitmap(hideArtworkLockScreenBackground ? MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON :
+                                        MediaMetadataCompat.METADATA_KEY_ART, resource);
+                                builder.setLargeIcon(resource);
+
+                                session.setMetadata(metadata.build());
                                 updateNotification();
                             }catch(Exception ex){}
                             artworkTarget = null;
