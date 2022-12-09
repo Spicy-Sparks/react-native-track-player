@@ -8,7 +8,6 @@
 
 import Foundation
 import MediaPlayer
-import WidgetKit
 import React
 
 @objc(RNTrackPlayer)
@@ -121,6 +120,8 @@ public class RNTrackPlayer: RCTEventEmitter {
         if type == .began {
             
             var wasSupended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool
+            
+            #if os(iOS)
             if #available(iOS 14.5, *) {
                 let reason = userInfo[AVAudioSessionInterruptionReasonKey] as? NSNumber
                 
@@ -129,6 +130,7 @@ public class RNTrackPlayer: RCTEventEmitter {
                 }
             
             }
+            #endif
             
             if(wasSupended != nil && wasSupended == true){
                 return
@@ -166,6 +168,10 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
         
         setupInterruptionHandling();
+        
+        /*let tapRecognizer = UITapGestureRecognizer(target: self, action: Selector(("tapped:")))
+        tapRecognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)];
+        self.addGestureRecognizer(tapRecognizer)*/
         
         let center = MPRemoteCommandCenter.shared()
 
@@ -358,7 +364,8 @@ public class RNTrackPlayer: RCTEventEmitter {
         if(state == PlayState.stopped){
                 commandCenter.stopCommand.isEnabled = false
         }
-
+        
+        #if os(iOS)
         if #available(iOS 13.0, *) {
             if (state == PlayState.playing) {
                 center.playbackState = MPNowPlayingPlaybackState.playing
@@ -368,6 +375,17 @@ public class RNTrackPlayer: RCTEventEmitter {
                     center.playbackState = MPNowPlayingPlaybackState.stopped;
             }
         }
+        #else
+        if #available(tvOS 13.0, *) {
+            if (state == PlayState.playing) {
+                center.playbackState = MPNowPlayingPlaybackState.playing
+            } else if (state == PlayState.paused) {
+                center.playbackState = MPNowPlayingPlaybackState.paused;
+            } else if (state == PlayState.stopped) {
+                    center.playbackState = MPNowPlayingPlaybackState.stopped;
+            }
+        }
+        #endif
 
         resolve(NSNull())
     }
