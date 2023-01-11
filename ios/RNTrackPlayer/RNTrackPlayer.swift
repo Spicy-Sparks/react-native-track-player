@@ -5,7 +5,6 @@
 //  Created by David Chavez on 13.08.17.
 //  Copyright © 2017 David Chavez. All rights reserved.
 //
-
 import Foundation
 import MediaPlayer
 import React
@@ -119,9 +118,11 @@ public class RNTrackPlayer: RCTEventEmitter {
         
         if type == .began {
             
-            var wasSupended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool
+            var wasSuspended = false
             
             #if os(iOS)
+            wasSuspended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool
+            
             if #available(iOS 14.5, *) {
                 let reason = userInfo[AVAudioSessionInterruptionReasonKey] as? NSNumber
                 
@@ -132,7 +133,7 @@ public class RNTrackPlayer: RCTEventEmitter {
             }
             #endif
             
-            if(wasSupended != nil && wasSupended == true){
+            if(wasSuspended != nil && wasSuspended == true){
                 return
             }
 
@@ -316,7 +317,7 @@ public class RNTrackPlayer: RCTEventEmitter {
             if(self.placeHolderImageArtwork == nil && options["placeholderImage"] != nil){
                 let placeHolderImage : UIImage = RCTConvert.uiImage(options["placeholderImage"])
                 
-                if #available(iOS 10.0, *) {
+                if #available(iOS 10.0, tvOS 10.0, *) {
                     self.placeHolderImageArtwork = MPMediaItemArtwork.init(boundsSize: placeHolderImage.size, requestHandler: { (size) -> UIImage in
                         return placeHolderImage
                     })
@@ -458,7 +459,6 @@ public class RNTrackPlayer: RCTEventEmitter {
                 
                     
                 let artwork = self?.mediaItemArtwork(from: image)//MPMediaItemArtwork(from: image)
-
                 if(MPNowPlayingInfoCenter.default().nowPlayingInfo != nil)
                 {
                     MPNowPlayingInfoCenter.default().nowPlayingInfo![MPMediaItemPropertyArtwork] = artwork
@@ -491,7 +491,7 @@ public class RNTrackPlayer: RCTEventEmitter {
     }
     
     fileprivate func mediaItemArtwork(from image: UIImage) -> MPMediaItemArtwork {
-            if #available(iOS 10.0, *) {
+            if #available(iOS 10.0, tvOS 10.0, *) {
                 return MPMediaItemArtwork.init(boundsSize: image.size, requestHandler: { (size: CGSize) -> UIImage in
                     return image
                 })
