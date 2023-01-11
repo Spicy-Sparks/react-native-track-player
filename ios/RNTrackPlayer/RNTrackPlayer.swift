@@ -121,13 +121,13 @@ public class RNTrackPlayer: RCTEventEmitter {
             var wasSuspended = false
             
             #if os(iOS)
-            wasSuspended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool
+            wasSuspended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool ?? false
             
             if #available(iOS 14.5, *) {
                 let reason = userInfo[AVAudioSessionInterruptionReasonKey] as? NSNumber
                 
                 if(reason != nil && reason == 1){
-                    wasSupended = true
+                    wasSuspended = true
                 }
             
             }
