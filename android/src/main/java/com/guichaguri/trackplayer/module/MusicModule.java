@@ -1,6 +1,10 @@
 package com.guichaguri.trackplayer.module;
 
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.app.Service;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
@@ -109,7 +113,17 @@ public class MusicModule extends ReactContextBaseJavaModule implements ServiceCo
             } else {
                 context.startService(intent);
             }
-        }catch(Exception ex){}
+        }catch(Exception ex){
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                AlarmManager mgr = (AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
+                Intent i = new Intent(context, MusicService.class);
+                PendingIntent pi = PendingIntent.getForegroundService(context, 0, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                Calendar calendar = Calendar.getInstance();
+                calendar.setTimeInMillis(System.currentTimeMillis());
+                calendar.add(Calendar.MILLISECOND, 200);
+                mgr.set(AlarmManager.RTC_WAKEUP, calendar.getTimeInMillis(), pi);
+            }
+        }
         intent.setAction(Utils.CONNECT_INTENT);
         context.bindService(intent, this, 0);
 

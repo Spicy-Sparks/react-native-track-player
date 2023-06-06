@@ -1,5 +1,9 @@
 package com.guichaguri.trackplayer.service.metadata;
 
+import static androidx.core.app.NotificationCompat.PRIORITY_MAX;
+
+import android.app.AlarmManager;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -34,6 +38,7 @@ import com.guichaguri.trackplayer.service.MusicService;
 import com.guichaguri.trackplayer.service.Utils;
 import com.guichaguri.trackplayer.service.models.Track;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
 
 /**
@@ -320,12 +325,29 @@ public class MetadataManager {
         try {
             if(session.isActive()) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    service.startForeground(1, builder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+                    service.startForeground(1, builder
+                            .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+                            .setPriority(PRIORITY_MAX)
+                            .build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
                 }else{
-                    service.startForeground(1, builder.build());
+                    service.startForeground(1, builder
+                            .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+                            .setPriority(PRIORITY_MAX)
+                            .build());
                 }
             }
-        }catch(Exception ex){}
+        }catch(Exception ex){
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                Context context = service.getApplicationContext();
+                AlarmManager mgr = (AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
+                Intent i = new Intent(context, MusicService.class);
+                PendingIntent pi = PendingIntent.getForegroundService(context, 0, i, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                Calendar calendar = Calendar.getInstance();
+                calendar.setTimeInMillis(System.currentTimeMillis());
+                calendar.add(Calendar.MILLISECOND, 200);
+                mgr.set(AlarmManager.RTC_WAKEUP, calendar.getTimeInMillis(), pi);
+            }
+        }
     }
 
     private int getIcon(Bundle options, String propertyName, int defaultIcon) {
