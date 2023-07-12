@@ -8,7 +8,6 @@
 
 import Foundation
 import MediaPlayer
-import WidgetKit
 import React
 
 @available(iOS 10.3, *)
@@ -122,14 +121,16 @@ public class RNTrackPlayer: RCTEventEmitter {
         if type == .began {
             
             var wasSupended = userInfo[AVAudioSessionInterruptionWasSuspendedKey] as? Bool
+
+#if TARGET_OS_IOS
             if #available(iOS 14.5, *) {
                 let reason = userInfo[AVAudioSessionInterruptionReasonKey] as? NSNumber
                 
                 if(reason != nil && reason == 1){
                     wasSupended = true
                 }
-            
             }
+#endif
             
             if(wasSupended != nil && wasSupended == true){
                 return
@@ -360,6 +361,7 @@ public class RNTrackPlayer: RCTEventEmitter {
                 commandCenter.stopCommand.isEnabled = false
         }
 
+#if TARGET_OS_IOS
         if #available(iOS 13.0, *) {
             if (state == PlayState.playing) {
                 center.playbackState = MPNowPlayingPlaybackState.playing
@@ -369,6 +371,7 @@ public class RNTrackPlayer: RCTEventEmitter {
                     center.playbackState = MPNowPlayingPlaybackState.stopped;
             }
         }
+#endif
 
         resolve(NSNull())
     }
