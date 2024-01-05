@@ -214,9 +214,6 @@ public class MusicService extends HeadlessJsTaskService {
             manager.destroy(true);
             manager = null;
         }
-
-        stopForeground(true);
-        //destroy();
     }
 
     @Override
@@ -226,6 +223,12 @@ public class MusicService extends HeadlessJsTaskService {
         if (manager == null || manager.shouldStopWithApp()) {
             destroy(true);
             stopSelf();
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
         }
     }
 }
