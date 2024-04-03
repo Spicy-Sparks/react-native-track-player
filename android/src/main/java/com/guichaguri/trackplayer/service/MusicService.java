@@ -149,16 +149,19 @@ public class MusicService extends HeadlessJsTaskService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if(intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
-            onStartForeground();
-            // Check if the app is on background, then starts a foreground service and then ends it right after
+        if (manager == null)
+            manager = new MusicManager(this);
+
+        if(handler == null)
+            handler = new Handler();
+
+        super.onStartCommand(intent, flags, startId);
+
+        startAndStopEmptyNotificationToAvoidANR();
+        return START_STICKY;
             /*onStartForeground();
+            // Check if the app is on background, then starts a foreground service and then ends it right after
 
-            if(manager != null) {
-                MediaButtonReceiver.handleIntent(manager.getMetadata().getSession(), intent);
-            }
-
-            return START_NOT_STICKY;*/
 
             // Interpret event
             KeyEvent intentExtra = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
@@ -183,8 +186,34 @@ public class MusicService extends HeadlessJsTaskService {
             handler = new Handler();
 
         super.onStartCommand(intent, flags, startId);
-        return START_NOT_STICKY;
+        return START_NOT_STICKY;*/
     }
+
+    /**
+     * Workaround for the "Context.startForegroundService() did not then call Service.startForeground()"
+     * within 5s" ANR and crash by creating an empty notification and stopping it right after. For more
+     * information see https://github.com/doublesymmetry/react-native-track-player/issues/1666
+     */
+    private void startAndStopEmptyNotificationToAvoidANR() {
+        NotificationManager notificationManager = (NotificationManager) this.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            notificationManager.createNotificationChannel(
+                    new NotificationChannel("Playback", "Playback", NotificationManager.IMPORTANCE_LOW)
+            );
+        }
+
+        NotificationCompat.Builder notificationBuilder = new NotificationCompat.Builder(this, "Playback")
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setSmallIcon(R.drawable.ic_logo);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            notificationBuilder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
+        }
+        android.app.Notification notification = notificationBuilder.build();
+        startForeground(1, notification);
+        stopForeground(true);
+    }
+
 
     public void startServiceOreoAndAbove(){
         // Needed to prevent crash when dismissing notification
