@@ -14,10 +14,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.preference.PreferenceManager;
+import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.RatingCompat;
 import android.util.Log;
 import android.view.KeyEvent;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 import androidx.media.session.MediaButtonReceiver;
@@ -43,10 +45,12 @@ import static androidx.core.app.NotificationCompat.PRIORITY_MIN;
 import static com.guichaguri.trackplayer.service.Utils.bundleToJson;
 import static com.guichaguri.trackplayer.service.Utils.jsonStringToBundle;
 
+import java.util.List;
+
 /**
  * @author Guichaguri
  */
-public class MusicService extends HeadlessJsTaskService {
+public class MusicService extends HeadlessJsMediaService {
 
     MusicManager manager;
     Handler handler;
@@ -120,6 +124,17 @@ public class MusicService extends HeadlessJsTaskService {
         }
 
         return super.onBind(intent);
+    }
+
+    @androidx.annotation.Nullable
+    @Override
+    public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @androidx.annotation.Nullable Bundle rootHints) {
+        return null;
+    }
+
+    @Override
+    public void onLoadChildren(@NonNull String parentId, @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
+
     }
 
     @Override
