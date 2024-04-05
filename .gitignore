@@ -1,1 +1,4 @@
 android/build/
+/android/.gradle
+/node_modules
+/node_modules
