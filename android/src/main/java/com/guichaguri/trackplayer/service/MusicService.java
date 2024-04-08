@@ -172,7 +172,12 @@ public class MusicService extends HeadlessJsMediaService {
 
         super.onStartCommand(intent, flags, startId);
 
-        startAndStopEmptyNotificationToAvoidANR();
+        if (intent != null) {
+            try {
+                startAndStopEmptyNotificationToAvoidANR();
+            } catch (Exception ex) { }
+        }
+
         return START_STICKY;
             /*onStartForeground();
             // Check if the app is on background, then starts a foreground service and then ends it right after
@@ -229,27 +234,6 @@ public class MusicService extends HeadlessJsMediaService {
         stopForeground(true);
     }
 
-
-    public void startServiceOreoAndAbove(){
-        // Needed to prevent crash when dismissing notification
-        // https://stackoverflow.com/questions/47609261/bound-service-crash-with-context-startforegroundservice-did-not-then-call-ser?rq=1
-        if (Build.VERSION.SDK_INT >= 26) {
-            String CHANNEL_ID = Utils.NOTIFICATION_CHANNEL;
-            String CHANNEL_NAME = "Playback";
-
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT);
-            ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(channel);
-
-            Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_logo).setPriority(PRIORITY_MIN).build();
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
-            }else{
-                startForeground(1, notification);
-            }
-        }
-    }
 
     @Override
     public void onDestroy() {
