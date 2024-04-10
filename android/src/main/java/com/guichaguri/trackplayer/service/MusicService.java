@@ -164,26 +164,15 @@ public class MusicService extends HeadlessJsMediaService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (manager == null)
-            manager = new MusicManager(this);
+        if(intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+            onStartForeground();
 
-        if(handler == null)
-            handler = new Handler();
+            if (Build.VERSION.SDK_INT >= 33) {
+                try {
+                    startAndStopEmptyNotificationToAvoidANR();
+                } catch(Exception ex){}
+            }
 
-        super.onStartCommand(intent, flags, startId);
-
-        if (intent != null) {
-            try {
-                startAndStopEmptyNotificationToAvoidANR();
-            } catch (Exception ex) { }
-        }
-
-        return START_STICKY;
-            /*onStartForeground();
-            // Check if the app is on background, then starts a foreground service and then ends it right after
-
-
-            // Interpret event
             KeyEvent intentExtra = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
             if (intentExtra.getKeyCode() == KEYCODE_MEDIA_STOP) {
                 intentToStop = true;
@@ -206,7 +195,28 @@ public class MusicService extends HeadlessJsMediaService {
             handler = new Handler();
 
         super.onStartCommand(intent, flags, startId);
-        return START_NOT_STICKY;*/
+        return START_NOT_STICKY;
+    }
+
+    public void startServiceOreoAndAbove(){
+        // Needed to prevent crash when dismissing notification
+        // https://stackoverflow.com/questions/47609261/bound-service-crash-with-context-startforegroundservice-did-not-then-call-ser?rq=1
+        if (Build.VERSION.SDK_INT >= 26) {
+            String CHANNEL_ID = Utils.NOTIFICATION_CHANNEL;
+            String CHANNEL_NAME = "Playback";
+
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT);
+            ((NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).createNotificationChannel(channel);
+
+            Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_logo).setPriority(PRIORITY_MIN).build();
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            }else{
+                startForeground(1, notification);
+            }
+        }
     }
 
     /**
@@ -233,7 +243,6 @@ public class MusicService extends HeadlessJsMediaService {
         startForeground(1, notification);
         stopForeground(true);
     }
-
 
     @Override
     public void onDestroy() {
