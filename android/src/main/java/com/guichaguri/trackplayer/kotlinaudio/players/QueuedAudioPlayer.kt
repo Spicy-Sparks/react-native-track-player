@@ -1,7 +1,7 @@
 package com.guichaguri.trackplayer.kotlinaudio.players
 
 import android.content.Context
-// import com.doublesymmetry.kotlinaudio.models.*
+import android.util.Log
 import com.doublesymmetry.kotlinaudio.players.BaseAudioPlayer
 import com.google.android.exoplayer2.C
 import com.google.android.exoplayer2.IllegalSeekPositionException
@@ -21,8 +21,10 @@ class QueuedAudioPlayer(
     private val queue = LinkedList<MediaSource>()
     override val playerOptions = DefaultQueuedPlayerOptions(exoPlayer)
 
-    val currentIndex
-        get() = exoPlayer.currentMediaItemIndex
+//    val currentIndex
+//        get() = exoPlayer.currentMediaItemIndex
+
+    val currentIndex = 0
 
     override val currentItem: AudioItem?
         get() = (queue.getOrNull(currentIndex)?.mediaItem?.localConfiguration?.tag as AudioItemHolder?)?.audioItem
@@ -41,6 +43,14 @@ class QueuedAudioPlayer(
 
     val items: List<AudioItem>
         get() = queue.map { (it.mediaItem.localConfiguration?.tag as AudioItemHolder).audioItem }
+
+    fun getQueueHead(): MediaSource? {
+        return if (queue.isNotEmpty()) {
+            queue.peek()
+        } else {
+            null
+        }
+    }
 
     val previousItems: List<AudioItem>
         get() {
@@ -122,7 +132,6 @@ class QueuedAudioPlayer(
         exoPlayer.addMediaSources(mediaSources)
         exoPlayer.prepare()
     }
-
 
     /**
      * Add multiple items to the queue.

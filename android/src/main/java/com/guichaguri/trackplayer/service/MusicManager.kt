@@ -91,7 +91,6 @@ class MusicManager @SuppressLint("InvalidWakeLockTag") constructor(private val s
 
     @SuppressLint("WakelockTimeout")
     fun onPlay() {
-        Log.d(Utils.LOG, "onPlay")
         /*if(playback == null) return;
 
         Track track = playback.getCurrentTrack();
@@ -126,8 +125,6 @@ class MusicManager @SuppressLint("InvalidWakeLockTag") constructor(private val s
     }
 
     fun onPause() {
-        Log.d(Utils.LOG, "onPause")
-
         // Unregisters the noisy receiver
         if (receivingNoisyEvents) {
             try {

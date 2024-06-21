@@ -21,7 +21,7 @@ import androidx.core.app.NotificationCompat
 import coil.imageLoader
 import coil.request.Disposable
 import coil.request.ImageRequest
-// import com.doublesymmetry.kotlinaudio.R
+import com.guichaguri.trackplayer.R
 import com.guichaguri.trackplayer.kotlinaudio.event.NotificationEventHolder
 import com.guichaguri.trackplayer.kotlinaudio.event.PlayerEventHolder
 import com.guichaguri.trackplayer.kotlinaudio.models.AudioItemHolder
@@ -37,6 +37,8 @@ import com.google.android.exoplayer2.ui.PlayerNotificationManager
 import com.google.android.exoplayer2.ui.PlayerNotificationManager.CustomActionReceiver
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import java.io.File
+import java.net.URI
 
 class NotificationManager internal constructor(
     private val context: Context,
@@ -59,24 +61,32 @@ class NotificationManager internal constructor(
                 if (holder != null) {
                     holder.artworkBitmap = null
                     if (value?.artworkUrl != null) {
-                        Log.d("kaTest", "kaTest 1" + value.artworkUrl)
                         notificationMetadataArtworkDisposable?.dispose()
-                        notificationMetadataArtworkDisposable = context.imageLoader.enqueue(
-                            ImageRequest.Builder(context)
-                                .data(value.artworkUrl)
-                                .target { result ->
-                                    val bitmap = (result as BitmapDrawable).bitmap
-                                    holder.artworkBitmap = bitmap
-                                    Log.d("kaTest", "kaTest 3" + bitmap)
-                                }
-                                .build()
-                        )
+
+                        if (value.artworkUrl.startsWith("file")) {
+                            val file = File(URI(value.artworkUrl))
+                            if (file.exists()) {
+                                val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                                holder.artworkBitmap = bitmap
+                            }
+                        } else {
+                            notificationMetadataArtworkDisposable = context.imageLoader.enqueue(
+                                ImageRequest.Builder(context)
+                                    .data(value.artworkUrl)
+                                    .target { result ->
+                                        val bitmap = (result as BitmapDrawable).bitmap
+                                        holder.artworkBitmap = bitmap
+                                    }
+                                    .build()
+                            )
+                        }
                     }
                 }
             }
             field = value
             invalidate()
         }
+
 
     var showPlayPauseButton = false
         set(value) {
@@ -212,7 +222,6 @@ class NotificationManager internal constructor(
                     var artist =
                         currentNotificationMetadata?.artist ?: mediaItem.mediaMetadata.artist
                         ?: audioItemHolder.audioItem.artist
-                    Log.d("kaTest", "kaTest 2" + audioItemHolder?.artworkBitmap)
                     return MediaDescriptionCompat.Builder().apply {
                         setTitle(title)
                         setSubtitle(artist)
@@ -220,8 +229,8 @@ class NotificationManager internal constructor(
                             putString(MediaMetadataCompat.METADATA_KEY_TITLE, title as String?)
                             putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist as String?)
                         })
-//                        setIconUri(mediaItem?.mediaMetadata?.artworkUri ?: Uri.parse(audioItemHolder?.audioItem?.artwork
-//                            ?: ""))
+                        setIconUri(mediaItem?.mediaMetadata?.artworkUri ?: Uri.parse(audioItemHolder?.audioItem?.artwork
+                            ?: ""))
                         setIconBitmap(audioItemHolder?.artworkBitmap)
                     }.build()
                 }
@@ -230,9 +239,7 @@ class NotificationManager internal constructor(
         mediaSessionConnector.setMetadataDeduplicationEnabled(true)
     }
 
-    public fun getMediaMetadataCompat(): MediaMetadataCompat {
-        Log.d("kaTest", "kaTest 4 " + notificationMetadata?.artworkUrl)
-        Log.d("kaTest", "kaTest 5 " + getCurrentItemHolder()?.artworkBitmap)
+    fun getMediaMetadataCompat(): MediaMetadataCompat {
         return MediaMetadataCompat.Builder().apply {
             val audioHolder = getCurrentItemHolder()
             val mediaItem = audioHolder?.audioItem
@@ -242,12 +249,32 @@ class NotificationManager internal constructor(
             putString(MediaMetadataCompat.METADATA_KEY_ALBUM, mediaItem?.albumTitle)
             putString(MediaMetadataCompat.METADATA_KEY_GENRE, currentMediaMetadata?.genre.toString())
             putLong(MediaMetadataCompat.METADATA_KEY_DURATION, notificationMetadata?.duration ?: mediaItem?.duration?: player.duration)
-            // putString(MediaMetadataCompat.METADATA_KEY_ART_URI, notificationMetadata?.artworkUrl?: mediaItem?.artwork)
-            putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, audioHolder?.artworkBitmap);
-            putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, audioHolder?.artworkBitmap);
-            // putRating(MediaMetadataCompat.METADATA_KEY_RATING, RatingCompat.fromRating(currentMediaMetadata?.userRating))
+
+            if (audioHolder?.artworkBitmap != null) {
+                putBitmap(MediaMetadataCompat.METADATA_KEY_ART, audioHolder.artworkBitmap)
+            } else {
+                val artworkUrl = notificationMetadata?.artworkUrl ?: mediaItem?.artwork
+                if (artworkUrl != null) {
+                    if (artworkUrl.startsWith("file")) {
+                        val file = File(URI(artworkUrl))
+                        if (file.exists()) {
+                            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                            putBitmap(
+                                MediaMetadataCompat.METADATA_KEY_ART,
+                                bitmap
+                            )
+                        }
+                    } else {
+                        putString(
+                            MediaMetadataCompat.METADATA_KEY_ART_URI,
+                            artworkUrl
+                        )
+                    }
+                }
+            }
         }.build()
     }
+
     private fun createNotificationAction(
         drawable: Int,
         action: String,
@@ -376,13 +403,13 @@ class NotificationManager internal constructor(
                     is NotificationButton.PLAY_PAUSE -> {
                         PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE
                     }
-                    is NotificationButton.BACKWARD -> {
+                    is NotificationButton.PREVIOUS -> {
                         rewindIcon = button.icon ?: rewindIcon
-                        PlaybackStateCompat.ACTION_REWIND
+                        PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                     }
-                    is NotificationButton.FORWARD -> {
+                    is NotificationButton.NEXT -> {
                         forwardIcon = button.icon ?: forwardIcon
-                        PlaybackStateCompat.ACTION_FAST_FORWARD
+                        PlaybackStateCompat.ACTION_SKIP_TO_NEXT
                     }
                     is NotificationButton.SEEK_TO -> {
                         PlaybackStateCompat.ACTION_SEEK_TO
@@ -460,25 +487,28 @@ class NotificationManager internal constructor(
 
         if (needsCustomActionsToAddMissingButtons) {
             val customActionProviders = buttons
-                .sortedBy {
-                    when (it) {
-                        is NotificationButton.BACKWARD -> 1
-                        is NotificationButton.FORWARD -> 2
-                        is NotificationButton.STOP -> 3
-                        else -> 4
-                    }
-                }
+//                .sortedBy {
+//                    when (it) {
+//                        is NotificationButton.BACKWARD -> 1
+//                        is NotificationButton.FORWARD -> 2
+//                        is NotificationButton.STOP -> 3
+//                        else -> 4
+//                    }
+//                }
                 .mapNotNull {
                     when (it) {
-                        is NotificationButton.BACKWARD -> {
-                            createMediaSessionAction(rewindIcon ?: DEFAULT_REWIND_ICON, REWIND)
-                        }
-                        is NotificationButton.FORWARD -> {
-                            createMediaSessionAction(forwardIcon ?: DEFAULT_FORWARD_ICON, FORWARD)
-                        }
-                        is NotificationButton.STOP -> {
-                            createMediaSessionAction(stopIcon ?: DEFAULT_STOP_ICON, STOP)
-                        }
+//                        is NotificationButton.BACKWARD -> {
+//                            Log.d("CustomActionProvider IN", "CustomActionProvider IN rewind " + it.customAction.toString())
+//                            createMediaSessionAction(rewindIcon ?: DEFAULT_REWIND_ICON, REWIND)
+//                        }
+//                        is NotificationButton.FORWARD -> {
+//                            Log.d("CustomActionProvider IN", "CustomActionProvider IN forward " + it.customAction.toString())
+//                            createMediaSessionAction(forwardIcon ?: DEFAULT_FORWARD_ICON, FORWARD)
+//                        }
+//                        is NotificationButton.STOP -> {
+//                            Log.d("CustomActionProvider IN", "CustomActionProvider IN stop " + it.customAction.toString())
+//                            createMediaSessionAction(stopIcon ?: DEFAULT_STOP_ICON, STOP)
+//                        }
                         is NotificationButton.CUSTOM_ACTION -> {
                             createMediaSessionAction(customIcons[it.customAction] ?: DEFAULT_CUSTOM_ICON, it.customAction ?: "NO_ACTION_CODE_PROVIDED")
                         }
@@ -487,6 +517,7 @@ class NotificationManager internal constructor(
                         }
                     }
                 }
+
             mediaSessionConnector.setCustomActionProviders(*customActionProviders.toTypedArray())
         }
 
@@ -558,8 +589,11 @@ class NotificationManager internal constructor(
                             else -> {}
                         }
                     }
-                    setMediaSessionToken(mediaSession.sessionToken)
-                    setPlayer(player)
+
+                    // REMOVE THE COMMENTS BELOW TO USE ANDROID AUTO PLAYER NOTIFICATION
+
+                    //setMediaSessionToken(mediaSession.sessionToken)
+                    // setPlayer(player)
                 }
     }
 
@@ -617,6 +651,7 @@ class NotificationManager internal constructor(
         public const val REWIND = "rewind"
         public const val FORWARD = "forward"
         public const val STOP = "stop"
+        public const val SHUFFLE = "shuffle"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "kotlin_audio_player"
         private val DEFAULT_STOP_ICON =

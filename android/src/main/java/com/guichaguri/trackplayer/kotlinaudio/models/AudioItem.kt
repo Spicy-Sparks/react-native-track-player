@@ -11,6 +11,7 @@ interface AudioItem {
     val artwork: String?
     val duration: Long
     val options: AudioItemOptions?
+    var artworkBitmap: Bitmap?
 }
 
 data class AudioItemOptions(
@@ -55,6 +56,7 @@ data class DefaultAudioItem(
     override val artwork: String? = null,
     override val duration: Long = -1,
     override val options: AudioItemOptions? = null,
+    override var artworkBitmap: Bitmap? = null
 ) : AudioItem
 
 class AudioItemHolder(

@@ -24,7 +24,9 @@ class MusicEvents(private val reactContext: ReactContext) : BroadcastReceiver() 
         // Media Control Events
         const val BUTTON_PLAY = "remote-play"
         const val BUTTON_PLAY_FROM_ID = "remote-play-id"
+        const val SEARCH = "remote-search"
         const val BUTTON_PLAY_FROM_SEARCH = "remote-play-search"
+        const val BUTTON_PLAY_FROM_QUEUE = "remote-play-queue"
         const val BUTTON_PAUSE = "remote-pause"
         const val BUTTON_STOP = "remote-stop"
         const val BUTTON_SKIP = "remote-skip"
@@ -38,6 +40,7 @@ class MusicEvents(private val reactContext: ReactContext) : BroadcastReceiver() 
         const val BUTTON_BROWSE = "remote-browse"
         const val BUTTON_SHUFFLE = "remote-shuffle"
         const val BUTTON_REPEAT = "remote-repeat"
+        const val BUTTON_TRACK_STATUS = "remote-track-status"
 
         // Playback Events
         const val PLAYBACK_PLAY_WHEN_READY_CHANGED = "playback-play-when-ready-changed"

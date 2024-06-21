@@ -2,6 +2,7 @@ package com.guichaguri.trackplayer.kotlinaudio.players.components
 
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.RatingCompat
+import android.util.Log
 import com.guichaguri.trackplayer.kotlinaudio.models.AudioItemHolder
 import com.google.android.exoplayer2.source.MediaSource
 

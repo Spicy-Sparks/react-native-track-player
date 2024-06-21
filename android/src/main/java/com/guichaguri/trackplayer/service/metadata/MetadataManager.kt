@@ -190,6 +190,16 @@ class MetadataManager(service: MusicService, manager: MusicManager) {
         updateNotification()
     }
 
+    private fun getCroppedBitmap(bitmap: Bitmap): Bitmap {
+        val output = if (bitmap.width >= bitmap.height) {
+            Bitmap.createBitmap(bitmap, (bitmap.width - bitmap.height) / 2, 0, bitmap.height, bitmap.height)
+        } else {
+            Bitmap.createBitmap(bitmap, 0, (bitmap.height - bitmap.width) / 2, bitmap.width, bitmap.width)
+        }
+
+        return output
+    }
+
     /**
      * Updates the current track
      * @param track The new track
@@ -209,11 +219,12 @@ class MetadataManager(service: MusicService, manager: MusicManager) {
                         transition: Transition<in Bitmap>?
                     ) {
                         try {
+                            val bitmap = getCroppedBitmap(resource)
                             metadata.putBitmap(
                                 if (hideArtworkLockScreenBackground)
                                     MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON
-                                else MediaMetadataCompat.METADATA_KEY_ART, resource)
-                            builder.setLargeIcon(resource)
+                                else MediaMetadataCompat.METADATA_KEY_ART, bitmap)
+                            builder.setLargeIcon(bitmap)
 
                             session.setMetadata(metadata.build())
                             updateNotification()

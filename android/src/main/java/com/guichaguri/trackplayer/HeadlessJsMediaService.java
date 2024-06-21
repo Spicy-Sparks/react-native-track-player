@@ -11,8 +11,12 @@ import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.provider.Settings;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.media.MediaBrowserServiceCompat;
@@ -23,13 +27,12 @@ import com.facebook.react.jstasks.HeadlessJsTaskConfig;
 import com.facebook.react.jstasks.HeadlessJsTaskContext;
 import com.facebook.react.jstasks.HeadlessJsTaskEventListener;
 import com.facebook.react.ReactInstanceManager;
-import com.facebook.react.ReactInstanceEventListener;
 import com.facebook.react.ReactNativeHost;
 import com.facebook.react.ReactApplication;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-// import timber.log.Timber;
+import timber.log.Timber;
 
 /**
  * Base class for running JS without a UI. Generally, you only need to override {@link
@@ -48,8 +51,6 @@ public abstract class HeadlessJsMediaService extends MediaBrowserServiceCompat i
 
     private final Set<Integer> mActiveTasks = new CopyOnWriteArraySet<>();
     private static @Nullable PowerManager.WakeLock sWakeLock;
-
-
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -97,7 +98,6 @@ public abstract class HeadlessJsMediaService extends MediaBrowserServiceCompat i
     public void onCreate() {
         super.onCreate();
     }
-
     /**
      * Start a task. This method handles starting a new React instance if required.
      *
@@ -113,7 +113,7 @@ public abstract class HeadlessJsMediaService extends MediaBrowserServiceCompat i
         ReactContext reactContext = reactInstanceManager.getCurrentReactContext();
         if (reactContext == null) {
             reactInstanceManager.addReactInstanceEventListener(
-                    new ReactInstanceEventListener() {
+                    new ReactInstanceManager.ReactInstanceEventListener() {
                         @Override
                         public void onReactContextInitialized(ReactContext reactContext) {
                             invokeStartTask(reactContext, taskConfig);

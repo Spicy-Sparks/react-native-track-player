@@ -39,6 +39,17 @@ declare namespace RNTrackPlayer {
   type RatingType = string | number;
   type Capability = string | number;
 
+  type AndroidAutoAction = 
+  | "shuffle-on" 
+  | "shuffle-off" 
+  | "repeat-on" 
+  | "repeat-off"
+  | "heart"
+  | "heart-outlined"
+  | "clock"
+  | "arrow-down-circle"
+  | "md-close";
+
   type EventHandler = (type: EventType, ...args: any[]) => void;
   export function registerEventHandler(handler: EventHandler): void;
 
@@ -87,30 +98,59 @@ declare namespace RNTrackPlayer {
   }
 
   export interface MetadataOptions {
-    ratingType?: RatingType;
-    jumpInterval?: number;
-    likeOptions?: FeedbackOptions;
-    dislikeOptions?: FeedbackOptions;
-    bookmarkOptions?: FeedbackOptions;
-    stopWithApp?: boolean;
-    alwaysPauseOnInterruption?: boolean;
-    hideArtworkLockScreenBackground?: boolean;
+    // ratingType?: RatingType;
+    // jumpInterval?: number;
+    // likeOptions?: FeedbackOptions;
+    // dislikeOptions?: FeedbackOptions;
+    // bookmarkOptions?: FeedbackOptions;
+    // stopWithApp?: boolean;
+    // alwaysPauseOnInterruption?: boolean;
+    // hideArtworkLockScreenBackground?: boolean;
 
-    capabilities?: Capability[];
-    notificationCapabilities?: Capability[];
-    compactCapabilities?: Capability[];
+    capabilities: Capability[];
+    notificationCapabilities: Capability[];
+    compactCapabilities: Capability[];
+    customActions: AndroidAutoAction[]
 
-    icon?: ResourceObject;
-    playIcon?: ResourceObject;
-    pauseIcon?: ResourceObject;
-    stopIcon?: ResourceObject;
-    previousIcon?: ResourceObject;
-    nextIcon?: ResourceObject;
-    rewindIcon?: ResourceObject;
-    forwardIcon?: ResourceObject;
-    color?: number;
+    // icon?: ResourceObject;
+    // playIcon?: ResourceObject;
+    // pauseIcon?: ResourceObject;
+    // stopIcon?: ResourceObject;
+    // previousIcon?: ResourceObject;
+    // nextIcon?: ResourceObject;
+    // rewindIcon?: ResourceObject;
+    // forwardIcon?: ResourceObject;
+    // color?: number;
 
-    placeholderImage?: ResourceObject;
+    // placeholderImage?: ResourceObject;
+  }
+
+  export interface MediaItem {
+    mediaId: string;
+    title: string;
+    subtitle?: string;
+    /**mediaUri doesn't seem to work. use Event.RemotePlayId to handle playback instead. */
+    // mediaUri?: string | ResourceObject;
+    iconUri?: string;
+    iconName?: string
+    /** playable has 2 states: 1 as browsable, or any other as playable.  */
+    // playable: MediaItemPlayable.MediaBrowsable | string;
+    groupTitle?: string;
+    //contentStyle?: string;
+    cropThumbnail?: 'true' | 'false'
+    childrenBrowsableContentStyle?: '1' | '2'
+    childrenPlayableContentStyle?: '1' | '2'
+    /** playbackProgress should contain a string representation of a number between 0 and 1 if present */
+    //playbackProgress?: string;
+  }
+
+  export interface AndroidAutoBrowseTree {
+    '/': MediaItem[];
+    [key: string]: MediaItem[];
+  }
+
+  export interface UpdateAndroidAutoBrowseTree {
+    [key: string]: MediaItem[];
   }
 
   // General
@@ -124,8 +164,18 @@ declare namespace RNTrackPlayer {
   export function reset(): Promise<void>;
 
   // Control Center / Notification Metadata Commands
+
   export function updateOptions(options: MetadataOptions): Promise<void>;
   export function updateMetadataForTrack(id: string, metadata: TrackMetadata) : Promise<void>;
+
+  // Android Auto
+
+  export function setBrowseTree(browseTree: AndroidAutoBrowseTree): Promise<void>;
+  export function updateAndroidAutoPlayerOptions(options: MetadataOptions): Promise<void>;
+  export function updateBrowseTree(tab: UpdateAndroidAutoBrowseTree): Promise<void>;
+  export function setAndroidAutoPlayerTracks(tracks: MediaItem[], options?: { editQueue: boolean }): Promise<void>;
+  export function setSearchResult(tracks: MediaItem[], data: { query: string }): Promise<void>;
+
   // Components
 
   export interface ProgressComponentState {

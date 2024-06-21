@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.ResultReceiver
 import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
+import android.util.Log
 import android.view.KeyEvent
 import androidx.annotation.CallSuper
 import androidx.core.content.ContextCompat
@@ -195,6 +196,8 @@ abstract class BaseAudioPlayer internal constructor(
                 if (bufferConfig != null) setLoadControl(setupBuffer(bufferConfig))
             }
             .build()
+
+        exoPlayer.pauseAtEndOfMediaItems = true
 
         mediaSession.isActive = true
 
@@ -466,18 +469,21 @@ abstract class BaseAudioPlayer internal constructor(
 
     fun play() {
         exoPlayer.play()
+        Log.d("playTest", "playTest play")
         if (currentItem != null) {
             exoPlayer.prepare()
         }
     }
 
     fun prepare() {
+        Log.d("playTest", "playTest prepare")
         if (currentItem != null) {
             exoPlayer.prepare()
         }
     }
 
     fun pause() {
+        Log.d("playTest", "playTest pause")
         exoPlayer.pause()
     }
 
@@ -518,6 +524,7 @@ abstract class BaseAudioPlayer internal constructor(
     }
 
     open fun seek(duration: Long, unit: TimeUnit) {
+        Log.d("playTest", "playTest seek")
         val positionMs = TimeUnit.MILLISECONDS.convert(duration, unit)
         exoPlayer.seekTo(positionMs)
     }
@@ -536,6 +543,8 @@ abstract class BaseAudioPlayer internal constructor(
         val uri = Uri.parse(audioItem.audioUrl)
         val mediaItem = getMediaItemFromAudioItem(audioItem)
 
+        Log.d("pcTest", "pcTest getMediaSource 1")
+
         val userAgent =
             if (audioItem.options == null || audioItem.options!!.userAgent.isNullOrBlank()) {
                 Util.getUserAgent(context, APPLICATION_NAME)
@@ -543,28 +552,39 @@ abstract class BaseAudioPlayer internal constructor(
                 audioItem.options!!.userAgent
             }
 
+        Log.d("pcTest", "pcTest getMediaSource 2")
+
         factory = when {
             audioItem.options?.resourceId != null -> {
+                Log.d("pcTest", "pcTest getMediaSource 2 1")
                 val raw = RawResourceDataSource(context)
+                Log.d("pcTest", "pcTest getMediaSource 2 1 uri: " + uri)
                 raw.open(DataSpec(uri))
+                Log.d("pcTest", "pcTest getMediaSource 2 2")
                 DataSource.Factory { raw }
             }
             isUriLocal(uri) -> {
+                Log.d("pcTest", "pcTest getMediaSource 2 3")
                 DefaultDataSourceFactory(context, userAgent)
             }
             else -> {
                 val tempFactory = DefaultHttpDataSource.Factory().apply {
+                    Log.d("pcTest", "pcTest getMediaSource 3")
                     setUserAgent(userAgent)
                     setAllowCrossProtocolRedirects(true)
+                    Log.d("pcTest", "pcTest getMediaSource 4")
 
                     audioItem.options?.headers?.let {
                         setDefaultRequestProperties(it.toMap())
                     }
+                    Log.d("pcTest", "pcTest getMediaSource 5")
                 }
 
                 enableCaching(tempFactory)
             }
         }
+
+        Log.d("pcTest", "pcTest getMediaSource 6")
 
         return when (audioItem.type) {
             MediaType.DASH -> createDashSource(mediaItem, factory)

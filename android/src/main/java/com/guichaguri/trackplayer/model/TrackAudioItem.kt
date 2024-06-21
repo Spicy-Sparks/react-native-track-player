@@ -1,5 +1,6 @@
 package com.guichaguri.trackplayer.model
 
+import android.graphics.Bitmap
 import com.guichaguri.trackplayer.kotlinaudio.models.AudioItem
 import com.guichaguri.trackplayer.kotlinaudio.models.AudioItemOptions
 import com.guichaguri.trackplayer.kotlinaudio.models.MediaType
@@ -13,5 +14,6 @@ data class TrackAudioItem(
     override var albumTitle: String? = null,
     override val artwork: String? = null,
     override val duration: Long = 0,
-    override val options: AudioItemOptions? = null
+    override val options: AudioItemOptions? = null,
+    override var artworkBitmap: Bitmap? = null
 ): AudioItem

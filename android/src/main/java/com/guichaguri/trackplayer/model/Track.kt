@@ -10,7 +10,6 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.util.Log
 import com.guichaguri.trackplayer.kotlinaudio.models.AudioItemOptions
 import com.guichaguri.trackplayer.kotlinaudio.models.MediaType
-import com.google.android.exoplayer2.upstream.RawResourceDataSource
 import com.guichaguri.trackplayer.service.Utils
 import com.guichaguri.trackplayer.service.Utils.bundleToJson
 import org.json.JSONObject
@@ -19,9 +18,9 @@ import org.json.JSONObject
  * @author Guichaguri
  */
 class Track(context: Context?, bundle: Bundle, ratingType: Int) {
-    var url: Uri? = null
+    var url: String = ""
     var id: String?
-    var resourceId: Int? = 0
+    var resourceId: Int? = null // leave it null, not 0
     var type = MediaType.DEFAULT
     var contentType: String?
     var userAgent: String?
@@ -39,27 +38,17 @@ class Track(context: Context?, bundle: Bundle, ratingType: Int) {
     val queueId: Long
 
     init {
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK")
-        id = bundle.getString("id")
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK id: " + id)
+        id = bundle.getString("mediaId")
         val trackType = bundle.getString("type", "default")
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK trackType: " + trackType)
         for (t in MediaType.values()) {
-            Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK t: " + t)
             if (t.name.equals(trackType, ignoreCase = true)) {
                 type = t
                 break
             }
         }
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK after for")
-        url = if (resourceId == 0 && context != null) {
-            resourceId = null
-            Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK pre get")
-            Utils.getUri(context, bundle, "sourceData")
-        } else {
-            RawResourceDataSource.buildRawResourceUri(resourceId!!)
+        if (bundle.getString("sourceData") != null) {
+            url = bundle.getString("sourceData").toString()
         }
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying TRACK url: " + url)
         contentType = bundle.getString("contentType")
         userAgent = bundle.getString("userAgent")
         val httpHeaders = bundle.getBundle("headers")
@@ -69,19 +58,14 @@ class Track(context: Context?, bundle: Bundle, ratingType: Int) {
                 (headers as HashMap<String, String?>)[header] = httpHeaders.getString(header)
             }
         }
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata PRE")
         setMetadata(context, bundle, ratingType)
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata POST")
         queueId = System.currentTimeMillis()
         json = bundleToJson(bundle)
         originalItem = bundle
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata END")
     }
 
     fun setMetadata(context: Context?, bundle: Bundle, ratingType: Int) {
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata BEGIN IN")
         artwork = context?.let { Utils.getUri(it, bundle, "artwork") }
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata artwork: " + artwork)
         title = bundle.getString("title")
         artist = bundle.getString("artist")
         album = bundle.getString("album")
@@ -93,11 +77,8 @@ class Track(context: Context?, bundle: Bundle, ratingType: Int) {
             val durationInt = bundle.getInt("duration", 0)
             Utils.toMillis(durationInt.toDouble())
         }
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata duration: " + duration)
         rating = Utils.getRating(bundle, "rating", ratingType)
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata rating: " + rating)
         if (originalItem != null && originalItem != bundle) originalItem!!.putAll(bundle)
-        Log.d("convertedMediaItems", "convertedMediaItems setNowPlaying setMetadata END IN")
     }
 
     fun toMediaMetadata(): MediaMetadataCompat.Builder {
@@ -112,9 +93,9 @@ class Track(context: Context?, bundle: Bundle, ratingType: Int) {
         if (duration > 0) {
             builder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
         }
-        if (artwork != null) {
-            builder.putString(MediaMetadataCompat.METADATA_KEY_ART_URI, artwork.toString())
-        }
+//        if (artwork != null) {
+//            builder.putString(MediaMetadataCompat.METADATA_KEY_ART_URI, artwork.toString())
+//        }
         if (rating != null) {
             builder.putRating(MediaMetadataCompat.METADATA_KEY_RATING, rating)
         }
@@ -132,7 +113,7 @@ class Track(context: Context?, bundle: Bundle, ratingType: Int) {
     }
 
     fun toAudioItem(): TrackAudioItem {
-        return TrackAudioItem(this, type, url.toString(), artist, title, album, artwork.toString(), duration,
+        return TrackAudioItem(this, type, url, artist, title, album, artwork.toString(), duration,
             AudioItemOptions(headers, userAgent, resourceId)
         )
     }

@@ -1,29 +1,36 @@
 package com.guichaguri.trackplayer.service
 
 import android.annotation.SuppressLint
-import android.app.*
+import android.app.ActivityManager
+import android.app.ForegroundServiceStartNotAllowedException
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.browse.MediaBrowser.MediaItem
-import android.os.*
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.IBinder
 import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.MediaBrowserCompat.MediaItem
 import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import android.view.KeyEvent
+import android.view.KeyEvent.KEYCODE_MEDIA_STOP
 import androidx.annotation.MainThread
 import androidx.core.app.NotificationCompat
 import androidx.core.content.PackageManagerCompat
 import androidx.media.session.MediaButtonReceiver
 import androidx.media.utils.MediaConstants
-// import com.doublesymmetry.kotlinaudio.models.*
-// import com.guichaguri.trackplayer.kotlinaudio.players.QueuedAudioPlayer
-import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.*
 import com.facebook.react.ReactInstanceManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactContext
@@ -31,20 +38,45 @@ import com.facebook.react.bridge.WritableNativeMap
 import com.facebook.react.jstasks.HeadlessJsTaskConfig
 import com.facebook.react.modules.appregistry.AppRegistry
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.facebook.react.modules.core.TimingModule
+import com.facebook.react.views.imagehelper.ResourceDrawableIdHelper
+import com.google.android.exoplayer2.source.MediaSource
 import com.guichaguri.trackplayer.HeadlessJsMediaService
 import com.guichaguri.trackplayer.R
 import com.guichaguri.trackplayer.extensions.asLibState
-import com.guichaguri.trackplayer.kotlinaudio.models.*
+import com.guichaguri.trackplayer.kotlinaudio.models.AAMediaSessionCallBack
+import com.guichaguri.trackplayer.kotlinaudio.models.AudioContentType
+import com.guichaguri.trackplayer.kotlinaudio.models.AudioItemTransitionReason
+import com.guichaguri.trackplayer.kotlinaudio.models.AudioPlayerState
+import com.guichaguri.trackplayer.kotlinaudio.models.BufferConfig
+import com.guichaguri.trackplayer.kotlinaudio.models.CacheConfig
+import com.guichaguri.trackplayer.kotlinaudio.models.Capability
+import com.guichaguri.trackplayer.kotlinaudio.models.MediaSessionCallback
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.CUSTOM_ACTION
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.NEXT
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.PLAY_PAUSE
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.PREVIOUS
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.SEEK_TO
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationButton.STOP
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationConfig
+import com.guichaguri.trackplayer.kotlinaudio.models.NotificationState
+import com.guichaguri.trackplayer.kotlinaudio.models.PlayerConfig
+import com.guichaguri.trackplayer.kotlinaudio.models.RepeatMode
 import com.guichaguri.trackplayer.kotlinaudio.players.QueuedAudioPlayer
 import com.guichaguri.trackplayer.model.Track
 import com.guichaguri.trackplayer.model.TrackAudioItem
+import com.guichaguri.trackplayer.module.AutoConnectionDetector
 import com.guichaguri.trackplayer.module.MusicEvents
 import com.guichaguri.trackplayer.service.Utils.setRating
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
-import java.util.*
+import kotlinx.coroutines.withContext
+import java.util.Arrays
 import java.util.concurrent.TimeUnit
 
 /**
@@ -56,19 +88,16 @@ class MusicService : HeadlessJsMediaService() {
     var manager: MusicManager? = null
     var handler: Handler? = null
     private var intentToStop = false
-    var mediaTree: Map<String, List<MediaBrowserCompat.MediaItem>> = HashMap()
-    var mediaTreeStyle = Arrays.asList(
-        MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
-        MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
-    )
+    var mediaTree: MutableMap<String, MutableList<MediaItem>> = HashMap()
+    var toUpdateMediaItems: MutableMap<String, MutableList<MediaItem>> = HashMap()
+    var loadingChildrenParentMediaId: String? = null
+    var searchQuery: String? = null
+    var searchResult: Result<MutableList<MediaItem>>? = null
 
     private val scope = MainScope()
 
     val tracks: List<Track>
         get() = player.items.map { (it as TrackAudioItem).track }
-
-    val currentTrack
-        get() = (player.currentItem as TrackAudioItem).track
 
     val state
         get() = player.playerState
@@ -95,6 +124,7 @@ class MusicService : HeadlessJsMediaService() {
 
     private var mediaSession: MediaSessionCompat? = null
     private var stateBuilder: PlaybackStateCompat.Builder? = null
+
     override fun getTaskConfig(intent: Intent): HeadlessJsTaskConfig? {
         return HeadlessJsTaskConfig("TrackPlayer", Arguments.createMap(), 0, true)
     }
@@ -102,13 +132,6 @@ class MusicService : HeadlessJsMediaService() {
     override fun onHeadlessJsTaskFinish(taskId: Int) {
         // Overridden to prevent the service from being terminated
     }
-
-//    fun emit(event: String?, data: Bundle?) {
-//        val intent = Intent(Utils.EVENT_INTENT)
-//        intent.putExtra("event", event)
-//        if (data != null) intent.putExtra("data", data)
-//        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-//    }
 
     @MainThread
     fun emit(event: String, data: Bundle? = null) {
@@ -134,6 +157,7 @@ class MusicService : HeadlessJsMediaService() {
             // The session is only active when the service is on foreground
             serviceForeground = manager!!.metadata.session.isActive
         }
+
         if (!serviceForeground) {
             val reactInstanceManager = reactNativeHost.reactInstanceManager
             val reactContext = reactInstanceManager.currentReactContext
@@ -159,35 +183,23 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     override fun onBind(intent: Intent): IBinder? {
-        Log.d("aaserv", "aaserv onBind, intent: " + intent.action)
-        /*        if(Utils.CONNECT_INTENT.equals(intent.getAction())) {
-            Log.d("aaserv", "aaserv MusicBinder");
+        /* if(Utils.CONNECT_INTENT.equals(intent.getAction())) {
             return new MusicBinder(this, manager);
-
         }
-        return super.onBind(intent);*/
+        return super.onBind(intent); */
 
         return if (SERVICE_INTERFACE == intent.action) {
             super.onBind(intent)
         } else MusicBinder(this, manager!!)
     }
 
-    /*    @androidx.annotation.Nullable
-    @Override
-    public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @androidx.annotation.Nullable Bundle rootHints) {
-        return null;
-    }
-
-    @Override
-    public void onLoadChildren(@NonNull String parentId, @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
-
-    }*/
-    private fun invokeStartTask(reactContext: ReactContext) {
+    fun invokeStartTask(reactContext: ReactContext, restart: Boolean = false) {
         try {
             val catalystInstance = reactContext.catalystInstance
             val jsAppModuleName = "AndroidAuto"
             val appParams = WritableNativeMap()
             appParams.putDouble("rootTag", 1.0)
+            appParams.putBoolean("restart", restart)
             val appProperties = Bundle.EMPTY
             if (appProperties != null) {
                 appParams.putMap("initialProps", Arguments.fromBundle(appProperties))
@@ -195,15 +207,22 @@ class MusicService : HeadlessJsMediaService() {
             catalystInstance.getJSModule(AppRegistry::class.java)
                 .runApplication(jsAppModuleName, appParams)
 
-//            TimingModule timingModule = reactContext.getNativeModule(TimingModule.class);
-//            ReactInstanceManager reactInstanceManager = getReactNativeHost().getReactInstanceManager();
-//            ReactContext currentReactContext = reactInstanceManager.getCurrentReactContext();
-//            CarPlayModule carModule = currentReactContext.getNativeModule(CarPlayModule.class);
-//            carModule.setCarContext(carContext, screen);
-//            timingModule.onHostResume();
+            val timingModule = reactContext.getNativeModule(
+                TimingModule::class.java
+            )
+            timingModule!!.onHostResume()
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    override fun onSearch(query: String, extras: Bundle?, result: Result<MutableList<MediaItem>>) {
+        searchQuery = query
+        searchResult = result
+        result.detach()
+        emit(MusicEvents.SEARCH, Bundle().apply {
+            putString("query", query)
+        });
     }
 
     override fun onGetRoot(
@@ -211,9 +230,7 @@ class MusicService : HeadlessJsMediaService() {
         clientUid: Int,
         rootHints: Bundle?
     ): BrowserRoot? {
-        Log.d("aaserv", "aaserv onGetRoot")
-        // TODO: verify clientPackageName here.
-        // Timber.tag("RNTP-AA").d(clientPackageName + " attempted to get Browsable root.");
+        // TODO: verify clientPackageName hee.
         if (Arrays.asList(
                 "com.android.systemui",
                 "com.example.android.mediacontroller",
@@ -222,99 +239,41 @@ class MusicService : HeadlessJsMediaService() {
         ) {
             @SuppressLint("VisibleForTests") val reactContext =
                 reactNativeHost.reactInstanceManager.currentReactContext
+
+            val params = Arguments.createMap()
+            params.putBoolean("connected", true)
+
             if (reactContext == null) {
                 reactNativeHost.reactInstanceManager.addReactInstanceEventListener(object :
                     ReactInstanceManager.ReactInstanceEventListener {
                     override fun onReactContextInitialized(reactContext: ReactContext) {
                         invokeStartTask(reactContext)
                         reactNativeHost.reactInstanceManager.removeReactInstanceEventListener(this)
+
+                        AutoConnectionDetector.isCarConnected = true
+
+                        reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
+                            "car-connection-update", params
+                        )
                     }
                 })
                 reactNativeHost.reactInstanceManager.createReactContextInBackground()
             } else {
-                invokeStartTask(reactContext)
+                AutoConnectionDetector.isCarConnected = true
+
+                reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
+                    "car-connection-update", params
+                )
             }
-            val activityIntent = packageManager.getLaunchIntentForPackage(
-                packageName
-            )
-            //            activityIntent.setData(Uri.parse("trackplayer://service-bound"));
-//            activityIntent.setAction(Intent.ACTION_VIEW);
-//            activityIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-            // remove comment to start app in foreground
-            // activityIntent!!.action = Utils.CONNECT_INTENT
-            // startActivity(activityIntent)
-
-
-            // ReactActivity reactActivity = reactNativeHost.getReactInstanceManager().getCurrentReactContext().getCurrentActivity();
-//            if ((reactActivity == null || reactActivity.isDestroyed()) &&
-//                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-//                    Settings.canDrawOverlays(this)) {
-//                Log.d("RNTP-AA", clientPackageName + " is in the white list of waking activity.");
-//                Intent activityIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
-//                if (activityIntent != null) {
-//                    activityIntent.setData(Uri.parse("trackplayer://service-bound"));
-//                    activityIntent.setAction(Intent.ACTION_VIEW);
-//                    activityIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-//                    startActivity(activityIntent);
-//                }
-//            }
-
-//            player.notificationManager.showNextButton = true
-//            player.notificationManager.showPreviousButton = true
-//            player.notificationManager.showPlayPauseButton = true
-//            player.notificationManager.showForwardButton = true
-//            player.notificationManager.showRewindButton = true
-//            player.notificationManager.showForwardButtonCompact = true
-//            player.notificationManager.showForwardButtonCompact = true
         }
+
         val extras = Bundle()
-        extras.putInt(
-            MediaConstants.DESCRIPTION_EXTRAS_KEY_CONTENT_STYLE_BROWSABLE,
-            mediaTreeStyle[0]
-        )
-        extras.putInt(
-            MediaConstants.DESCRIPTION_EXTRAS_KEY_CONTENT_STYLE_PLAYABLE,
-            mediaTreeStyle[1]
-        )
-//        extras.putBoolean(
-//            MediaConstants.SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_NEXT,
-//            true
-//        )
-//        extras.putBoolean(
-//            MediaConstants.SESSION_EXTRAS_KEY_SLOT_RESERVATION_SKIP_TO_PREV,
-//            true
-//        )
+
+        extras.putBoolean(
+            MediaConstants.BROWSER_SERVICE_EXTRAS_KEY_SEARCH_SUPPORTED, true)
+
         return BrowserRoot("/", extras)
     }
-
-/*    @MainThread
-    fun add(tracks: List<Track>, atIndex: Int) {
-        val items = tracks.map { it.toAudioItem() }
-        Log.d("playertest", "playertest add items: " + items + "  index: " + atIndex)
-        Log.d("playertest", "playertest player: " + player)
-        player.add(items)
-        Log.d("playertest", "playertest added")
-    }
-
-    @MainThread
-    fun load(track: Track) {
-        Log.d("playertest", "playertest load")
-        Log.d("playertest", "playertest load track: " + track)
-        Log.d("playertest", "playertest load track.toAudioItem(): " + track.toAudioItem())
-        Log.d("playertest", "playertest player: " + player)
-        Log.d("playertest", "playertest isPlaying: " + player.isPlaying)
-        player.load(track.toAudioItem())
-        Log.d("playertest", "playertest loaded")
-    }
-
-    @MainThread
-    fun play() {
-        Log.d("playertest", "playertest play")
-        player.play()
-        Log.d("playertest", "playertest play")
-    }*/
-
 
     @MainThread
     fun add(track: Track) {
@@ -325,7 +284,6 @@ class MusicService : HeadlessJsMediaService() {
     fun add(tracks: List<Track>) {
         val items = tracks.map {
             val x = it
-            // x.artwork = Uri.parse("https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Google_Lens_Icon.svg/1200px-Google_Lens_Icon.svg.png")
             x.toAudioItem() }
         player.add(items)
     }
@@ -335,18 +293,20 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     fun add(tracks: List<Track>, atIndex: Int) {
         val items = tracks.map {
-            Log.d("testtrack", "testtrack " + it)
             val x = it
-            // x.artwork = Uri.parse("https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Google_Lens_Icon.svg/1200px-Google_Lens_Icon.svg.png")
+            if (x.url.isEmpty()) {
+                val rawId = R.raw.silent_5_seconds
+                x.url = "android.resource://${applicationContext.packageName}/$rawId"
+                x.duration = 10
+            }
             x.toAudioItem() }
         player.add(items, atIndex)
     }
 
     @MainThread
     fun load(track: Track) {
-        // track.artwork =
-            // Uri.parse("https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Google_Lens_Icon.svg/1200px-Google_Lens_Icon.svg.png")
-        player.load(track.toAudioItem())
+        val audioItem = track.toAudioItem()
+        player.load(audioItem)
     }
 
     @MainThread
@@ -475,6 +435,11 @@ class MusicService : HeadlessJsMediaService() {
         player.replaceItem(index, track.toAudioItem())
     }
 
+    @MainThread
+    fun getPlayerQueueHead(): MediaSource? {
+        return player.getQueueHead()
+    }
+
 //    @MainThread
 //    fun updateNowPlayingMetadata(track: Track) {
 //        val audioItem = track.toAudioItem()
@@ -516,176 +481,32 @@ class MusicService : HeadlessJsMediaService() {
         emit(MusicEvents.PLAYBACK_ACTIVE_TRACK_CHANGED, b)
     }
 
-
-    /*    @Override
-    public BrowserRoot onGetRoot(String clientPackageName, int clientUid, Bundle rootHints) {
-        // Verifica il clientPackageName
-//        if (Arrays.asList(
-//                "com.android.systemui",
-//                "com.example.android.mediacontroller",
-//                "com.google.android.projection.gearhead"
-//        ).contains(clientPackageName)) {
-        Log.d("aaserv", "aaserv onGetRoot");
-
-            // Inizializza la struttura del "browsetree"
-            Map<String, List<MediaBrowserCompat.MediaItem>> browseTree = new HashMap<>();
-
-            // Aggiungi il nodo radice "/"
-            List<MediaBrowserCompat.MediaItem> rootNode = new ArrayList<>();
-            rootNode.add(createMediaItem("tab1", "tab1", "tab subtitle", true, 2, "", "", "", 1));
-            rootNode.add(createMediaItem("tab2", "tab2", "tab subtitle", true, 0, "", "", "", 1));
-            rootNode.add(createMediaItem("tab3", "tab3", "tab subtitle", true, 0,  "", "", "", 1));
-            browseTree.put("/", rootNode);
-
-            // Aggiungi altri nodi secondo il tuo "browsetree"
-            List<MediaBrowserCompat.MediaItem> tab1Node = new ArrayList<>();
-            tab1Node.add(createMediaItem("1", "Soul Searching (Demo)", "David Chavez", false, 0, "https://rntp.dev/example/Soul%20Searching.jpeg", "https://rntp.dev/example/Soul%20Searching.mp3", "RNTP Demo Group", 0));
-            tab1Node.add(createMediaItem("2", "Lullaby (Demo)", "David Chavez", false, 0, "https://rntp.dev/example/Lullaby%20(Demo).jpeg", "https://rntp.dev/example/Lullaby%20(Demo).mp3", "RNTP Demo Group", 0));
-            browseTree.put("tab1", tab1Node);
-
-            // Imposta lo stile del contenuto
-            Bundle extras = new Bundle();
-            extras.putInt(MediaConstants.DESCRIPTION_EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, mediaTreeStyle.get(0));
-            extras.putInt(MediaConstants.DESCRIPTION_EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, mediaTreeStyle.get(1));
-
-
-        Log.d("aaserv", "aaserv onGetRoot end");
-
-        Log.d("aaserv", "aaserv onGetRoot end br " + new BrowserRoot("/", extras));
-
-            return new BrowserRoot("/", extras);
-//        }
-//
-//        return null; // Nel caso il client non sia valido
-    }*/
-    // Metodo ausiliario per creare un oggetto MediaItem
-    private fun createMediaItem(
-        mediaId: String,
-        title: String,
-        subtitle: String,
-        playable: Boolean,
-        childrenBrowsableContentStyle: Int,
-        iconUri: String,
-        mediaUri: String,
-        groupTitle: String,
-        playbackProgress: Long
-    ): MediaBrowserCompat.MediaItem {
-        val builder = MediaDescriptionCompat.Builder()
-        builder.setMediaId(mediaId)
-        builder.setTitle(title)
-        builder.setSubtitle(subtitle)
-        // Aggiungi altre informazioni se necessario (es. iconUri, mediaUri, groupTitle, playbackProgress)
-
-        // Imposta il tipo di elemento (playable o browsable)
-        val flags =
-            if (playable) MediaBrowserCompat.MediaItem.FLAG_PLAYABLE else MediaBrowserCompat.MediaItem.FLAG_BROWSABLE
-        if (playable) {
-            builder.setExtras(createPlayableExtras(childrenBrowsableContentStyle))
-        }
-        // builder.setIconUri(iconUri);
-        return MediaBrowserCompat.MediaItem(builder.build(), flags)
-    }
-
-    // Metodo ausiliario per creare extras per gli elementi riproducibili
-    private fun createPlayableExtras(childrenBrowsableContentStyle: Int): Bundle {
-        val extras = Bundle()
-        extras.putInt(
-            MediaConstants.DESCRIPTION_EXTRAS_KEY_CONTENT_STYLE_BROWSABLE,
-            childrenBrowsableContentStyle
-        )
-        return extras
-    }
-
-//    override fun onLoadChildren(
-//        parentId: String,
-//        result: Result<List<MediaBrowserCompat.MediaItem>>
-//    ) {
-//        Log.d("aaserv", "aaserv onLoadChildren")
-//        result.sendResult(mediaTree[parentId])
-//    }
-
     override fun onLoadChildren(
-        parentId: String,
-        result: Result<List<MediaBrowserCompat.MediaItem>>
+        parentMediaId: String,
+        result: Result<List<MediaItem>>
     ) {
-        Log.d("aaserv", "aaserv onLoadChildren")
-        val mediaItems = mutableListOf<MediaBrowserCompat.MediaItem>()
+        val mediaIdParts = parentMediaId.split("-/-")
+        val itemType = mediaIdParts?.getOrNull(1)
 
-        mediaTree.forEach { layer ->
-                mediaTree[layer.key]?.forEach { mediaItem ->
-                    Log.d("bitmapTest", "bitmapTest 1 " + mediaItem.description.title)
-                    val modifiedMediaItem =
-                        if (mediaItem.description.iconUri != null && mediaItem.description.iconUri.toString()
-                                .startsWith("file://")
-                        ) {
-                            Log.d("bitmapTest", "bitmapTest 2 " + mediaItem.description.iconUri)
-                            // Load bitmap from local file
-                            val bitmap =
-                                mediaItem.description.iconUri?.path?.let { loadBitmapFromFile(it) }
-                            if (bitmap != null) {
-                                // Replace iconUri with iconBitmap
-                                val descriptionBuilder = MediaDescriptionCompat.Builder()
-                                    .setMediaId(mediaItem.description.mediaId)
-                                    .setTitle(mediaItem.description.title)
-                                    .setSubtitle(mediaItem.description.subtitle)
-                                    .setDescription(mediaItem.description.description)
-                                    .setIconBitmap(bitmap)  // Set the new bitmap
-                                // You can set other properties as well if needed
-                                MediaBrowserCompat.MediaItem(
-                                    descriptionBuilder.build(),
-                                    mediaItem.flags
-                                )
-                            } else {
-                                mediaItem
-                            }
-                        } else {
-                            mediaItem
-                        }
-                    mediaItems.add(modifiedMediaItem)
-                }
-    }
-        result.sendResult(mediaItems)
-    }
+        if (itemType == "empty") {
+            result.sendResult(emptyList())
+        }
 
-
-
-    private fun loadBitmapFromFile(filePath: String): Bitmap? {
-        return try {
-            BitmapFactory.decodeFile(filePath)
-        } catch (e: Exception) {
-            Log.e("Error", "Error loading bitmap from file: $e")
-            null
+        if (mediaTree.keys.contains(parentMediaId) || parentMediaId == "/" || parentMediaId.contains("tab")) {
+            result.sendResult(mediaTree[parentMediaId])
+        } else if (parentMediaId != loadingChildrenParentMediaId) {
+            loadingChildrenParentMediaId = parentMediaId
+            emit(MusicEvents.BUTTON_BROWSE, Bundle().apply {
+                putString("mediaId", parentMediaId)
+            })
+            result.sendResult(mediaTree["placeholder"])
         }
     }
 
+    override fun onLoadItem(itemId: String, result: Result<MediaItem>) {}
 
-    override fun onLoadItem(itemId: String, result: Result<MediaBrowserCompat.MediaItem>) {
-        // Emetti un evento o esegui altre azioni in base all'ID dell'elemento cliccato
-        // itemId rappresenta l'ID dell'elemento multimediale cliccato
-        Log.d("aaserv", "aaserv onLoadItem")
-
-        // Ad esempio, puoi emettere un evento che notifica l'ID dell'elemento cliccato
-//        Bundle data = new Bundle();
-//        data.putString("itemId", itemId);
-//        emit("mediaItemClicked", data);
-//
-//        // Successivamente, invia il risultato a chi ha richiesto il caricamento dell'elemento
-//        // Puoi creare un oggetto MediaBrowserCompat.MediaItem utilizzando l'ID dell'elemento
-//        MediaBrowserCompat.MediaItem mediaItem = createMediaItem(itemId, "Titolo dell'elemento", "Sottotitolo dell'elemento", true, 0, "", "", "", 0);
-//        result.sendResult(mediaItem);
-    }
-
-    /*    @Override
-    public void onLoadChildren(String parentMediaId, Result<List<MediaBrowserCompat.MediaItem>> result) {
-        Log.d("aaserv", "aaserv onLoadChildren");
-        // Timber.tag("GVA-RNTP").d("RNTP received loadChildren req: %s", parentMediaId);
-
-        // emit(MusicEvents.BUTTON_BROWSE, new Bundle().getString("mediaId", parentMediaId));
-        // result.sendResult(mediaTree.get(parentMediaId));
-    }*/
     @SuppressLint("RestrictedApi")
     override fun onCreate() {
-        Log.d("aaserv", "aaserv onCreate")
         super.onCreate()
 
         // Create a MediaSessionCompat
@@ -700,20 +521,8 @@ class MusicService : HeadlessJsMediaService() {
         // Set an initial PlaybackState with ACTION_PLAY, so media buttons can start the player
         stateBuilder = PlaybackStateCompat.Builder()
             .setActions(
-                PlaybackStateCompat.ACTION_PLAY or
-                        PlaybackStateCompat.ACTION_PLAY_PAUSE
+                PlaybackStateCompat.ACTION_SKIP_TO_NEXT
             )
-
-//        stateBuilder?.addCustomAction(
-//            PlaybackStateCompat.CustomAction.Builder(
-//                "test_next",
-//                "test_name",
-//                R.drawable.ic_next
-//            ).run {
-//                // setExtras(customActionExtras)
-//                build()
-//            }
-//        )
 
         if (stateBuilder != null) {
             mediaSession!!.setPlaybackState(stateBuilder!!.build())
@@ -743,48 +552,68 @@ class MusicService : HeadlessJsMediaService() {
             } else {
                 startForeground(1, NotificationCompat.Builder(this, channel).build())
             }
-        } catch (ex: Exception) {
-        }
+        } catch (_: Exception) { }
     }
 
-    override fun onCustomAction(action: String, extras: Bundle?, result: Result<Bundle>) {
-        // when(action) {
-//            CUSTOM_ACTION_START_RADIO_FROM_MEDIA -> {
-//                ...
-//            }
-            Log.d("test custom action", "test custom action")
-        // }
+    override fun onCustomAction(action: String, extras: Bundle?, result: Result<Bundle>) {}
+
+    /**
+     * Workaround for the "Context.startForegroundService() did not then call Service.startForeground()"
+     * within 5s" ANR and crash by creating an empty notification and stopping it right after. For more
+     * information see https://github.com/doublesymmetry/react-native-track-player/issues/1666
+     */
+    private fun startAndStopEmptyNotificationToAvoidANR() {
+        val notificationManager = this.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            notificationManager.createNotificationChannel(
+                NotificationChannel("Playback", "Playback", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+
+        val notificationBuilder: NotificationCompat.Builder = NotificationCompat.Builder(
+            this, "Playback"
+        )
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setSmallIcon(R.drawable.ic_logo)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            notificationBuilder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+        }
+        val notification = notificationBuilder.build()
+        startForeground(1, notification)
+        stopForeground(true)
     }
 
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-        Log.d("aaserv", "aaserv onStartCommand")
         if (intent != null && Intent.ACTION_MEDIA_BUTTON == intent.action) {
             onStartForeground()
-            // Check if the app is on background, then starts a foreground service and then ends it right after
-            /*onStartForeground();
 
-            if(manager != null) {
-                MediaButtonReceiver.handleIntent(manager.getMetadata().getSession(), intent);
+            if (Build.VERSION.SDK_INT >= 33) {
+                try {
+                    startAndStopEmptyNotificationToAvoidANR()
+                } catch (ex: java.lang.Exception) {
+                }
             }
 
-            return START_NOT_STICKY;*/
-
-            // Interpret event
-            val intentExtra = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-            if (intentExtra!!.keyCode == KeyEvent.KEYCODE_MEDIA_STOP) {
+            val intentExtra: KeyEvent? = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+            if (intentExtra!!.keyCode == KEYCODE_MEDIA_STOP) {
                 intentToStop = true
                 startServiceOreoAndAbove()
                 stopSelf()
             } else {
                 intentToStop = false
             }
+
             if (manager != null && manager!!.metadata.session != null) {
                 MediaButtonReceiver.handleIntent(manager!!.metadata.session, intent)
                 return START_NOT_STICKY
             }
         }
+
         if (manager == null) manager = MusicManager(this)
+
         if (handler == null) handler = Handler()
+
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
     }
@@ -817,7 +646,6 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     override fun onDestroy() {
-        Log.d("aaserv", "aaserv onDestroy")
         super.onDestroy()
         if (manager != null) {
             manager!!.destroy(true)
@@ -826,7 +654,6 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent) {
-        Log.d("aaserv", "aaserv onTaskRemoved")
         super.onTaskRemoved(rootIntent)
         if (manager == null || manager!!.shouldStopWithApp()) {
             destroy(true)
@@ -839,16 +666,12 @@ class MusicService : HeadlessJsMediaService() {
         }
     }
 
-
-
     @MainThread
     fun setupPlayer(playerOptions: Bundle?) {
-        Log.d("setupPlayer", "setupPlayer")
         if (this::player.isInitialized) {
             print("Player was initialized. Prevent re-initializing again")
             return
         }
-        Log.d("setupPlayer", "setupPlayer init")
 
         val bufferConfig = BufferConfig(
             playerOptions?.getDouble(MIN_BUFFER_KEY)?.toInt(),
@@ -867,20 +690,16 @@ class MusicService : HeadlessJsMediaService() {
 
         val automaticallyUpdateNotificationMetadata = playerOptions?.getBoolean(AUTO_UPDATE_METADATA, true) ?: true
         val mediaSessionCallback = object: AAMediaSessionCallBack {
-            override fun handleCustomActions(action: String?, extras: Bundle?) {
-                Log.d("testbuttons", "testbuttons handleCustomActions")
-            }
+            override fun handleCustomActions(action: String?, extras: Bundle?) {}
 
             override fun handlePlayFromMediaId(mediaId: String?, extras: Bundle?) {
-                Log.d("testbuttons", "testbuttons handlePlayFromMediaId")
                 val emitBundle = extras ?: Bundle()
                 emit(MusicEvents.BUTTON_PLAY_FROM_ID, emitBundle.apply {
-                    putString("id", mediaId)
+                    putString("mediaId", mediaId)
                 })
             }
 
             override fun handlePlayFromSearch(query: String?, extras: Bundle?) {
-                Log.d("testbuttons", "testbuttons handlePlayFromSearch")
                 val emitBundle = extras ?: Bundle()
                 emit(MusicEvents.BUTTON_PLAY_FROM_SEARCH, emitBundle.apply {
                     putString("query", query)
@@ -888,91 +707,18 @@ class MusicService : HeadlessJsMediaService() {
             }
 
             override fun handleSkipToQueueItem(id: Long) {
-                Log.d("testbuttons", "testbuttons handleSkipToQueueItem")
                 val emitBundle = Bundle()
-                emit(MusicEvents.BUTTON_SKIP, emitBundle.apply {
+                emit(MusicEvents.BUTTON_PLAY_FROM_QUEUE, emitBundle.apply {
                     putInt("index", id.toInt())
                 })
             }
         }
-        Log.d("setupPlayer", "setupPlayer ok")
         player = QueuedAudioPlayer(this@MusicService, playerConfig, bufferConfig, cacheConfig, mediaSessionCallback)
-        Log.d("setupPlayer", "setupPlayer ok player: " + player)
-        Log.d("setupPlayer", "setupPlayer ok player.currentItem: " + player.currentItem)
         player.automaticallyUpdateNotificationMetadata = automaticallyUpdateNotificationMetadata
-
-//        player.notificationManager.showNextButton = true
-//        player.notificationManager.showPreviousButton = true
-//        player.notificationManager.showPlayPauseButton = true
-//        player.notificationManager.showForwardButton = true
-//        player.notificationManager.showRewindButton = true
-//        player.notificationManager.showForwardButtonCompact = true
-//        player.notificationManager.showForwardButtonCompact = true
-
         sessionToken = player.getMediaSessionToken()
-
-
-
 
         observeEvents()
         setupForegrounding()
-
-        val bundle = Bundle().apply {
-            putDouble("duration", 120.0)
-            putBoolean("resetControls", true)
-            putString("description", "eSound")
-            putBoolean("enabled", true)
-            putString("artist", "Sfera Ebbasta")
-            putBoolean("isLive", false)
-            putBoolean("repeat", false)
-            putString("artwork", "https://e-cdns-images.dzcdn.net/images/cover/005974b2ee76da784b1ac771b2b26394/500x500-000000-80-0-0.jpg")
-            putString("extension", "m4a")
-            putDouble("elapsedTime", 0.0)
-            putBoolean("updateOnly", false)
-            putBoolean("updateSkip", false)
-            putBoolean("isLoading", true)
-            putLong("id", 2545936202)
-            putLong("key", 2545936202)
-            putString("url", "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3")
-            putString("album", "eSound")
-            putString("genre", "")
-            putDouble("state", 2.0)
-            putString("title", "15 Piani 🅴")
-            putBoolean("hasSongs", true)
-            putString("artworkRemote", "https://e-cdns-images.dzcdn.net/images/cover/005974b2ee76da784b1ac771b2b26394/1000x1000-000000-80-0-0.jpg")
-            putString("sharableUrl", "https://esound.app/app/playlist/ZGFpbHltaXgwLDMsMw")
-            putString("trackStatus", "downloaded")
-            putBoolean("usingLocalFiles", false)
-            putString("sharableTrackUrl", "https://esound.app/app/track/NTYwNDQzNTcwLDA")
-            putBoolean("isAudio", false)
-            putBoolean("shuffle", false)
-        }
-
-        val track = Track(baseContext, bundle, 1)
-
-        val audioItem = track.toAudioItem()
-
-        Log.d("playertest", "playertest track url: " + track.url)
-
-        player.load(audioItem)
-        Log.d("playertest", "playertest ok load")
-
-        player.add(
-            listOf(audioItem),
-            0
-        )
-        Log.d("playertest", "playertest ok add")
-
-        player.play()
-
-        Log.d("playertest", "playertest ok play")
-
-        val handler: Handler = Handler(Looper.getMainLooper())
-        handler.postDelayed({ // Qui verrà eseguito il codice dopo 10 secondi
-            player.seek(60, TimeUnit.SECONDS)
-        }, 10000) // 10000 millisecondi = 10 secondi
-
-
     }
 
     private fun getPlaybackErrorBundle(): Bundle {
@@ -990,11 +736,9 @@ class MusicService : HeadlessJsMediaService() {
     private fun emitQueueEndedEvent() {
         val bundle = Bundle()
         bundle.putInt(TRACK_KEY, player.currentIndex)
-        bundle.putDouble(POSITION_KEY, (player.position / 1000).toDouble()) // check seconds conversion
+        bundle.putDouble(POSITION_KEY, (player.position / 1000).toDouble())
         emit(MusicEvents.PLAYBACK_QUEUE_ENDED, bundle)
     }
-
-
 
     private var capabilities: List<Capability> = emptyList()
     private var notificationCapabilities: List<Capability> = emptyList()
@@ -1013,95 +757,74 @@ class MusicService : HeadlessJsMediaService() {
         }
     }
 
-//    @MainThread
-//    private fun progressUpdateEventFlow(interval: Long) = flow {
-//        while (true) {
-//            if (player.isPlaying) {
-//                val bundle = progressUpdateEvent()
-//                emit(bundle)
-//            }
-//
-//            delay(interval * 1000)
-//        }
-//    }
+    private fun getIcon(options: Bundle, propertyName: String, defaultIcon: Int): Int {
+        if (!options.containsKey(propertyName)) return defaultIcon
+        val bundle = options.getBundle(propertyName) ?: return defaultIcon
+        val helper = ResourceDrawableIdHelper.getInstance()
+        val icon = helper.getResourceDrawableId(this, bundle.getString("uri"))
+        return if (icon == 0) defaultIcon else icon
+    }
 
     @MainThread
     fun updateOptions(options: Bundle) {
         latestOptions = options
         val androidOptions = options.getBundle(ANDROID_OPTIONS_KEY)
 
-//        appKilledPlaybackBehavior = AppKilledPlaybackBehavior::string.find(androidOptions?.getString(APP_KILLED_PLAYBACK_BEHAVIOR_KEY)) ?: AppKilledPlaybackBehavior.CONTINUE_PLAYBACK
-//
-//        //TODO: This handles a deprecated flag. Should be removed soon.
-//        options.getBoolean(STOPPING_APP_PAUSES_PLAYBACK_KEY).let {
-//            stoppingAppPausesPlayback = options.getBoolean(STOPPING_APP_PAUSES_PLAYBACK_KEY)
-//            if (stoppingAppPausesPlayback) {
-//                appKilledPlaybackBehavior = AppKilledPlaybackBehavior.PAUSE_PLAYBACK
-//            }
-//        }
-
         ratingType = BundleUtils.getInt(options, "ratingType", RatingCompat.RATING_NONE)
 
         player.playerOptions.alwaysPauseOnInterruption = androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
 
-        capabilities = options.getIntegerArrayList("capabilities")?.map { Capability.values()[it] } ?: emptyList()
+        capabilities = options.getIntegerArrayList("capabilities")?.map {
+            Capability.values()[it] } ?: emptyList()
         notificationCapabilities = options.getIntegerArrayList("notificationCapabilities")?.map { Capability.values()[it] } ?: emptyList()
-        Log.d("notificationCapabilities", "notificationCapabilities " + notificationCapabilities)
         compactCapabilities = options.getIntegerArrayList("compactCapabilities")?.map { Capability.values()[it] } ?: emptyList()
-        val customActions = options.getBundle(CUSTOM_ACTIONS_KEY)
-        val customActionsLeftList = customActions?.getStringArrayList(CUSTOM_ACTIONS_LEFT_LIST_KEY)
-        val customActionsRightList = customActions?.getStringArrayList(CUSTOM_ACTIONS_RIGHT_LIST_KEY)
+        val customActions = options.getStringArrayList(CUSTOM_ACTIONS_KEY)
         if (notificationCapabilities.isEmpty()) notificationCapabilities = capabilities
 
         fun customIcon(customAction: String): Int {
             return when (customAction) {
-                "customShuffleOn" -> com.google.android.exoplayer2.ui.R.drawable.exo_icon_shuffle_on
-                "customShuffleOff" -> com.google.android.exoplayer2.ui.R.drawable.exo_icon_shuffle_off
-                "customRepeatOn" -> com.google.android.exoplayer2.ui.R.drawable.exo_icon_repeat_all
-                "customRepeatOff" -> com.google.android.exoplayer2.ui.R.drawable.exo_icon_repeat_off
-                else -> com.google.android.exoplayer2.ui.R.drawable.exo_ic_play_circle_filled
+                "shuffle-on" -> R.mipmap.ic_shuffle_on_foreground
+                "shuffle-off" -> R.mipmap.ic_shuffle_off_foreground
+                "repeat-on" -> R.mipmap.ic_repeat_on_foreground
+                "repeat-off" -> R.mipmap.ic_repeat_off_foreground
+                "heart" -> R.mipmap.ic_heart_foreground
+                "heart-outlined" -> R.mipmap.ic_heart_outlined_foreground
+                "clock" -> R.mipmap.ic_clock_now_foreground
+                "arrow-down-circle" -> R.mipmap.ic_arrow_down_circle_foreground
+                "md-close" -> R.mipmap.ic_close_foreground
+                else -> R.mipmap.ic_heart_outlined_foreground
             }
         }
 
         val buttonsList = mutableListOf<NotificationButton>()
 
-
-        if (customActionsLeftList != null) {
-            for (customAction in customActionsLeftList ?: emptyList()) {
-                Log.d("customAction", "customAction: " + customAction)
-                // val customIcon = BundleUtils.getIcon(this, customActions, customAction, customIcon(customAction))
-                val customIcon = customIcon(customAction)
-                buttonsList.add(CUSTOM_ACTION(icon=customIcon, customAction = customAction, isCompact = false))
-            }
-        }
-
         notificationCapabilities.forEach { capability ->
             when (capability) {
                 Capability.PLAY, Capability.PAUSE -> {
-                    val playIcon = BundleUtils.getIconOrNull(this, options, "playIcon")
-                    val pauseIcon = BundleUtils.getIconOrNull(this, options, "pauseIcon")
+                    val playIcon = getIcon(options, "playIcon", R.drawable.ic_play)
+                    val pauseIcon = getIcon(options, "pauseIcon", R.drawable.ic_pause)
                     buttonsList.addAll(listOf(PLAY_PAUSE(playIcon = playIcon, pauseIcon = pauseIcon)))
                 }
                 Capability.STOP -> {
-                    val stopIcon = BundleUtils.getIconOrNull(this, options, "stopIcon")
+                    val stopIcon = getIcon(options, "stopIcon", R.drawable.ic_stop)
                     buttonsList.addAll(listOf(STOP(icon = stopIcon)))
                 }
                 Capability.SKIP_TO_NEXT -> {
-                    val nextIcon = BundleUtils.getIconOrNull(this, options, "nextIcon")
+                    val nextIcon = getIcon(options, "nextIcon", R.drawable.ic_next)
                     buttonsList.addAll(listOf(NEXT(icon = nextIcon, isCompact = isCompact(capability))))
                 }
                 Capability.SKIP_TO_PREVIOUS -> {
-                    val previousIcon = BundleUtils.getIconOrNull(this, options, "previousIcon")
+                    val previousIcon = getIcon(options, "previousIcon", R.drawable.ic_previous)
                     buttonsList.addAll(listOf(PREVIOUS(icon = previousIcon, isCompact = isCompact(capability))))
                 }
-                Capability.JUMP_FORWARD -> {
-                    val forwardIcon = BundleUtils.getIconOrNull(this, options, "forwardIcon")
-                    buttonsList.addAll(listOf(FORWARD(icon = forwardIcon, isCompact = isCompact(capability))))
-                }
-                Capability.JUMP_BACKWARD -> {
-                    val backwardIcon = BundleUtils.getIconOrNull(this, options, "rewindIcon")
-                    buttonsList.addAll(listOf(BACKWARD(icon = backwardIcon, isCompact = isCompact(capability))))
-                }
+//                Capability.JUMP_FORWARD -> {
+//                    val forwardIcon = BundleUtils.getIconOrNull(this, options, "forwardIcon")
+//                    buttonsList.addAll(listOf(FORWARD(icon = forwardIcon, isCompact = isCompact(capability))))
+//                }
+//                Capability.JUMP_BACKWARD -> {
+//                    val backwardIcon = BundleUtils.getIconOrNull(this, options, "rewindIcon")
+//                    buttonsList.addAll(listOf(BACKWARD(icon = backwardIcon, isCompact = isCompact(capability))))
+//                }
                 Capability.SEEK_TO -> {
                     buttonsList.addAll(listOf(SEEK_TO))
                 }
@@ -1109,11 +832,8 @@ class MusicService : HeadlessJsMediaService() {
             }
         }
 
-
-        if (customActionsRightList != null) {
-            for (customAction in customActionsRightList ?: emptyList()) {
-                Log.d("customAction", "customAction: " + customAction)
-                // val customIcon = BundleUtils.getIcon(this, customActions, customAction, customIcon(customAction))
+        if (customActions != null) {
+            for (customAction in customActions) {
                 val customIcon = customIcon(customAction)
                 buttonsList.add(CUSTOM_ACTION(icon=customIcon, customAction = customAction, isCompact = false))
             }
@@ -1122,88 +842,61 @@ class MusicService : HeadlessJsMediaService() {
         val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
 //            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-//            // Add the Uri data so apps can identify that it was a notification click
-//            data = Uri.parse("trackplayer://notification.click")
             action = Intent.ACTION_VIEW
         }
-
-        Log.d("notbuttontest", "notbuttontest: " + buttonsList.size + " - " + buttonsList)
 
         val accentColor = BundleUtils.getIntOrNull(options, "color")
         val smallIcon = R.drawable.ic_logo
         val pendingIntent = PendingIntent.getActivity(this, 0, openAppIntent, getPendingIntentFlags())
         val notificationConfig = NotificationConfig(buttonsList, accentColor, smallIcon, pendingIntent)
 
+        // player.notificationManager.destroy()
         player.notificationManager.createNotification(notificationConfig)
 
-        Log.d("createdNotification", "createdNotification")
-
         // setup progress update events if configured
-//        progressUpdateJob?.cancel()
-//        val updateInterval = BundleUtils.getIntOrNull(options, PROGRESS_UPDATE_EVENT_INTERVAL_KEY)
-//        if (updateInterval != null && updateInterval > 0) {
-//            progressUpdateJob = scope.launch {
-//                progressUpdateEventFlow(updateInterval.toLong()).collect { emit(MusicEvents.PLAYBACK_PROGRESS_UPDATED, it) }
-//            }
-//        }
+        progressUpdateJob?.cancel()
+        val updateInterval = BundleUtils.getIntOrNull(options, PROGRESS_UPDATE_EVENT_INTERVAL_KEY)
+        if (updateInterval != null && updateInterval > 0) {
+            progressUpdateJob = scope.launch {
+                progressUpdateEventFlow(updateInterval.toDouble()).collect { emit(MusicEvents.PLAYBACK_PROGRESS_UPDATED, it) }
+            }
+        }
+    }
+
+    @MainThread
+    private fun progressUpdateEventFlow(interval: Double) = flow {
+        while (true) {
+            if (player.isPlaying) {
+                val bundle = progressUpdateEvent()
+                emit(bundle)
+            }
+
+            delay((interval * 1000).toLong())
+        }
+    }
+
+    @MainThread
+    private suspend fun progressUpdateEvent(): Bundle {
+        return withContext(Dispatchers.Main) {
+            Bundle().apply {
+                putDouble(POSITION_KEY, (player.position / 1000).toDouble())
+                putDouble(DURATION_KEY, (player.duration / 1000).toDouble())
+                putDouble(BUFFERED_POSITION_KEY, (player.bufferedPosition / 1000).toDouble())
+                putInt(TRACK_KEY, player.currentIndex)
+            }
+        }
     }
 
 
     @MainThread
     private fun observeEvents() {
-//        scope.launch {
-//            event.stateChange.collect {
-//                Log.d("onPlayerEvent", "onPlayerEvent stateChange state: " + getPlayerStateBundle(it))    // move 1123 circa here
-//                emit(MusicEvents.PLAYBACK_STATE, getPlayerStateBundle(it))
-//
-//                if (it == AudioPlayerState.ENDED && player.nextItem == null) {
-//                    emitQueueEndedEvent()
-//                }
-//
-////                player.playerOptions
-////
-////
-////                val currentItem = player.currentItem
-////                Log.d("onPlayerEvent", "onPlayerEvent stateChange currentItem: " + currentItem)
-////                val bundle = Bundle().apply {
-////                    if (currentItem != null) {
-////                        putString("sourceData", currentItem.audioUrl)
-////                    }
-////                    if (currentItem != null) {
-////                        putString("artwork", currentItem.artwork)
-////                    }
-////                    if (currentItem != null) {
-////                        putString("title", currentItem.title)
-////                    }
-////                    putString("artist", "deadmau5")
-////                    putString("album", "while(1<2)")
-////                    putString("genre", "Progressive House, Electro House")
-////                    putString("date", "2014-05-20T07:00:00+00:00")
-////                    putDouble("duration", 402.0)
-////                }
-////                val binder = MusicModule.binder
-////                Log.d("onPlayerEvent", "onPlayerEvent stateChange bundle: " + bundle)
-////
-////                val track = Track(applicationContext, bundle, 0)
-////                if (binder != null) {
-////                    Log.d("onPlayerEvent", "onPlayerEvent stateChange binder ok")
-////                    Log.d("onPlayerEvent", "onPlayerEvent stateChange duration: " + track.duration)
-////                    binder.manager.currentTrack = track
-////                    binder.manager.metadata.updateMetadata(track)
-////
-////                    binder.manager.setState(1, 0)
-////                }
-//            }
-//        }
-
         scope.launch {
             event.audioItemTransition.collect {
-                Log.d("onPlayerEvent", "onPlayerEvent audioItemTransition")
                 if (it !is AudioItemTransitionReason.REPEAT) {
                     emitPlaybackTrackChangedEvents(
                         player.currentIndex,
                         player.previousIndex,
-                        (it?.oldPosition ?: 0).toDouble() // check seconds conversion
+                        (it?.oldPosition ?: 0).toDouble()
                     )
                 }
             }
@@ -1211,7 +904,6 @@ class MusicService : HeadlessJsMediaService() {
 
         scope.launch {
             event.onAudioFocusChanged.collect {
-                Log.d("onPlayerEvent", "onPlayerEvent onAudioFocusChanged")
                 Bundle().apply {
                     putBoolean(IS_FOCUS_LOSS_PERMANENT_KEY, it.isFocusLostPermanently)
                     putBoolean(IS_PAUSED_KEY, it.isPaused)
@@ -1223,7 +915,6 @@ class MusicService : HeadlessJsMediaService() {
 
         scope.launch {
             event.onPlayerActionTriggeredExternally.collect {
-                Log.d("onPlayerActionTriggeredExternally", "onPlayerActionTriggeredExternally: " + it)
                 when (it) {
                     is MediaSessionCallback.RATING -> {
                         Bundle().apply {
@@ -1243,7 +934,6 @@ class MusicService : HeadlessJsMediaService() {
                     MediaSessionCallback.PREVIOUS -> emit(MusicEvents.BUTTON_SKIP_PREVIOUS)
                     MediaSessionCallback.STOP -> emit(MusicEvents.BUTTON_STOP)
                     MediaSessionCallback.FORWARD -> {
-                        emit(MusicEvents.BUTTON_SKIP_NEXT)
 //                        Bundle().apply {
 //                            val interval = latestOptions?.getDouble(FORWARD_JUMP_INTERVAL_KEY, DEFAULT_JUMP_INTERVAL) ?: DEFAULT_JUMP_INTERVAL
 //                            putInt("interval", interval.toInt())
@@ -1251,7 +941,6 @@ class MusicService : HeadlessJsMediaService() {
 //                        }
                     }
                     MediaSessionCallback.REWIND -> {
-                        emit(MusicEvents.BUTTON_SKIP_PREVIOUS)
 //                        Bundle().apply {
 //                            val interval = latestOptions?.getDouble(BACKWARD_JUMP_INTERVAL_KEY, DEFAULT_JUMP_INTERVAL) ?: DEFAULT_JUMP_INTERVAL
 //                            putInt("interval", interval.toInt())
@@ -1260,81 +949,16 @@ class MusicService : HeadlessJsMediaService() {
                     }
                     is MediaSessionCallback.CUSTOMACTION -> {
                         Bundle().apply {
-                            Log.d("customttest", "customttest: " + it.customAction)
-                            if (it.customAction == "customSkipPrev") {
-                                emit(MusicEvents.BUTTON_SKIP_PREVIOUS, this)
-                            } else if (it.customAction == "customSkipNext") {
-                                emit(MusicEvents.BUTTON_SKIP_NEXT, this)
-                            } else if (it.customAction == "customShuffleOn" || it.customAction == "customShuffleOff") {
+                            if (it.customAction == "shuffle-on" || it.customAction == "shuffle-off") {
                                 emit(MusicEvents.BUTTON_SHUFFLE, this)
-                            } else if (it.customAction == "customRepeatOn" || it.customAction == "customRepeatOff") {
+                            } else if (it.customAction == "repeat-on" || it.customAction == "repeat-off") {
                                 emit(MusicEvents.BUTTON_REPEAT, this)
+                            } else if (it.customAction == "heart" || it.customAction == "heart-outlined" || it.customAction == "clock" || it.customAction == "arrow-down-circle" || it.customAction == "md-close") {
+                                emit(MusicEvents.BUTTON_TRACK_STATUS, this)
                             }
                         }
                     }
-                    else -> {}
                 }
-            }
-        }
-
-//        scope.launch {
-//            event.onPlaybackMetadata.collect {
-//                Log.d("onPlayerEvent", "onPlayerEvent onPlaybackMetadata")
-//            }
-//        }
-
-/*        scope.launch {
-            event.onTimedMetadata.collect {
-                val data = MetadataAdapter.fromMetadata(it)
-                val bundle = Bundle().apply {
-                    putParcelableArrayList(METADATA_PAYLOAD_KEY, ArrayList(data))
-                }
-                emit(MusicEvents.METADATA_TIMED_RECEIVED, bundle)
-
-                // TODO: Handle the different types of metadata and publish to new events
-                val metadata = PlaybackMetadata.fromId3Metadata(it)
-                    ?: PlaybackMetadata.fromIcy(it)
-                    ?: PlaybackMetadata.fromVorbisComment(it)
-                    ?: PlaybackMetadata.fromQuickTime(it)
-
-                if (metadata != null) {
-                    Bundle().apply {
-                        putString("source", metadata.source)
-                        putString("title", metadata.title)
-                        putString("url", metadata.url)
-                        putString("artist", metadata.artist)
-                        putString("album", metadata.album)
-                        putString("date", metadata.date)
-                        putString("genre", metadata.genre)
-                        emit(MusicEvents.PLAYBACK_METADATA, this)
-                    }
-                }
-            }
-        }*/
-
-/*        scope.launch {
-            event.onCommonMetadata.collect {
-                val data = MetadataAdapter.fromMediaMetadata(it)
-                val bundle = Bundle().apply {
-                    putBundle(METADATA_PAYLOAD_KEY, data)
-                }
-                emit(MusicEvents.METADATA_COMMON_RECEIVED, bundle)
-            }
-        }*/
-
-        scope.launch {
-            event.playWhenReadyChange.collect {
-                Log.d("playWhenReadyChangeEvent", "playWhenReadyChangeEvent")
-                Bundle().apply {
-                    putBoolean("playWhenReady", it.playWhenReady)
-                    emit(MusicEvents.PLAYBACK_PLAY_WHEN_READY_CHANGED, this)
-                }
-            }
-        }
-
-        scope.launch {
-            event.playbackError.collect {
-                emit(MusicEvents.PLAYBACK_ERROR, getPlaybackErrorBundle())
             }
         }
     }
@@ -1422,8 +1046,6 @@ class MusicService : HeadlessJsMediaService() {
             return stopForegroundWhenNotOngoing && (removeNotificationWhenNotOngoing || isForegroundService())
         }
 
-
-
         scope.launch {
             event.notificationStateChange.collect {
                 when (it) {
@@ -1443,8 +1065,8 @@ class MusicService : HeadlessJsMediaService() {
                             scope.launch {
                                 delay(stopForegroundGracePeriod.toLong() * 1000)
                                 if (shouldStopForeground()) {
-                                    @Suppress("DEPRECATION")
-                                    stopForeground(removeNotificationWhenNotOngoing)
+                                    // @Suppress("DEPRECATION")
+                                    // stopForeground(removeNotificationWhenNotOngoing)
                                 }
                             }
                         }
@@ -1496,7 +1118,5 @@ class MusicService : HeadlessJsMediaService() {
         const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5
 
         const val CUSTOM_ACTIONS_KEY = "customActions"
-        const val CUSTOM_ACTIONS_RIGHT_LIST_KEY = "customActionsRightList"
-        const val CUSTOM_ACTIONS_LEFT_LIST_KEY = "customActionsLeftList"
     }
 }
