@@ -25,7 +25,14 @@ declare namespace RNTrackPlayer {
     | "remote-like"
     | "remote-dislike"
     | "remote-bookmark"
-    | "remote-play-pause";
+    | "remote-play-pause"
+    | "car-connection-update"
+    | "remote-play-queue"
+    | "remote-shuffle"
+    | "remote-repeat"
+    | "remote-track-status"
+    | "remote-browse"
+    | "remote-search";
 
   export type TrackType =
     | "default"
@@ -98,31 +105,32 @@ declare namespace RNTrackPlayer {
   }
 
   export interface MetadataOptions {
-    // ratingType?: RatingType;
-    // jumpInterval?: number;
-    // likeOptions?: FeedbackOptions;
-    // dislikeOptions?: FeedbackOptions;
-    // bookmarkOptions?: FeedbackOptions;
-    // stopWithApp?: boolean;
-    // alwaysPauseOnInterruption?: boolean;
-    // hideArtworkLockScreenBackground?: boolean;
+    ratingType?: RatingType;
+    jumpInterval?: number;
+    likeOptions?: FeedbackOptions;
+    dislikeOptions?: FeedbackOptions;
+    bookmarkOptions?: FeedbackOptions;
+    stopWithApp?: boolean;
+    alwaysPauseOnInterruption?: boolean;
+    hideArtworkLockScreenBackground?: boolean;
 
-    capabilities: Capability[];
-    notificationCapabilities: Capability[];
-    compactCapabilities: Capability[];
-    customActions: AndroidAutoAction[]
+    capabilities?: Capability[];
+    notificationCapabilities?: Capability[];
+    compactCapabilities?: Capability[];
 
-    // icon?: ResourceObject;
-    // playIcon?: ResourceObject;
-    // pauseIcon?: ResourceObject;
-    // stopIcon?: ResourceObject;
-    // previousIcon?: ResourceObject;
-    // nextIcon?: ResourceObject;
-    // rewindIcon?: ResourceObject;
-    // forwardIcon?: ResourceObject;
-    // color?: number;
+    customActions?: AndroidAutoAction[]
 
-    // placeholderImage?: ResourceObject;
+    icon?: ResourceObject;
+    playIcon?: ResourceObject;
+    pauseIcon?: ResourceObject;
+    stopIcon?: ResourceObject;
+    previousIcon?: ResourceObject;
+    nextIcon?: ResourceObject;
+    rewindIcon?: ResourceObject;
+    forwardIcon?: ResourceObject;
+    color?: number;
+
+    placeholderImage?: ResourceObject;
   }
 
   export interface MediaItem {
@@ -156,12 +164,14 @@ declare namespace RNTrackPlayer {
   // General
 
   export function setupPlayer(options?: PlayerOptions): Promise<void>;
+  export function removeNotifications(): Promise<void>;
 
   // Player Queue Commands
 
   export function setNowPlaying(track: Track): Promise<void>;
   export function updatePlayback(data: any): Promise<void>;
   export function reset(): Promise<void>;
+  export function clear(): Promise<void>;
 
   // Control Center / Notification Metadata Commands
 
@@ -173,7 +183,7 @@ declare namespace RNTrackPlayer {
   export function setBrowseTree(browseTree: AndroidAutoBrowseTree): Promise<void>;
   export function updateAndroidAutoPlayerOptions(options: MetadataOptions): Promise<void>;
   export function updateBrowseTree(tab: UpdateAndroidAutoBrowseTree): Promise<void>;
-  export function setAndroidAutoPlayerTracks(tracks: MediaItem[], options?: { editQueue: boolean }): Promise<void>;
+  export function setAndroidAutoPlayerTracks(tracks: MediaItem[], options: { editQueue: boolean }): Promise<void>;
   export function setSearchResult(tracks: MediaItem[], data: { query: string }): Promise<void>;
 
   // Components

@@ -75,12 +75,12 @@ class MusicModule(reactContext: ReactApplicationContext?) :
         context.addLifecycleEventListener(this)
         val manager = LocalBroadcastManager.getInstance(context)
         eventHandler = MusicEvents(context)
-        manager.registerReceiver(eventHandler!!, IntentFilter(Utils.EVENT_INTENT))
+        manager.registerReceiver(eventHandler!!, IntentFilter(EVENT_INTENT))
         autoConnectionDetector = AutoConnectionDetector(context)
         autoConnectionDetector?.registerCarConnectionReceiver()
     }
 
-    override fun onCatalystInstanceDestroy() {
+    override fun invalidate() {
         val context: ReactContext = reactApplicationContext
         if (eventHandler != null) {
             val manager = LocalBroadcastManager.getInstance(context)
@@ -176,7 +176,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     }
 
     /* ****************************** API ****************************** */
-    override fun getConstants(): Map<String, Any>? {
+    override fun getConstants(): Map<String, Any> {
         val constants: MutableMap<String, Any> = HashMap()
 
         // Capabilities
@@ -701,86 +701,104 @@ class MusicModule(reactContext: ReactApplicationContext?) :
         }
     }
 
+//    @ReactMethod
+//    fun setNowPlaying(trackMap: ReadableMap, callback: Promise) {
+//        val bundle = Arguments.toBundle(trackMap)
+//
+//        waitForConnection {
+//            try {
+//                val track = bundle?.let {
+//                    binder?.let { it1 ->
+//                        Track(
+//                            reactApplicationContext,
+//                            it,
+//                            it1.ratingType
+//                        )
+//                    }
+//                }
+//                if (track != null) {
+//                    binder?.manager?.currentTrack = track
+//                    binder?.manager?.metadata?.updateMetadata(track)
+//                }
+//            } catch (ex: Exception) {
+//                callback.reject("invalid_track_object", ex)
+//                return@waitForConnection // @waitForConnection
+//            }
+//
+//            if (binder != null && binder!!.manager != null && binder!!.manager.currentTrack == null)
+//                callback.reject("invalid_track_object", "Track is missing a required key")
+//
+//            callback.resolve(null)
+//        }
+//    }
+
     @ReactMethod
     fun setNowPlaying(trackMap: ReadableMap, callback: Promise) {
         val bundle = Arguments.toBundle(trackMap)
 
         waitForConnection {
             try {
-                val track = bundle?.let {
-                    binder?.let { it1 ->
-                        Track(
-                            reactApplicationContext,
-                            it,
-                            it1.ratingType
-                        )
+                val state = if (trackMap.hasKey("state")) trackMap.getInt("state") else 0
+
+                var elapsedTime: Long = -1
+
+                if (trackMap.hasKey("elapsedTime")) {
+                    elapsedTime = try {
+                        Utils.toMillis(trackMap.getDouble("elapsedTime"))
+                    } catch (ex: Exception) {
+                        Utils.toMillis(trackMap.getInt("elapsedTime").toDouble())
                     }
                 }
-                if (track != null) {
-                    binder?.manager?.currentTrack = track
-                    binder?.manager?.metadata?.updateMetadata(track)
+
+                if (bundle != null && binder != null) {
+                    val track = Track(reactApplicationContext, bundle, binder!!.ratingType)
+                    binder!!.manager.currentTrack = track
+                    binder!!.manager.metadata.updateMetadata(track)
+                    binder!!.manager.setState(state, elapsedTime)
                 }
             } catch (ex: Exception) {
                 callback.reject("invalid_track_object", ex)
-                return@waitForConnection // @waitForConnection
+                return@waitForConnection
             }
 
-            if (binder != null && binder!!.manager != null && binder!!.manager.currentTrack == null)
+            if (binder?.manager?.currentTrack == null) {
                 callback.reject("invalid_track_object", "Track is missing a required key")
+            }
 
             callback.resolve(null)
         }
     }
 
+
     @ReactMethod
     fun setAndroidAutoPlayerTracks(tracksArray: ReadableArray, options: ReadableMap, callback: Promise) {
         scope.launch {
             waitForConnection {
-                val bundle = Arguments.toBundle(options)
-                val editQueue = bundle?.getBoolean("editQueue")
+                Handler(Looper.getMainLooper()).postDelayed({
+                    val bundle = Arguments.toBundle(options)
+                    val editQueue = bundle?.getBoolean("editQueue")
 
-                val tracks = mutableListOf<Track>()
+                    val tracks = mutableListOf<Track>()
 
-                for (i in 0 until tracksArray.size()) {
-                    val trackMap = tracksArray.getMap(i)
-                    val trackBundle = Arguments.toBundle(trackMap)
+                    for (i in 0 until tracksArray.size()) {
+                        val trackMap = tracksArray.getMap(i)
+                        val trackBundle = Arguments.toBundle(trackMap)
 
-                    val track = trackBundle?.let {
-                        binder?.let { it1 ->
-                            Track(
-                                reactApplicationContext,
-                                it,
-                                it1.ratingType
-                            )
+                        val track = trackBundle?.let {
+                            binder?.let { it1 ->
+                                Track(
+                                    reactApplicationContext,
+                                    it,
+                                    it1.ratingType
+                                )
+                            }
                         }
+
+                        track?.let { tracks.add(it) }
                     }
 
-                    track?.let { tracks.add(it) }
-                }
-
-                if (tracks.isNotEmpty()) {
-                    if (editQueue == true) {
-                        musicService?.removeUpcomingTracks()
-                        musicService?.removePreviousTracks()
-
-                        musicService?.add(
-                            tracks,
-                            1
-                        )
-                    } else {
-                        if (tracks[0].url.isEmpty()) {
-                            musicService?.playWhenReady = false
-                            if (musicService?.state != AudioPlayerState.PAUSED) musicService?.pause()
-                        } else {
-                            musicService?.playWhenReady = true
-                        }
-
-                        if (musicService?.getPlayerQueueHead() == null) {
-                            musicService?.add(
-                                tracks,
-                                0
-                            )
-                        } else {
+                    if (tracks.isNotEmpty()) {
+                        if (editQueue == true) {
                             musicService?.removeUpcomingTracks()
                             musicService?.removePreviousTracks()
 
@@ -788,45 +806,43 @@ class MusicModule(reactContext: ReactApplicationContext?) :
                                 tracks,
                                 1
                             )
+                        } else {
+                            if (tracks[0].url.isEmpty()) {
+                                musicService?.playWhenReady = false
+                                if (musicService?.state != AudioPlayerState.PAUSED) musicService?.pause()
+                            } else {
+                                musicService?.playWhenReady = true
+                            }
 
-                            musicService?.skipToNext()
+                            if (musicService?.getPlayerQueueHead() == null) {
+                                musicService?.add(
+                                    tracks,
+                                    0
+                                )
+                            } else {
+                                musicService?.removeUpcomingTracks()
+                                musicService?.removePreviousTracks()
 
-                            musicService?.updateMetadataForTrack(0, tracks[0])
+                                musicService?.add(
+                                    tracks,
+                                    1
+                                )
 
-                            musicService?.remove(0)
+                                musicService?.skipToNext()
+
+                                musicService?.updateMetadataForTrack(0, tracks[0])
+
+                                musicService?.remove(0)
+                            }
                         }
                     }
-                }
+
+                    callback.resolve(null)
+                }, 100)
             }
         }
 
     }
-
-    @ReactMethod
-    fun setAndroidAutoPlayerState(trackMap: ReadableMap, callback: Promise) {
-        scope.launch {
-            waitForConnection {
-                val bundle = Arguments.toBundle(trackMap)
-
-                val state = bundle?.getString("state")
-                val elapsedTime = bundle?.getDouble("elapsedTime")
-                val isLoading = bundle?.getBoolean("isLoading")
-
-                if (state != null) {
-                    if (state == "playing") {
-                        musicService?.play()
-                    } else if (state == "paused") {
-                        musicService?.pause()
-                    }
-                }
-                if (elapsedTime != null && isLoading == false) {
-                    musicService?.seekTo(elapsedTime.toFloat())
-                }
-            }
-        }
-
-    }
-
 
     @ReactMethod
     fun updatePlayback(trackMap: ReadableMap, callback: Promise) {
@@ -874,6 +890,8 @@ class MusicModule(reactContext: ReactApplicationContext?) :
                         }
                     }, 100)
                 }
+
+                callback.resolve(null)
 
             } catch (ex: Exception) {
                 callback.reject("invalid_track_object", ex)
@@ -967,7 +985,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     }
 
     @ReactMethod
-    fun remove(callback: Promise) {
+    fun removeNotifications(callback: Promise) {
         waitForConnection {
             if (binder != null) {
                 binder!!.manager.metadata.removeNotifications()
