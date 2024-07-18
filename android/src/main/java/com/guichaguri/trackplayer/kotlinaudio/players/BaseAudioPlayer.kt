@@ -115,10 +115,16 @@ abstract class BaseAudioPlayer internal constructor(
             else exoPlayer.bufferedPosition
         }
 
-    var volume: Float
-        get() = exoPlayer.volume
+//    var volume: Float
+//        get() = exoPlayer.volume
+//        set(value) {
+//            exoPlayer.volume = value * volumeMultiplier
+//        }
+
+    var volume: Float = 0.0f
         set(value) {
-            exoPlayer.volume = value * volumeMultiplier
+            exoPlayer.volume = value
+            field = value
         }
 
     var playbackSpeed: Float
@@ -129,11 +135,11 @@ abstract class BaseAudioPlayer internal constructor(
 
     var automaticallyUpdateNotificationMetadata: Boolean = true
 
-    private var volumeMultiplier = 1f
-        private set(value) {
-            field = value
-            volume = volume
-        }
+//    private var volumeMultiplier = 1f
+//        private set(value) {
+//            field = value
+//            volume = volume
+//        }
 
     val isPlaying
         get() = exoPlayer.isPlaying
@@ -687,10 +693,10 @@ abstract class BaseAudioPlayer internal constructor(
             var isDucking = focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
                     && !playerOptions.alwaysPauseOnInterruption
             if (isDucking) {
-                volumeMultiplier = 0.5f
+                // volumeMultiplier = 0.5f
                 wasDucking = true
             } else if (wasDucking) {
-                volumeMultiplier = 1f
+                // volumeMultiplier = 1f
                 wasDucking = false
             }
         }

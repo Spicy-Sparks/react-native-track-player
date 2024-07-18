@@ -403,13 +403,13 @@ class MusicService : HeadlessJsMediaService() {
         player.playerOptions.repeatMode = value
     }
 
-    @MainThread
-    fun getVolume(): Float = player.volume
-
-    @MainThread
-    fun setVolume(value: Float) {
-        player.volume = value
-    }
+//    @MainThread
+//    fun getVolume(): Float = player.volume
+//
+//    @MainThread
+//    fun setVolume(value: Float) {
+//        player.volume = value
+//    }
 
     @MainThread
     fun getDurationInSeconds(): Double = (player.duration / 1000).toDouble() // check seconds conversion
@@ -714,6 +714,7 @@ class MusicService : HeadlessJsMediaService() {
             }
         }
         player = QueuedAudioPlayer(this@MusicService, playerConfig, bufferConfig, cacheConfig, mediaSessionCallback)
+        player.volume = 0.0f
         player.automaticallyUpdateNotificationMetadata = automaticallyUpdateNotificationMetadata
         sessionToken = player.getMediaSessionToken()
 
