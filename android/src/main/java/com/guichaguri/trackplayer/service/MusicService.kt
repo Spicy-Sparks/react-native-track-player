@@ -10,20 +10,14 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
-import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaBrowserCompat.MediaItem
-import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import android.util.Log
 import android.view.KeyEvent
 import android.view.KeyEvent.KEYCODE_MEDIA_STOP
 import androidx.annotation.MainThread
@@ -125,7 +119,7 @@ class MusicService : HeadlessJsMediaService() {
     private var mediaSession: MediaSessionCompat? = null
     private var stateBuilder: PlaybackStateCompat.Builder? = null
 
-    override fun getTaskConfig(intent: Intent): HeadlessJsTaskConfig? {
+    override fun getTaskConfig(intent: Intent): HeadlessJsTaskConfig {
         return HeadlessJsTaskConfig("TrackPlayer", Arguments.createMap(), 0, true)
     }
 
@@ -133,6 +127,7 @@ class MusicService : HeadlessJsMediaService() {
         // Overridden to prevent the service from being terminated
     }
 
+    @SuppressLint("VisibleForTests")
     @MainThread
     fun emit(event: String, data: Bundle? = null) {
         reactNativeHost.reactInstanceManager.currentReactContext
@@ -151,6 +146,7 @@ class MusicService : HeadlessJsMediaService() {
         }
     }
 
+    @SuppressLint("VisibleForTests")
     private fun onStartForeground() {
         var serviceForeground = false
         if (manager != null) {
@@ -229,9 +225,9 @@ class MusicService : HeadlessJsMediaService() {
         clientPackageName: String,
         clientUid: Int,
         rootHints: Bundle?
-    ): BrowserRoot? {
+    ): BrowserRoot {
         // TODO: verify clientPackageName hee.
-        if (Arrays.asList(
+        if (listOf(
                 "com.android.systemui",
                 "com.example.android.mediacontroller",
                 "com.google.android.projection.gearhead"
@@ -245,14 +241,15 @@ class MusicService : HeadlessJsMediaService() {
 
             if (reactContext == null) {
                 reactNativeHost.reactInstanceManager.addReactInstanceEventListener(object :
+                    @Suppress("DEPRECATION")
                     ReactInstanceManager.ReactInstanceEventListener {
-                    override fun onReactContextInitialized(reactContext: ReactContext) {
-                        invokeStartTask(reactContext)
+                    override fun onReactContextInitialized(context: ReactContext) {
+                        invokeStartTask(context)
                         reactNativeHost.reactInstanceManager.removeReactInstanceEventListener(this)
 
                         AutoConnectionDetector.isCarConnected = true
 
-                        reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
+                        context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
                             "car-connection-update", params
                         )
                     }
@@ -451,16 +448,19 @@ class MusicService : HeadlessJsMediaService() {
         player.notificationManager.hideNotification()
     }
 
+    //
+    // FORCED CURRENT INDEX TO 0
+    //
     private fun emitPlaybackTrackChangedEvents(
-        index: Int?,
+        // index: Int?,
         previousIndex: Int?,
         oldPosition: Double
     ) {
         val a = Bundle()
         a.putDouble(POSITION_KEY, oldPosition)
-        if (index != null) {
-            a.putInt(NEXT_TRACK_KEY, index)
-        }
+        //if (index != null) {
+            a.putInt(NEXT_TRACK_KEY, 0)
+        //}
 
         if (previousIndex != null) {
             a.putInt(TRACK_KEY, previousIndex)
@@ -485,22 +485,27 @@ class MusicService : HeadlessJsMediaService() {
         parentMediaId: String,
         result: Result<List<MediaItem>>
     ) {
-        val mediaIdParts = parentMediaId.split("-/-")
-        val itemType = mediaIdParts?.getOrNull(1)
+        try {
+            val mediaIdParts = parentMediaId.split("-/-")
+            val itemType = mediaIdParts.getOrNull(1)
 
-        if (itemType == "empty") {
-            result.sendResult(emptyList())
-        }
+            if (itemType == "empty") {
+                result.sendResult(emptyList())
+            }
 
-        if (mediaTree.keys.contains(parentMediaId) || parentMediaId == "/" || parentMediaId.contains("tab")) {
-            result.sendResult(mediaTree[parentMediaId])
-        } else if (parentMediaId != loadingChildrenParentMediaId) {
-            loadingChildrenParentMediaId = parentMediaId
-            emit(MusicEvents.BUTTON_BROWSE, Bundle().apply {
-                putString("mediaId", parentMediaId)
-            })
-            result.sendResult(mediaTree["placeholder"])
-        }
+            if (mediaTree.keys.contains(parentMediaId) || parentMediaId == "/" || parentMediaId.contains(
+                    "tab"
+                )
+            ) {
+                result.sendResult(mediaTree[parentMediaId])
+            } else if (parentMediaId != loadingChildrenParentMediaId) {
+                loadingChildrenParentMediaId = parentMediaId
+                emit(MusicEvents.BUTTON_BROWSE, Bundle().apply {
+                    putString("mediaId", parentMediaId)
+                })
+                result.sendResult(mediaTree["placeholder"])
+            }
+        } catch (_: Exception) {}
     }
 
     override fun onLoadItem(itemId: String, result: Result<MediaItem>) {}
@@ -513,6 +518,7 @@ class MusicService : HeadlessJsMediaService() {
         mediaSession = MediaSessionCompat(baseContext, PackageManagerCompat.LOG_TAG)
 
         // Enable callbacks from MediaButtons and TransportControls
+        @Suppress("DEPRECATION")
         mediaSession!!.setFlags(
             MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
                     MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
@@ -538,6 +544,7 @@ class MusicService : HeadlessJsMediaService() {
 
         //onStartForeground();
         if (manager == null) manager = MusicManager(this)
+        @Suppress("DEPRECATION")
         if (handler == null) handler = Handler()
         val channel = Utils.getNotificationChannel(this as Context)
 
@@ -581,20 +588,21 @@ class MusicService : HeadlessJsMediaService() {
         }
         val notification = notificationBuilder.build()
         startForeground(1, notification)
+        @Suppress("DEPRECATION")
         stopForeground(true)
     }
 
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-        if (intent != null && Intent.ACTION_MEDIA_BUTTON == intent.action) {
+        if (Intent.ACTION_MEDIA_BUTTON == intent.action) {
             onStartForeground()
 
             if (Build.VERSION.SDK_INT >= 33) {
                 try {
                     startAndStopEmptyNotificationToAvoidANR()
-                } catch (ex: java.lang.Exception) {
-                }
+                } catch (_: java.lang.Exception) {}
             }
 
+            @Suppress("DEPRECATION")
             val intentExtra: KeyEvent? = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
             if (intentExtra!!.keyCode == KEYCODE_MEDIA_STOP) {
                 intentToStop = true
@@ -604,7 +612,7 @@ class MusicService : HeadlessJsMediaService() {
                 intentToStop = false
             }
 
-            if (manager != null && manager!!.metadata.session != null) {
+            if (manager != null) {
                 MediaButtonReceiver.handleIntent(manager!!.metadata.session, intent)
                 return START_NOT_STICKY
             }
@@ -612,27 +620,28 @@ class MusicService : HeadlessJsMediaService() {
 
         if (manager == null) manager = MusicManager(this)
 
+        @Suppress("DEPRECATION")
         if (handler == null) handler = Handler()
 
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
     }
 
-    fun startServiceOreoAndAbove() {
+    private fun startServiceOreoAndAbove() {
         // Needed to prevent crash when dismissing notification
         // https://stackoverflow.com/questions/47609261/bound-service-crash-with-context-startforegroundservice-did-not-then-call-ser?rq=1
         if (Build.VERSION.SDK_INT >= 26) {
-            val CHANNEL_ID = Utils.NOTIFICATION_CHANNEL
-            val CHANNEL_NAME = "Playback"
+            val channelId = Utils.NOTIFICATION_CHANNEL
+            val channelName = "Playback"
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
+                channelId,
+                channelName,
                 NotificationManager.IMPORTANCE_DEFAULT
             )
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
                 channel
             )
-            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            val notification = NotificationCompat.Builder(this, channelId)
                 .setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_logo)
                 .setPriority(
                     NotificationCompat.PRIORITY_MIN
@@ -662,6 +671,7 @@ class MusicService : HeadlessJsMediaService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } else {
+            @Suppress("DEPRECATION")
             stopForeground(true)
         }
     }
@@ -750,11 +760,7 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     private fun getPendingIntentFlags(): Int {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT
-        } else {
-            PendingIntent.FLAG_CANCEL_CURRENT
-        }
+        return PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT
     }
 
     private fun getIcon(options: Bundle, propertyName: String, defaultIcon: Int): Int {
@@ -775,9 +781,9 @@ class MusicService : HeadlessJsMediaService() {
         player.playerOptions.alwaysPauseOnInterruption = androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
 
         capabilities = options.getIntegerArrayList("capabilities")?.map {
-            Capability.values()[it] } ?: emptyList()
-        notificationCapabilities = options.getIntegerArrayList("notificationCapabilities")?.map { Capability.values()[it] } ?: emptyList()
-        compactCapabilities = options.getIntegerArrayList("compactCapabilities")?.map { Capability.values()[it] } ?: emptyList()
+            Capability.entries[it] } ?: emptyList()
+        notificationCapabilities = options.getIntegerArrayList("notificationCapabilities")?.map { Capability.entries[it] } ?: emptyList()
+        compactCapabilities = options.getIntegerArrayList("compactCapabilities")?.map { Capability.entries[it] } ?: emptyList()
         val customActions = options.getStringArrayList(CUSTOM_ACTIONS_KEY)
         if (notificationCapabilities.isEmpty()) notificationCapabilities = capabilities
 
@@ -893,8 +899,15 @@ class MusicService : HeadlessJsMediaService() {
         scope.launch {
             event.audioItemTransition.collect {
                 if (it !is AudioItemTransitionReason.REPEAT) {
+//                    emitPlaybackTrackChangedEvents(
+//                        player.currentIndex,
+//                        player.previousIndex,
+//                        (it?.oldPosition ?: 0).toDouble()
+//                    )
+                    //
+                    // FORCED CURRENT INDEX TO 0
+                    //
                     emitPlaybackTrackChangedEvents(
-                        player.currentIndex,
                         player.previousIndex,
                         (it?.oldPosition ?: 0).toDouble()
                     )
@@ -1064,10 +1077,10 @@ class MusicService : HeadlessJsMediaService() {
                             // being immediately destroyed once the player finishes playing media.
                             scope.launch {
                                 delay(stopForegroundGracePeriod.toLong() * 1000)
-                                if (shouldStopForeground()) {
+                                // if (shouldStopForeground()) {
                                     // @Suppress("DEPRECATION")
                                     // stopForeground(removeNotificationWhenNotOngoing)
-                                }
+                                // }
                             }
                         }
                     }
