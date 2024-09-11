@@ -506,9 +506,9 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun getPlayerQueueHead(): MediaSource? {
-        if (this::player.isInitialized) {
-            return player.getQueueHead()
-        } else return null
+        return if (this::player.isInitialized) {
+            player.getQueueHead()
+        } else null
     }
 
 //    @MainThread
