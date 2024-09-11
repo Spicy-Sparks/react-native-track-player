@@ -279,36 +279,46 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun add(tracks: List<Track>) {
-        val items = tracks.map {
-            val x = it
-            x.toAudioItem() }
-        player.add(items)
+        if (this::player.isInitialized) {
+            val items = tracks.map {
+                val x = it
+                x.toAudioItem()
+            }
+            player.add(items)
+        }
     }
 
 
 
     @MainThread
     fun add(tracks: List<Track>, atIndex: Int) {
-        val items = tracks.map {
-            val x = it
-            if (x.url.isEmpty()) {
-                val rawId = R.raw.silent_5_seconds
-                x.url = "android.resource://${applicationContext.packageName}/$rawId"
-                x.duration = 10
+        if (this::player.isInitialized) {
+            val items = tracks.map {
+                val x = it
+                if (x.url.isEmpty()) {
+                    val rawId = R.raw.silent_5_seconds
+                    x.url = "android.resource://${applicationContext.packageName}/$rawId"
+                    x.duration = 10
+                }
+                x.toAudioItem()
             }
-            x.toAudioItem() }
-        player.add(items, atIndex)
+            player.add(items, atIndex)
+        }
     }
 
     @MainThread
     fun load(track: Track) {
-        val audioItem = track.toAudioItem()
-        player.load(audioItem)
+        if (this::player.isInitialized) {
+            val audioItem = track.toAudioItem()
+            player.load(audioItem)
+        }
     }
 
     @MainThread
     fun move(fromIndex: Int, toIndex: Int) {
-        player.move(fromIndex, toIndex);
+        if (this::player.isInitialized) {
+            player.move(fromIndex, toIndex);
+        }
     }
 
     @MainThread
@@ -318,104 +328,164 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun remove(indexes: List<Int>) {
-        player.remove(indexes)
+        if (this::player.isInitialized) {
+            player.remove(indexes)
+        }
     }
 
     @MainThread
     fun clear() {
-        player.clear()
+        if (this::player.isInitialized) {
+            player.clear()
+        }
     }
 
     @MainThread
     fun play() {
-        player.play()
+        if (this::player.isInitialized) {
+            player.play()
+        }
     }
 
     @MainThread
     fun pause() {
-        player.pause()
+        if (this::player.isInitialized) {
+            player.pause()
+        }
     }
 
     @MainThread
     fun stop() {
-        player.stop()
+        if (this::player.isInitialized) {
+            player.stop()
+        }
     }
 
     @MainThread
     fun removeUpcomingTracks() {
-        player.removeUpcomingItems()
+        if (this::player.isInitialized) {
+            player.removeUpcomingItems()
+        }
     }
 
     @MainThread
     fun removePreviousTracks() {
-        player.removePreviousItems()
+        if (this::player.isInitialized) {
+            player.removePreviousItems()
+        }
     }
 
     @MainThread
     fun skip(index: Int) {
-        player.jumpToItem(index)
+        if (this::player.isInitialized) {
+            player.jumpToItem(index)
+        }
     }
 
     @MainThread
     fun skipToNext() {
-        player.next()
+        if (this::player.isInitialized) {
+            player.next()
+        }
     }
 
     @MainThread
     fun skipToPrevious() {
-        player.previous()
+        if (this::player.isInitialized) {
+            player.previous()
+        }
     }
 
     @MainThread
     fun seekTo(seconds: Float) {
-        player.seek((seconds * 1000).toLong(), TimeUnit.MILLISECONDS)
+        if (this::player.isInitialized) {
+            player.seek((seconds * 1000).toLong(), TimeUnit.MILLISECONDS)
+        }
     }
 
     @MainThread
     fun seekBy(offset: Float) {
-        player.seekBy((offset.toLong()), TimeUnit.SECONDS)
+        if (this::player.isInitialized) {
+            player.seekBy((offset.toLong()), TimeUnit.SECONDS)
+        }
     }
 
     @MainThread
     fun retry() {
-        player.prepare()
+        if (this::player.isInitialized) {
+            player.prepare()
+        }
     }
 
     @MainThread
-    fun getCurrentTrackIndex(): Int = player.currentIndex
+    fun getCurrentTrackIndex(): Int {
+        return if (this::player.isInitialized) {
+            player.currentIndex
+        } else 0
+    }
 
     @MainThread
-    fun getRate(): Float = player.playbackSpeed
+    fun getRate(): Float {
+        return if (this::player.isInitialized) {
+            player.playbackSpeed
+        } else 1f
+    }
 
     @MainThread
     fun setRate(value: Float) {
-        player.playbackSpeed = value
+        if (this::player.isInitialized) {
+            player.playbackSpeed = value
+        }
     }
 
     @MainThread
-    fun getRepeatMode(): RepeatMode = player.playerOptions.repeatMode
+    fun getRepeatMode(): RepeatMode {
+        return if (this::player.isInitialized) {
+            player.playerOptions.repeatMode
+        } else RepeatMode.OFF
+    }
 
     @MainThread
     fun setRepeatMode(value: RepeatMode) {
-        player.playerOptions.repeatMode = value
+        if (this::player.isInitialized) {
+            player.playerOptions.repeatMode = value
+        }
     }
 
     @MainThread
-    fun getVolume(): Float = player.volume
+    fun getVolume(): Float {
+        return if (this::player.isInitialized) {
+            player.volume
+        } else 0f
+    }
 
     @MainThread
     fun setVolume(value: Float) {
-        player.volume = value
+        if (this::player.isInitialized) {
+            player.volume = value
+        }
     }
 
     @MainThread
-    fun getDurationInSeconds(): Double = (player.duration / 1000).toDouble() // check seconds conversion
+    fun getDurationInSeconds(): Double {
+        return if (this::player.isInitialized) {
+            (player.duration / 1000).toDouble()
+        } else 0.0
+    }
 
     @MainThread
-    fun getPositionInSeconds(): Double = (player.position / 1000).toDouble() // check seconds conversion
+    fun getPositionInSeconds(): Double {
+        return if (this::player.isInitialized) {
+            (player.position / 1000).toDouble()
+        } else 0.0
+    }
 
     @MainThread
-    fun getBufferedPositionInSeconds(): Double = (player.bufferedPosition / 1000).toDouble() // check seconds conversion
+    fun getBufferedPositionInSeconds(): Double {
+        return if (this::player.isInitialized) {
+            (player.bufferedPosition / 1000).toDouble()
+        } else 0.0
+    }
 
     @MainThread
     fun getPlayerStateBundle(state: AudioPlayerState): Bundle {
@@ -429,12 +499,16 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun updateMetadataForTrack(index: Int, track: Track) {
-        player.replaceItem(index, track.toAudioItem())
+        if (this::player.isInitialized) {
+            player.replaceItem(index, track.toAudioItem())
+        }
     }
 
     @MainThread
     fun getPlayerQueueHead(): MediaSource? {
-        return player.getQueueHead()
+        if (this::player.isInitialized) {
+            return player.getQueueHead()
+        } else return null
     }
 
 //    @MainThread
@@ -445,7 +519,9 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun clearNotificationMetadata() {
-        player.notificationManager.hideNotification()
+        if (this::player.isInitialized) {
+            player.notificationManager.hideNotification()
+        }
     }
 
     //
