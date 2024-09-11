@@ -226,13 +226,7 @@ class MusicService : HeadlessJsMediaService() {
         clientUid: Int,
         rootHints: Bundle?
     ): BrowserRoot {
-        // TODO: verify clientPackageName hee.
-        if (listOf(
-                "com.android.systemui",
-                "com.example.android.mediacontroller",
-                "com.google.android.projection.gearhead"
-            ).contains(clientPackageName)
-        ) {
+        if (clientPackageName == "com.google.android.projection.gearhead") {
             @SuppressLint("VisibleForTests") val reactContext =
                 reactNativeHost.reactInstanceManager.currentReactContext
 
