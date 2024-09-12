@@ -219,17 +219,19 @@ class MetadataManager(service: MusicService, manager: MusicManager) {
                         transition: Transition<in Bitmap>?
                     ) {
                         try {
-                            val bitmap = getCroppedBitmap(resource)
-                            metadata.putBitmap(
-                                if (hideArtworkLockScreenBackground)
-                                    MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON
-                                else MediaMetadataCompat.METADATA_KEY_ART, bitmap)
-                            builder.setLargeIcon(bitmap)
+                            try {
+                                val bitmap = getCroppedBitmap(resource)
+                                metadata.putBitmap(
+                                    if (hideArtworkLockScreenBackground)
+                                        MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON
+                                    else MediaMetadataCompat.METADATA_KEY_ART, bitmap
+                                )
+                                builder.setLargeIcon(bitmap)
 
-                            session.setMetadata(metadata.build())
-                            updateNotification()
-                        } catch (ex: Exception) {
-                        }
+                                session.setMetadata(metadata.build())
+                                updateNotification()
+                            } catch (_: OutOfMemoryError) {}
+                        } catch (_: Exception) {}
                         artworkTarget = null
                     }
                 })
