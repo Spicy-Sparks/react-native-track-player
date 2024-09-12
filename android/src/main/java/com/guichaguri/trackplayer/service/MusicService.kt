@@ -286,7 +286,7 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun add(tracks: List<Track>, atIndex: Int) {
-        if (this::player.isInitialized) {
+        if (this::player.isInitialized && atIndex <= player.getQueueSize()) {
             val items = tracks.map {
                 val x = it
                 if (x.url.isEmpty()) {
