@@ -144,6 +144,10 @@ class MusicService : HeadlessJsMediaService() {
             manager!!.destroy(intentToStop)
             manager = null
         }
+
+        if (!AutoConnectionDetector.isCarConnected) {
+            player.destroy()
+        }
     }
 
     @SuppressLint("VisibleForTests")
@@ -585,24 +589,24 @@ class MusicService : HeadlessJsMediaService() {
         super.onCreate()
 
         // Create a MediaSessionCompat
-        mediaSession = MediaSessionCompat(baseContext, PackageManagerCompat.LOG_TAG)
+        // mediaSession = MediaSessionCompat(baseContext, PackageManagerCompat.LOG_TAG)
 
         // Enable callbacks from MediaButtons and TransportControls
-        @Suppress("DEPRECATION")
-        mediaSession!!.setFlags(
-            MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
-                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
-        )
+//        @Suppress("DEPRECATION")
+//        mediaSession!!.setFlags(
+//            MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
+//                    MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS
+//        )
 
         // Set an initial PlaybackState with ACTION_PLAY, so media buttons can start the player
-        stateBuilder = PlaybackStateCompat.Builder()
-            .setActions(
-                PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-            )
+//        stateBuilder = PlaybackStateCompat.Builder()
+//            .setActions(
+//                PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+//            )
 
-        if (stateBuilder != null) {
-            mediaSession!!.setPlaybackState(stateBuilder!!.build())
-        }
+//        if (stateBuilder != null) {
+//            mediaSession!!.setPlaybackState(stateBuilder!!.build())
+//        }
 
         // MySessionCallback() has methods that handle callbacks from a media controller
         // mediaSession.setCallback(new MySessionCallback());
