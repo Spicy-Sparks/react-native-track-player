@@ -145,7 +145,7 @@ class MusicService : HeadlessJsMediaService() {
             manager = null
         }
 
-        if (!AutoConnectionDetector.isCarConnected) {
+        if (!AutoConnectionDetector.isCarConnected && ::player.isInitialized) {
             player.destroy()
         }
     }
