@@ -78,7 +78,7 @@ import java.util.concurrent.TimeUnit
  */
 
 class MusicService : HeadlessJsMediaService() {
-    private lateinit var player: QueuedAudioPlayer
+    private var player: QueuedAudioPlayer? = null
     var manager: MusicManager? = null
     var handler: Handler? = null
     private var intentToStop = false
@@ -91,27 +91,27 @@ class MusicService : HeadlessJsMediaService() {
     private val scope = MainScope()
 
     val tracks: List<Track>
-        get() = player.items.map { (it as TrackAudioItem).track }
+        get() = player?.items?.map { (it as TrackAudioItem).track } ?: emptyList()
 
     val state
-        get() = player.playerState
+        get() = player?.playerState
 
     var ratingType: Int
-        get() = player.ratingType
+        get() = player?.ratingType ?: RatingCompat.RATING_NONE
         set(value) {
-            player.ratingType = value
+            player?.ratingType = value
         }
 
     val playbackError
-        get() = player.playbackError
+        get() = player?.playbackError
 
     val event
-        get() = player.event
+        get() = player?.event
 
     var playWhenReady: Boolean
-        get() = player.playWhenReady
+        get() = player?.playWhenReady ?: false
         set(value) {
-            player.playWhenReady = value
+            player?.playWhenReady = value
         }
 
     private var latestOptions: Bundle? = null
@@ -136,18 +136,20 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     fun destroy(intentToStop: Boolean) {
-        if (handler != null) {
-            handler!!.removeMessages(0)
-            handler = null
-        }
-        if (manager != null) {
-            manager!!.destroy(intentToStop)
-            manager = null
-        }
+        try {
+            if (handler != null) {
+                handler!!.removeMessages(0)
+                handler = null
+            }
+            if (manager != null) {
+                manager!!.destroy(intentToStop)
+                manager = null
+            }
 
-        if (!AutoConnectionDetector.isCarConnected && ::player.isInitialized) {
-            player.destroy()
-        }
+            if (!AutoConnectionDetector.isCarConnected) {
+                player?.destroy()
+            }
+        } catch (_: Exception) {}
     }
 
     @SuppressLint("VisibleForTests")
@@ -277,20 +279,16 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun add(tracks: List<Track>) {
-        if (this::player.isInitialized) {
-            val items = tracks.map {
-                val x = it
-                x.toAudioItem()
-            }
-            player.add(items)
+        val items = tracks.map {
+            val x = it
+            x.toAudioItem()
         }
+        player?.add(items)
     }
-
-
 
     @MainThread
     fun add(tracks: List<Track>, atIndex: Int) {
-        if (this::player.isInitialized && atIndex <= player.getQueueSize()) {
+        if (player != null && (atIndex <= (player?.getQueueSize() ?: -1))) {
             val items = tracks.map {
                 val x = it
                 if (x.url.isEmpty()) {
@@ -300,23 +298,19 @@ class MusicService : HeadlessJsMediaService() {
                 }
                 x.toAudioItem()
             }
-            player.add(items, atIndex)
+            player?.add(items, atIndex)
         }
     }
 
     @MainThread
     fun load(track: Track) {
-        if (this::player.isInitialized) {
-            val audioItem = track.toAudioItem()
-            player.load(audioItem)
-        }
+        val audioItem = track.toAudioItem()
+        player?.load(audioItem)
     }
 
     @MainThread
     fun move(fromIndex: Int, toIndex: Int) {
-        if (this::player.isInitialized) {
-            player.move(fromIndex, toIndex);
-        }
+        player?.move(fromIndex, toIndex);
     }
 
     @MainThread
@@ -326,163 +320,124 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun remove(indexes: List<Int>) {
-        if (this::player.isInitialized) {
-            player.remove(indexes)
-        }
+        player?.remove(indexes)
     }
 
     @MainThread
     fun clear() {
-        if (this::player.isInitialized) {
-            player.clear()
-        }
+        player?.clear()
     }
 
     @MainThread
     fun play() {
-        if (this::player.isInitialized) {
-            player.play()
-        }
+        player?.play()
     }
 
     @MainThread
     fun pause() {
-        if (this::player.isInitialized) {
-            player.pause()
-        }
+        player?.pause()
     }
 
     @MainThread
     fun stop() {
-        if (this::player.isInitialized) {
-            player.stop()
-        }
+        player?.stop()
     }
 
     @MainThread
     fun removeUpcomingTracks() {
-        if (this::player.isInitialized) {
-            player.removeUpcomingItems()
-        }
+        player?.removeUpcomingItems()
     }
 
     @MainThread
     fun removePreviousTracks() {
-        if (this::player.isInitialized) {
-            player.removePreviousItems()
-        }
+        player?.removePreviousItems()
     }
 
     @MainThread
     fun skip(index: Int) {
-        if (this::player.isInitialized) {
-            player.jumpToItem(index)
-        }
+        player?.jumpToItem(index)
     }
 
     @MainThread
     fun skipToNext() {
-        if (this::player.isInitialized) {
-            player.next()
-        }
+        player?.next()
     }
 
     @MainThread
     fun skipToPrevious() {
-        if (this::player.isInitialized) {
-            player.previous()
-        }
+        player?.previous()
     }
 
     @MainThread
     fun seekTo(seconds: Float) {
-        if (this::player.isInitialized) {
-            player.seek((seconds * 1000).toLong(), TimeUnit.MILLISECONDS)
-        }
+        player?.seek((seconds * 1000).toLong(), TimeUnit.MILLISECONDS)
     }
 
     @MainThread
     fun seekBy(offset: Float) {
-        if (this::player.isInitialized) {
-            player.seekBy((offset.toLong()), TimeUnit.SECONDS)
-        }
+        player?.seekBy((offset.toLong()), TimeUnit.SECONDS)
     }
 
     @MainThread
     fun retry() {
-        if (this::player.isInitialized) {
-            player.prepare()
-        }
+        player?.prepare()
     }
 
     @MainThread
     fun getCurrentTrackIndex(): Int {
-        return if (this::player.isInitialized) {
-            player.currentIndex
-        } else 0
+        // return player?.currentIndex ?: 0
+        return 0
     }
 
     @MainThread
     fun getRate(): Float {
-        return if (this::player.isInitialized) {
-            player.playbackSpeed
-        } else 1f
+        return player?.playbackSpeed ?: 1f
     }
 
     @MainThread
     fun setRate(value: Float) {
-        if (this::player.isInitialized) {
-            player.playbackSpeed = value
+        if (player != null) {
+            player!!.playbackSpeed = value
         }
     }
 
     @MainThread
     fun getRepeatMode(): RepeatMode {
-        return if (this::player.isInitialized) {
-            player.playerOptions.repeatMode
-        } else RepeatMode.OFF
+        return player?.playerOptions?.repeatMode ?: RepeatMode.OFF
     }
 
     @MainThread
     fun setRepeatMode(value: RepeatMode) {
-        if (this::player.isInitialized) {
-            player.playerOptions.repeatMode = value
+        if (player != null) {
+            player!!.playerOptions.repeatMode = value
         }
     }
 
     @MainThread
     fun getVolume(): Float {
-        return if (this::player.isInitialized) {
-            player.volume
-        } else 0f
+        return player?.volume ?: 0f
     }
 
     @MainThread
     fun setVolume(value: Float) {
-        if (this::player.isInitialized) {
-            player.volume = value
+        if (player != null) {
+            player!!.volume = value
         }
     }
 
     @MainThread
     fun getDurationInSeconds(): Double {
-        return if (this::player.isInitialized) {
-            (player.duration / 1000).toDouble()
-        } else 0.0
+        return ((player?.duration ?: 0) / 1000).toDouble()
     }
 
     @MainThread
     fun getPositionInSeconds(): Double {
-        return if (this::player.isInitialized) {
-            (player.position / 1000).toDouble()
-        } else 0.0
+        return ((player?.position ?: 0) / 1000).toDouble()
     }
 
     @MainThread
     fun getBufferedPositionInSeconds(): Double {
-        return if (this::player.isInitialized) {
-            (player.bufferedPosition / 1000).toDouble()
-        } else 0.0
+        return ((player?.bufferedPosition ?: 0) / 1000).toDouble()
     }
 
     @MainThread
@@ -497,16 +452,12 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun updateMetadataForTrack(index: Int, track: Track) {
-        if (this::player.isInitialized) {
-            player.replaceItem(index, track.toAudioItem())
-        }
+        player?.replaceItem(index, track.toAudioItem())
     }
 
     @MainThread
     fun getPlayerQueueHead(): MediaSource? {
-        return if (this::player.isInitialized) {
-            player.getQueueHead()
-        } else null
+        return player?.getQueueHead()
     }
 
 //    @MainThread
@@ -517,9 +468,7 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun clearNotificationMetadata() {
-        if (this::player.isInitialized) {
-            player.notificationManager.hideNotification()
-        }
+        player?.notificationManager?.hideNotification()
     }
 
     //
@@ -530,29 +479,33 @@ class MusicService : HeadlessJsMediaService() {
         previousIndex: Int?,
         oldPosition: Double
     ) {
-        val a = Bundle()
-        a.putDouble(POSITION_KEY, oldPosition)
-        //if (index != null) {
+        if (player != null) {
+            val a = Bundle()
+            a.putDouble(POSITION_KEY, oldPosition)
+            //if (index != null) {
             a.putInt(NEXT_TRACK_KEY, 0)
-        //}
+            //}
 
-        if (previousIndex != null) {
-            a.putInt(TRACK_KEY, previousIndex)
-        }
-
-        emit(MusicEvents.PLAYBACK_TRACK_CHANGED, a)
-
-        val b = Bundle()
-        b.putDouble("lastPosition", oldPosition)
-        if (tracks.isNotEmpty()) {
-            b.putInt("index", player.currentIndex)
-            b.putBundle("track", tracks[player.currentIndex].originalItem)
             if (previousIndex != null) {
-                b.putInt("lastIndex", previousIndex)
-                b.putBundle("lastTrack", tracks[previousIndex].originalItem)
+                a.putInt(TRACK_KEY, previousIndex)
             }
+
+            emit(MusicEvents.PLAYBACK_TRACK_CHANGED, a)
+
+            val b = Bundle()
+            b.putDouble("lastPosition", oldPosition)
+            if (tracks.isNotEmpty()) {
+//            b.putInt("index", player.currentIndex)
+//            b.putBundle("track", tracks[player.currentIndex].originalItem)
+                b.putInt("index", 0)
+                b.putBundle("track", tracks[0].originalItem)
+                if (previousIndex != null) {
+                    b.putInt("lastIndex", previousIndex)
+                    b.putBundle("lastTrack", tracks[previousIndex].originalItem)
+                }
+            }
+            emit(MusicEvents.PLAYBACK_ACTIVE_TRACK_CHANGED, b)
         }
-        emit(MusicEvents.PLAYBACK_ACTIVE_TRACK_CHANGED, b)
     }
 
     override fun onLoadChildren(
@@ -752,7 +705,7 @@ class MusicService : HeadlessJsMediaService() {
 
     @MainThread
     fun setupPlayer(playerOptions: Bundle?) {
-        if (this::player.isInitialized) {
+        if (player != null) {
             print("Player was initialized. Prevent re-initializing again")
             return
         }
@@ -798,8 +751,8 @@ class MusicService : HeadlessJsMediaService() {
             }
         }
         player = QueuedAudioPlayer(this@MusicService, playerConfig, bufferConfig, cacheConfig, mediaSessionCallback)
-        player.automaticallyUpdateNotificationMetadata = automaticallyUpdateNotificationMetadata
-        sessionToken = player.getMediaSessionToken()
+        player!!.automaticallyUpdateNotificationMetadata = automaticallyUpdateNotificationMetadata
+        sessionToken = player!!.getMediaSessionToken()
 
         observeEvents()
         setupForegrounding()
@@ -818,10 +771,12 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     private fun emitQueueEndedEvent() {
-        val bundle = Bundle()
-        bundle.putInt(TRACK_KEY, player.currentIndex)
-        bundle.putDouble(POSITION_KEY, (player.position / 1000).toDouble())
-        emit(MusicEvents.PLAYBACK_QUEUE_ENDED, bundle)
+        if (player != null) {
+            val bundle = Bundle()
+            bundle.putInt(TRACK_KEY, player!!.currentIndex)
+            bundle.putDouble(POSITION_KEY, (player!!.position / 1000).toDouble())
+            emit(MusicEvents.PLAYBACK_QUEUE_ENDED, bundle)
+        }
     }
 
     private var capabilities: List<Capability> = emptyList()
@@ -852,7 +807,10 @@ class MusicService : HeadlessJsMediaService() {
 
         ratingType = BundleUtils.getInt(options, "ratingType", RatingCompat.RATING_NONE)
 
-        player.playerOptions.alwaysPauseOnInterruption = androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
+        if (player != null) {
+            player!!.playerOptions.alwaysPauseOnInterruption =
+                androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
+        }
 
         capabilities = options.getIntegerArrayList("capabilities")?.map {
             Capability.entries[it] } ?: emptyList()
@@ -931,7 +889,7 @@ class MusicService : HeadlessJsMediaService() {
         val notificationConfig = NotificationConfig(buttonsList, accentColor, smallIcon, pendingIntent)
 
         // player.notificationManager.destroy()
-        player.notificationManager.createNotification(notificationConfig)
+        player?.notificationManager?.createNotification(notificationConfig)
 
         // setup progress update events if configured
         progressUpdateJob?.cancel()
@@ -946,7 +904,7 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     private fun progressUpdateEventFlow(interval: Double) = flow {
         while (true) {
-            if (player.isPlaying) {
+            if (player?.isPlaying == true) {
                 val bundle = progressUpdateEvent()
                 emit(bundle)
             }
@@ -958,12 +916,14 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     private suspend fun progressUpdateEvent(): Bundle {
         return withContext(Dispatchers.Main) {
-            Bundle().apply {
-                putDouble(POSITION_KEY, (player.position / 1000).toDouble())
-                putDouble(DURATION_KEY, (player.duration / 1000).toDouble())
-                putDouble(BUFFERED_POSITION_KEY, (player.bufferedPosition / 1000).toDouble())
-                putInt(TRACK_KEY, player.currentIndex)
-            }
+            player?.let {
+                Bundle().apply {
+                    putDouble(POSITION_KEY, (it.position / 1000).toDouble())
+                    putDouble(DURATION_KEY, (it.duration / 1000).toDouble())
+                    putDouble(BUFFERED_POSITION_KEY, (it.bufferedPosition / 1000).toDouble())
+                    putInt(TRACK_KEY, it.currentIndex)
+                }
+            } ?: Bundle()
         }
     }
 
@@ -971,18 +931,18 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     private fun observeEvents() {
         scope.launch {
-            event.audioItemTransition.collect {
-                if (it !is AudioItemTransitionReason.REPEAT) {
-//                    emitPlaybackTrackChangedEvents(
-//                        player.currentIndex,
-//                        player.previousIndex,
-//                        (it?.oldPosition ?: 0).toDouble()
-//                    )
+            event?.audioItemTransition?.collect {
+                if (it !is AudioItemTransitionReason.REPEAT && player != null) {
+        //                    emitPlaybackTrackChangedEvents(
+        //                        player.currentIndex,
+        //                        player.previousIndex,
+        //                        (it?.oldPosition ?: 0).toDouble()
+        //                    )
                     //
                     // FORCED CURRENT INDEX TO 0
                     //
                     emitPlaybackTrackChangedEvents(
-                        player.previousIndex,
+                        player!!.previousIndex,
                         (it?.oldPosition ?: 0).toDouble()
                     )
                 }
@@ -990,7 +950,7 @@ class MusicService : HeadlessJsMediaService() {
         }
 
         scope.launch {
-            event.onAudioFocusChanged.collect {
+            event?.onAudioFocusChanged?.collect {
                 Bundle().apply {
                     putBoolean(IS_FOCUS_LOSS_PERMANENT_KEY, it.isFocusLostPermanently)
                     putBoolean(IS_PAUSED_KEY, it.isPaused)
@@ -1001,7 +961,7 @@ class MusicService : HeadlessJsMediaService() {
 
 
         scope.launch {
-            event.onPlayerActionTriggeredExternally.collect {
+            event?.onPlayerActionTriggeredExternally?.collect {
                 when (it) {
                     is MediaSessionCallback.RATING -> {
                         Bundle().apply {
@@ -1009,31 +969,35 @@ class MusicService : HeadlessJsMediaService() {
                             emit(MusicEvents.BUTTON_SET_RATING, this)
                         }
                     }
+
                     is MediaSessionCallback.SEEK -> {
                         Bundle().apply {
                             putDouble("position", (it.positionMs / 1000).toDouble())
                             emit(MusicEvents.BUTTON_SEEK_TO, this)
                         }
                     }
+
                     MediaSessionCallback.PLAY -> emit(MusicEvents.BUTTON_PLAY)
                     MediaSessionCallback.PAUSE -> emit(MusicEvents.BUTTON_PAUSE)
                     MediaSessionCallback.NEXT -> emit(MusicEvents.BUTTON_SKIP_NEXT)
                     MediaSessionCallback.PREVIOUS -> emit(MusicEvents.BUTTON_SKIP_PREVIOUS)
                     MediaSessionCallback.STOP -> emit(MusicEvents.BUTTON_STOP)
                     MediaSessionCallback.FORWARD -> {
-//                        Bundle().apply {
-//                            val interval = latestOptions?.getDouble(FORWARD_JUMP_INTERVAL_KEY, DEFAULT_JUMP_INTERVAL) ?: DEFAULT_JUMP_INTERVAL
-//                            putInt("interval", interval.toInt())
-//                            emit(MusicEvents.BUTTON_JUMP_FORWARD, this)
-//                        }
+        //                        Bundle().apply {
+        //                            val interval = latestOptions?.getDouble(FORWARD_JUMP_INTERVAL_KEY, DEFAULT_JUMP_INTERVAL) ?: DEFAULT_JUMP_INTERVAL
+        //                            putInt("interval", interval.toInt())
+        //                            emit(MusicEvents.BUTTON_JUMP_FORWARD, this)
+        //                        }
                     }
+
                     MediaSessionCallback.REWIND -> {
-//                        Bundle().apply {
-//                            val interval = latestOptions?.getDouble(BACKWARD_JUMP_INTERVAL_KEY, DEFAULT_JUMP_INTERVAL) ?: DEFAULT_JUMP_INTERVAL
-//                            putInt("interval", interval.toInt())
-//                            emit(MusicEvents.BUTTON_JUMP_BACKWARD, this)
-//                        }
+        //                        Bundle().apply {
+        //                            val interval = latestOptions?.getDouble(BACKWARD_JUMP_INTERVAL_KEY, DEFAULT_JUMP_INTERVAL) ?: DEFAULT_JUMP_INTERVAL
+        //                            putInt("interval", interval.toInt())
+        //                            emit(MusicEvents.BUTTON_JUMP_BACKWARD, this)
+        //                        }
                     }
+
                     is MediaSessionCallback.CUSTOMACTION -> {
                         Bundle().apply {
                             if (it.customAction == "shuffle-on" || it.customAction == "shuffle-off") {
@@ -1119,7 +1083,7 @@ class MusicService : HeadlessJsMediaService() {
                 AudioPlayerState.BUFFERING
             )
             var stateCount = 0
-            event.stateChange.collect {
+            event?.stateChange?.collect {
                 stateCount++
                 if (it in LOADING_STATES) return@collect;
                 // Skip initial idle state, since we are only interested when
@@ -1134,13 +1098,13 @@ class MusicService : HeadlessJsMediaService() {
         }
 
         scope.launch {
-            event.notificationStateChange.collect {
+            event?.notificationStateChange?.collect {
                 when (it) {
                     is NotificationState.POSTED -> {
                         notificationId = it.notificationId;
                         notification = it.notification;
                         if (it.ongoing) {
-                            if (player.playWhenReady) {
+                            if (player?.playWhenReady == true) {
                                 startForegroundIfNecessary()
                             }
                         } else if (shouldStopForeground()) {
@@ -1152,12 +1116,13 @@ class MusicService : HeadlessJsMediaService() {
                             scope.launch {
                                 delay(stopForegroundGracePeriod.toLong() * 1000)
                                 // if (shouldStopForeground()) {
-                                    // @Suppress("DEPRECATION")
-                                    // stopForeground(removeNotificationWhenNotOngoing)
+                                // @Suppress("DEPRECATION")
+                                // stopForeground(removeNotificationWhenNotOngoing)
                                 // }
                             }
                         }
                     }
+
                     else -> {}
                 }
             }
