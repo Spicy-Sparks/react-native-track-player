@@ -619,7 +619,12 @@ class MusicService : HeadlessJsMediaService() {
         stopForeground(true)
     }
 
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+
+        if (intent == null) {
+            return START_NOT_STICKY
+        }
+
         if (Intent.ACTION_MEDIA_BUTTON == intent.action) {
             onStartForeground()
 
