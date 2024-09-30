@@ -16,7 +16,7 @@ class MusicBinder(val service: MusicService?, val manager: MusicManager) : Binde
     }
 
     fun updateOptions(bundle: Bundle) {
-        manager.setStopWithApp(bundle.getBoolean("stopWithApp", false))
+        manager.setStopWithApp(bundle.getBoolean("stopWithApp", true))
         manager.setAlwaysPauseOnInterruption(bundle.getBoolean("alwaysPauseOnInterruption", false))
         manager.metadata.updateOptions(bundle)
     }

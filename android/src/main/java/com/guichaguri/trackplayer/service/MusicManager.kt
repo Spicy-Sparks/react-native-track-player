@@ -44,7 +44,7 @@ class MusicManager @SuppressLint("InvalidWakeLockTag") constructor(private val s
         }
     }
     private var receivingNoisyEvents = false
-    private var stopWithApp = false
+    private var stopWithApp = true
     private var alwaysPauseOnInterruption = false
 
     init {

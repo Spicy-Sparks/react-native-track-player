@@ -63,23 +63,29 @@ class NotificationManager internal constructor(
                     if (value?.artworkUrl != null) {
                         notificationMetadataArtworkDisposable?.dispose()
 
-                        if (value.artworkUrl.startsWith("file")) {
-                            val file = File(URI(value.artworkUrl))
-                            if (file.exists()) {
-                                val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-                                holder.artworkBitmap = bitmap
-                            }
-                        } else {
-                            notificationMetadataArtworkDisposable = context.imageLoader.enqueue(
-                                ImageRequest.Builder(context)
-                                    .data(value.artworkUrl)
-                                    .target { result ->
-                                        val bitmap = (result as BitmapDrawable).bitmap
+                        try {
+                            if (value.artworkUrl.startsWith("file")) {
+                                val uri = URI(value.artworkUrl)
+                                val sanitizedUri = URI(uri.scheme, null, uri.path, null, null)
+                                if (sanitizedUri.query == null) {
+                                    val file = File(sanitizedUri)
+                                    if (file.exists()) {
+                                        val bitmap = BitmapFactory.decodeFile(file.absolutePath)
                                         holder.artworkBitmap = bitmap
                                     }
-                                    .build()
-                            )
-                        }
+                                }
+                            } else {
+                                notificationMetadataArtworkDisposable = context.imageLoader.enqueue(
+                                    ImageRequest.Builder(context)
+                                        .data(value.artworkUrl)
+                                        .target { result ->
+                                            val bitmap = (result as BitmapDrawable).bitmap
+                                            holder.artworkBitmap = bitmap
+                                        }
+                                        .build()
+                                )
+                            }
+                        } catch (_: Exception) {}
                     }
                 }
             }
@@ -256,14 +262,20 @@ class NotificationManager internal constructor(
                 val artworkUrl = notificationMetadata?.artworkUrl ?: mediaItem?.artwork
                 if (artworkUrl != null) {
                     if (artworkUrl.startsWith("file")) {
-                        val file = File(URI(artworkUrl))
-                        if (file.exists()) {
-                            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
-                            putBitmap(
-                                MediaMetadataCompat.METADATA_KEY_ART,
-                                bitmap
-                            )
-                        }
+                        try {
+                            val uri = URI(artworkUrl)
+                            val sanitizedUri = URI(uri.scheme, null, uri.path, null, null)
+                            if (sanitizedUri.query == null) {
+                                val file = File(sanitizedUri)
+                                if (file.exists()) {
+                                    val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                                    putBitmap(
+                                        MediaMetadataCompat.METADATA_KEY_ART,
+                                        bitmap
+                                    )
+                                }
+                            }
+                        } catch (_: Exception) {}
                     } else {
                         putString(
                             MediaMetadataCompat.METADATA_KEY_ART_URI,

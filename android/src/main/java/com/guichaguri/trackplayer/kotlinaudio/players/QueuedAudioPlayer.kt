@@ -52,6 +52,10 @@ class QueuedAudioPlayer(
         }
     }
 
+    fun getQueueSize(): Int {
+        return queue.size
+    }
+
     val previousItems: List<AudioItem>
         get() {
             return if (queue.isEmpty()) emptyList()

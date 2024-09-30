@@ -1,5 +1,6 @@
 package com.guichaguri.trackplayer.module
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.*
@@ -18,7 +19,6 @@ import android.support.v4.media.MediaBrowserCompat.MediaItem
 import android.support.v4.media.MediaDescriptionCompat
 import android.support.v4.media.RatingCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.media.utils.MediaConstants
 import com.bumptech.glide.Glide
@@ -35,6 +35,7 @@ import com.guichaguri.trackplayer.model.Track
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.util.*
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
@@ -73,6 +74,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     override fun initialize() {
         val context: ReactContext = reactApplicationContext
         context.addLifecycleEventListener(this)
+        @Suppress("DEPRECATION")
         val manager = LocalBroadcastManager.getInstance(context)
         eventHandler = MusicEvents(context)
         manager.registerReceiver(eventHandler!!, IntentFilter(EVENT_INTENT))
@@ -83,6 +85,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     override fun invalidate() {
         val context: ReactContext = reactApplicationContext
         if (eventHandler != null) {
+            @Suppress("DEPRECATION")
             val manager = LocalBroadcastManager.getInstance(context)
             manager.unregisterReceiver(eventHandler!!)
             eventHandler = null
@@ -290,6 +293,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
 
     var placeholderBitmap: Bitmap? = null
 
+    @SuppressLint("DiscouragedApi")
     private fun hashmapToMediaItem(
         parentMediaId: String,
         hashmap: HashMap<String, String>,
@@ -479,7 +483,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     private fun readableArrayToMediaItems(
         parentMediaId: String,
         data: ArrayList<HashMap<String, String>>
-    ): MutableList<MediaItem>? {
+    ): MutableList<MediaItem> {
         val executor: ExecutorService =
             Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
         val mediaItemList: MutableList<MediaItem> = ArrayList()
@@ -503,161 +507,173 @@ class MusicModule(reactContext: ReactApplicationContext?) :
 
     @ReactMethod
     fun setupPlayer(data: ReadableMap?, promise: Promise) {
-        if (isServiceBound) {
-            promise.reject(
-                "player_already_initialized",
-                "The player has already been initialized via setupPlayer."
-            )
-            return
-        }
-
-        // prevent crash Fatal Exception: android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException
-        /*        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && AppForegroundTracker.backgrounded) {
-                    promise.reject(
-                        "android_cannot_setup_player_in_background",
-                        "On Android the app must be in the foreground when setting up the player."
-                    )
-                    return
-                }*/
-
-        // Validate buffer keys.
-        val bundledData = Arguments.toBundle(data)
-        val minBuffer =
-            bundledData?.getDouble(MusicService.MIN_BUFFER_KEY)?.toInt()
-                ?: DEFAULT_MIN_BUFFER_MS
-        val maxBuffer =
-            bundledData?.getDouble(MusicService.MAX_BUFFER_KEY)?.toInt()
-                ?: DEFAULT_MAX_BUFFER_MS
-        val playBuffer =
-            bundledData?.getDouble(MusicService.PLAY_BUFFER_KEY)?.toInt()
-                ?: DEFAULT_BUFFER_FOR_PLAYBACK_MS
-        val backBuffer =
-            bundledData?.getDouble(MusicService.BACK_BUFFER_KEY)?.toInt()
-                ?: DEFAULT_BACK_BUFFER_DURATION_MS
-
-        if (playBuffer < 0) {
-            promise.reject(
-                "play_buffer_error",
-                "The value for playBuffer should be greater than or equal to zero."
-            )
-            return
-        }
-
-        if (backBuffer < 0) {
-            promise.reject(
-                "back_buffer_error",
-                "The value for backBuffer should be greater than or equal to zero."
-            )
-            return
-        }
-
-        if (minBuffer < playBuffer) {
-            promise.reject(
-                "min_buffer_error",
-                "The value for minBuffer should be greater than or equal to playBuffer."
-            )
-            return
-        }
-
-        if (maxBuffer < minBuffer) {
-            promise.reject(
-                "min_buffer_error",
-                "The value for maxBuffer should be greater than or equal to minBuffer."
-            )
-            return
-        }
-
-        // playerSetUpPromise = promise
-        playerOptions = bundledData
-
-
-        LocalBroadcastManager.getInstance(reactApplicationContext).registerReceiver(
-            MusicEvents(reactApplicationContext),
-            IntentFilter(EVENT_INTENT)
-        )
-
-        Intent(reactApplicationContext, MusicService::class.java).also { intent ->
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                reactApplicationContext.startForegroundService(intent)
-            } else {
-                reactApplicationContext.startService(intent)
+        try {
+            if (isServiceBound) {
+                promise.reject(
+                    "player_already_initialized",
+                    "The player has already been initialized via setupPlayer."
+                )
+                return
             }
-            reactApplicationContext.bindService(intent, this, Context.BIND_AUTO_CREATE)
-        }
+
+            // prevent crash Fatal Exception: android.app.RemoteServiceException$ForegroundServiceDidNotStartInTimeException
+            /*        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && AppForegroundTracker.backgrounded) {
+                        promise.reject(
+                            "android_cannot_setup_player_in_background",
+                            "On Android the app must be in the foreground when setting up the player."
+                        )
+                        return
+                    }*/
+
+            // Validate buffer keys.
+            val bundledData = Arguments.toBundle(data)
+            val minBuffer =
+                bundledData?.getDouble(MusicService.MIN_BUFFER_KEY)?.toInt()
+                    ?: DEFAULT_MIN_BUFFER_MS
+            val maxBuffer =
+                bundledData?.getDouble(MusicService.MAX_BUFFER_KEY)?.toInt()
+                    ?: DEFAULT_MAX_BUFFER_MS
+            val playBuffer =
+                bundledData?.getDouble(MusicService.PLAY_BUFFER_KEY)?.toInt()
+                    ?: DEFAULT_BUFFER_FOR_PLAYBACK_MS
+            val backBuffer =
+                bundledData?.getDouble(MusicService.BACK_BUFFER_KEY)?.toInt()
+                    ?: DEFAULT_BACK_BUFFER_DURATION_MS
+
+            if (playBuffer < 0) {
+                promise.reject(
+                    "play_buffer_error",
+                    "The value for playBuffer should be greater than or equal to zero."
+                )
+                return
+            }
+
+            if (backBuffer < 0) {
+                promise.reject(
+                    "back_buffer_error",
+                    "The value for backBuffer should be greater than or equal to zero."
+                )
+                return
+            }
+
+            if (minBuffer < playBuffer) {
+                promise.reject(
+                    "min_buffer_error",
+                    "The value for minBuffer should be greater than or equal to playBuffer."
+                )
+                return
+            }
+
+            if (maxBuffer < minBuffer) {
+                promise.reject(
+                    "min_buffer_error",
+                    "The value for maxBuffer should be greater than or equal to minBuffer."
+                )
+                return
+            }
+
+            // playerSetUpPromise = promise
+            playerOptions = bundledData
+
+            @Suppress("DEPRECATION")
+            LocalBroadcastManager.getInstance(reactApplicationContext).registerReceiver(
+                MusicEvents(reactApplicationContext),
+                IntentFilter(EVENT_INTENT)
+            )
+
+            Intent(reactApplicationContext, MusicService::class.java).also { intent ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    reactApplicationContext.startForegroundService(intent)
+                } else {
+                    reactApplicationContext.startService(intent)
+                }
+                reactApplicationContext.bindService(intent, this, Context.BIND_AUTO_CREATE)
+            }
+        } catch (_: Exception) {}
     }
 
     @ReactMethod
     fun setBrowseTree(mediaItems: ReadableMap?, callback: Promise) {
         waitForConnection {
-            if (musicService != null) {
-                executor.submit(Callable {
-                    val mediaItemsMap = mediaItems?.toHashMap()
-                    if (mediaItemsMap != null) {
-                        musicService!!.mediaTree =
-                            mediaItemsMap.mapValues {
-                                readableArrayToMediaItems(
-                                    it.key,
-                                    it.value as ArrayList<HashMap<String, String>>
-                                )
-                            } as MutableMap<String, MutableList<MediaItem>>
-                    }
-
-                    musicService!!.toUpdateMediaItems.forEach { (parentMediaId, toUpdateItems) ->
-                        val items =
-                            musicService!!.mediaTree.getOrPut(parentMediaId) { mutableListOf() }
-                        toUpdateItems.forEach { toUpdateItem ->
-                            val index = items.indexOfFirst { it.mediaId == toUpdateItem.mediaId }
-                            if (index != -1) {
-                                items[index] = toUpdateItem
-                            }
+            try {
+                if (musicService != null) {
+                    executor.submit(Callable {
+                        val mediaItemsMap = mediaItems?.toHashMap()
+                        if (mediaItemsMap != null) {
+                            musicService!!.mediaTree =
+                                mediaItemsMap.mapValues {
+                                    @Suppress("UNCHECKED_CAST")
+                                    readableArrayToMediaItems(
+                                        it.key,
+                                        it.value as ArrayList<HashMap<String, String>>
+                                    )
+                                } as MutableMap<String, MutableList<MediaItem>>
                         }
-                        musicService!!.mediaTree[parentMediaId] = items
-                    }
 
-                    musicService!!.mediaTree.keys.forEach {
-                        musicService!!.notifyChildrenChanged(it)
-                    }
-                    callback.resolve(null)
-                })
-            }
+                        musicService!!.toUpdateMediaItems.forEach { (parentMediaId, toUpdateItems) ->
+                            val items =
+                                musicService!!.mediaTree.getOrPut(parentMediaId) { mutableListOf() }
+                            toUpdateItems.forEach { toUpdateItem ->
+                                val index =
+                                    items.indexOfFirst { it.mediaId == toUpdateItem.mediaId }
+                                if (index != -1) {
+                                    items[index] = toUpdateItem
+                                }
+                            }
+                            musicService!!.mediaTree[parentMediaId] = items
+                        }
+
+                        musicService!!.mediaTree.keys.forEach {
+                            musicService!!.notifyChildrenChanged(it)
+                        }
+                        callback.resolve(null)
+                    })
+                }
+            } catch (_: Exception) {}
         }
     }
 
     @ReactMethod
     fun updateBrowseTree(mediaItems: ReadableMap, callback: Promise) {
-        if (musicService != null) {
-            executor.submit(Callable {
-                val mediaItemsMap = mediaItems.toHashMap()
-                musicService!!.mediaTree += mediaItemsMap.mapValues {
-                    readableArrayToMediaItems(
-                        it.key,
-                        it.value as ArrayList<HashMap<String, String>>
-                    )
-                } as MutableMap<String, MutableList<MediaItem>>
-                mediaItemsMap.keys.forEach {
-                    musicService!!.notifyChildrenChanged(it)
-                }
-                callback.resolve(null)
-            })
-        }
+        try {
+            if (musicService != null) {
+                executor.submit(Callable {
+                    val mediaItemsMap = mediaItems.toHashMap()
+                    musicService!!.mediaTree += mediaItemsMap.mapValues {
+                        @Suppress("UNCHECKED_CAST")
+                        readableArrayToMediaItems(
+                            it.key,
+                            it.value as ArrayList<HashMap<String, String>>
+                        )
+                    } as MutableMap<String, MutableList<MediaItem>>
+                    mediaItemsMap.keys.forEach {
+                        musicService!!.notifyChildrenChanged(it)
+                    }
+                    callback.resolve(null)
+                })
+            }
+        } catch (_: Exception) {}
     }
 
     @ReactMethod
     fun setSearchResult(mediaItems: ReadableArray, data: ReadableMap, callback: Promise) {
         waitForConnection {
-            if (musicService != null) {
-                val bundle = Arguments.toBundle(data)
-                val query = bundle?.getString("query")
-                if (query == musicService!!.searchQuery) {
-                    musicService!!.searchResult?.sendResult(
-                        readableArrayToMediaItems(
-                            "search",
-                            mediaItems.toArrayList() as ArrayList<HashMap<String, String>>
+            try {
+                if (musicService != null) {
+                    val bundle = Arguments.toBundle(data)
+                    val query = bundle?.getString("query")
+                    if (query == musicService!!.searchQuery) {
+                        musicService!!.searchResult?.sendResult(
+                            @Suppress("UNCHECKED_CAST")
+                            readableArrayToMediaItems(
+                                "search",
+                                mediaItems.toArrayList() as ArrayList<HashMap<String, String>>
+                            )
                         )
-                    )
+                    }
+                    callback.resolve(null)
                 }
-                callback.resolve(null)
-            }
+            } catch (_: Exception) {}
         }
     }
 
@@ -674,31 +690,35 @@ class MusicModule(reactContext: ReactApplicationContext?) :
             context?.unbindService(this)
         } catch (ex: Exception) {
             // This method shouldn't be throwing unhandled errors even if something goes wrong.
-            Log.e(Utils.LOG, "An error occurred while destroying the service", ex)
+            Timber.tag(Utils.LOG).e(ex, "An error occurred while destroying the service")
         }
     }
 
     @ReactMethod
     fun updateAndroidAutoPlayerOptions(data: ReadableMap?, callback: Promise) = scope.launch {
         waitForConnection {
-            val options = Arguments.toBundle(data)
+            try {
+                val options = Arguments.toBundle(data)
 
-            options?.let {
-                musicService?.updateOptions(it)
-            }
+                options?.let {
+                    musicService?.updateOptions(it)
+                }
 
-            callback.resolve(null)
+                callback.resolve(null)
+            } catch (_: Exception) {}
         }
     }
 
     @ReactMethod
     fun updateOptions(data: ReadableMap?, callback: Promise) {
-        // keep options as we may need them for correct MetadataManager reinitialization later
-        options = Arguments.toBundle(data)
-        waitForConnection {
-            options?.let { binder?.updateOptions(it) }
-            callback.resolve(null)
-        }
+        try {
+            // keep options as we may need them for correct MetadataManager reinitialization later
+            options = Arguments.toBundle(data)
+            waitForConnection {
+                options?.let { binder?.updateOptions(it) }
+                callback.resolve(null)
+            }
+        } catch (_: Exception) {}
     }
 
 //    @ReactMethod
@@ -774,52 +794,32 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     fun setAndroidAutoPlayerTracks(tracksArray: ReadableArray, options: ReadableMap, callback: Promise) {
         scope.launch {
             waitForConnection {
-                Handler(Looper.getMainLooper()).postDelayed({
-                    val bundle = Arguments.toBundle(options)
-                    val editQueue = bundle?.getBoolean("editQueue")
+                try {
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        val bundle = Arguments.toBundle(options)
+                        val editQueue = bundle?.getBoolean("editQueue")
 
-                    val tracks = mutableListOf<Track>()
+                        val tracks = mutableListOf<Track>()
 
-                    for (i in 0 until tracksArray.size()) {
-                        val trackMap = tracksArray.getMap(i)
-                        val trackBundle = Arguments.toBundle(trackMap)
+                        for (i in 0 until tracksArray.size()) {
+                            val trackMap = tracksArray.getMap(i)
+                            val trackBundle = Arguments.toBundle(trackMap)
 
-                        val track = trackBundle?.let {
-                            binder?.let { it1 ->
-                                Track(
-                                    reactApplicationContext,
-                                    it,
-                                    it1.ratingType
-                                )
+                            val track = trackBundle?.let {
+                                binder?.let { it1 ->
+                                    Track(
+                                        reactApplicationContext,
+                                        it,
+                                        it1.ratingType
+                                    )
+                                }
                             }
+
+                            track?.let { tracks.add(it) }
                         }
 
-                        track?.let { tracks.add(it) }
-                    }
-
-                    if (tracks.isNotEmpty()) {
-                        if (editQueue == true) {
-                            musicService?.removeUpcomingTracks()
-                            musicService?.removePreviousTracks()
-
-                            musicService?.add(
-                                tracks,
-                                1
-                            )
-                        } else {
-                            if (tracks[0].url.isEmpty()) {
-                                musicService?.playWhenReady = false
-                                if (musicService?.state != AudioPlayerState.PAUSED) musicService?.pause()
-                            } else {
-                                musicService?.playWhenReady = true
-                            }
-
-                            if (musicService?.getPlayerQueueHead() == null) {
-                                musicService?.add(
-                                    tracks,
-                                    0
-                                )
-                            } else {
+                        if (tracks.isNotEmpty()) {
+                            if (editQueue == true) {
                                 musicService?.removeUpcomingTracks()
                                 musicService?.removePreviousTracks()
 
@@ -827,18 +827,40 @@ class MusicModule(reactContext: ReactApplicationContext?) :
                                     tracks,
                                     1
                                 )
+                            } else {
+                                if (tracks[0].url.isEmpty()) {
+                                    musicService?.playWhenReady = false
+                                    if (musicService?.state != AudioPlayerState.PAUSED) musicService?.pause()
+                                } else {
+                                    musicService?.playWhenReady = true
+                                }
 
-                                musicService?.skipToNext()
+                                if (musicService?.getPlayerQueueHead() == null) {
+                                    musicService?.add(
+                                        tracks,
+                                        0
+                                    )
+                                } else {
+                                    musicService?.removeUpcomingTracks()
+                                    musicService?.removePreviousTracks()
 
-                                musicService?.updateMetadataForTrack(0, tracks[0])
+                                    musicService?.add(
+                                        tracks,
+                                        1
+                                    )
 
-                                musicService?.remove(0)
+                                    musicService?.skipToNext()
+
+                                    musicService?.updateMetadataForTrack(0, tracks[0])
+
+                                    musicService?.remove(0)
+                                }
                             }
                         }
-                    }
 
-                    callback.resolve(null)
-                }, 100)
+                        callback.resolve(null)
+                    }, 100)
+                } catch (_: Exception) {}
             }
         }
 
@@ -916,9 +938,6 @@ class MusicModule(reactContext: ReactApplicationContext?) :
 
     private fun readableArrayToTrackList(data: ReadableArray?): MutableList<Track> {
         val bundleList = Arguments.toList(data)
-        if (bundleList !is ArrayList) {
-            // throw RejectionException("invalid_parameter", "Was not given an array of tracks")
-        }
         if (bundleList != null) {
             return bundleList.mapNotNull {
                 if (it is Bundle) {
@@ -961,36 +980,43 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     @ReactMethod
     fun load(data: ReadableMap?, callback: Promise) = scope.launch {
         if (verifyServiceBoundOrReject(callback)) return@launch
-        if (data == null) {
-            callback.resolve(null)
-            return@launch
-        }
-        val bundle = Arguments.toBundle(data);
-        if (bundle is Bundle) {
-            bundleToTrack(bundle)?.let { musicService?.load(it) }
-            callback.resolve(null)
-        } else {
-            callback.reject("invalid_track_object", "Track was not a dictionary type")
-        }
+
+        try {
+            if (data == null) {
+                callback.resolve(null)
+                return@launch
+            }
+            val bundle = Arguments.toBundle(data);
+            if (bundle is Bundle) {
+                bundleToTrack(bundle)?.let { musicService?.load(it) }
+                callback.resolve(null)
+            } else {
+                callback.reject("invalid_track_object", "Track was not a dictionary type")
+            }
+        } catch (_: Exception) {}
     }
 
     @ReactMethod
     fun reset(callback: Promise) {
         waitForConnection {
-            if (binder != null) {
-                binder!!.manager.onReset()
-                callback.resolve(null)
-            }
+            try {
+                if (binder != null) {
+                    binder!!.manager.onReset()
+                    callback.resolve(null)
+                }
+            } catch (_: Exception) {}
         }
     }
 
     @ReactMethod
     fun removeNotifications(callback: Promise) {
         waitForConnection {
-            if (binder != null) {
-                binder!!.manager.metadata.removeNotifications()
-                callback.resolve(null)
-            }
+            try {
+                if (binder != null) {
+                    binder!!.manager.metadata.removeNotifications()
+                    callback.resolve(null)
+                }
+            } catch (_: Exception) {}
         }
     }
 
@@ -998,35 +1024,43 @@ class MusicModule(reactContext: ReactApplicationContext?) :
     fun resetAndroidAutoService(callback: Promise) = scope.launch {
         if (verifyServiceBoundOrReject(callback)) return@launch
 
-        musicService?.stop()
-        delay(300) // Allow playback to stop
-        musicService?.clear()
+        try {
+            musicService?.stop()
+            delay(300) // Allow playback to stop
+            musicService?.clear()
 
-        callback.resolve(null)
+            callback.resolve(null)
+        } catch (_: Exception) {}
     }
 
     @ReactMethod
     fun clear(callback: Promise) = scope.launch {
         if (verifyServiceBoundOrReject(callback)) return@launch
 
-        musicService?.clear()
-        callback.resolve(null)
+        try {
+            musicService?.clear()
+            callback.resolve(null)
+        } catch (_: Exception) {}
     }
 
     @ReactMethod
     fun play(callback: Promise) = scope.launch {
         if (verifyServiceBoundOrReject(callback)) return@launch
 
-        musicService?.play()
-        callback.resolve(null)
+        try {
+            musicService?.play()
+            callback.resolve(null)
+        } catch (_: Exception) {}
     }
 
     @ReactMethod
     fun pause(callback: Promise) = scope.launch {
         if (verifyServiceBoundOrReject(callback)) return@launch
 
-        musicService?.pause()
-        callback.resolve(null)
+        try {
+            musicService?.pause()
+            callback.resolve(null)
+        } catch (_: Exception) {}
     }
 
     override fun onHostResume() {}

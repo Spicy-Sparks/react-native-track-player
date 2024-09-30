@@ -527,6 +527,7 @@ abstract class BaseAudioPlayer internal constructor(
         cache?.release()
         cache = null
         mediaSession.isActive = false
+        mediaSession.release()
     }
 
     open fun seek(duration: Long, unit: TimeUnit) {
