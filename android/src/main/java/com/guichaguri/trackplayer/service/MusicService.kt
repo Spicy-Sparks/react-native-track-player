@@ -62,6 +62,7 @@ import com.guichaguri.trackplayer.model.Track
 import com.guichaguri.trackplayer.model.TrackAudioItem
 import com.guichaguri.trackplayer.module.AutoConnectionDetector
 import com.guichaguri.trackplayer.module.MusicEvents
+import com.guichaguri.trackplayer.module.MusicModule
 import com.guichaguri.trackplayer.service.Utils.setRating
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -756,6 +757,9 @@ class MusicService : HeadlessJsMediaService() {
             }
         }
         player = QueuedAudioPlayer(this@MusicService, playerConfig, bufferConfig, cacheConfig, mediaSessionCallback)
+        if (MusicModule.isAndroidTv) {
+            player!!.volume = 0f
+        }
         player!!.automaticallyUpdateNotificationMetadata = automaticallyUpdateNotificationMetadata
         sessionToken = player!!.getMediaSessionToken()
 

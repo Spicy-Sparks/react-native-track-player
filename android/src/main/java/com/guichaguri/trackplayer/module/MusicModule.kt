@@ -64,6 +64,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
 
     companion object {
         var binder: MusicBinder? = null
+        var isAndroidTv: Boolean = false
     }
 
     @Nonnull
@@ -899,7 +900,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
                 }
                 binder?.manager?.setState(state, elapsedTime)
 
-                if (AutoConnectionDetector.isCarConnected) {
+                if (AutoConnectionDetector.isCarConnected || isAndroidTv) {
                     Handler(Looper.getMainLooper()).postDelayed({
                         val isLoading = bundle?.getBoolean("isLoading")
                         if (state == 3) {
@@ -1063,12 +1064,17 @@ class MusicModule(reactContext: ReactApplicationContext?) :
         } catch (_: Exception) {}
     }
 
+    @ReactMethod
+    fun setIsAndroidTv(value: Boolean, callback: Promise) = scope.launch {
+        isAndroidTv = value
+    }
+
     override fun onHostResume() {}
 
     override fun onHostPause() {}
 
     override fun onHostDestroy() {
-        if (AutoConnectionDetector.isCarConnected) {
+        if (AutoConnectionDetector.isCarConnected || isAndroidTv) {
             musicService?.clear()
 
             Handler(Looper.getMainLooper()).postDelayed({

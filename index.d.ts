@@ -185,6 +185,7 @@ declare namespace RNTrackPlayer {
   export function updateBrowseTree(tab: UpdateAndroidAutoBrowseTree): Promise<void>;
   export function setAndroidAutoPlayerTracks(tracks: MediaItem[], options: { editQueue: boolean }): Promise<void>;
   export function setSearchResult(tracks: MediaItem[], data: { query: string }): Promise<void>;
+  export function setIsAndroidTv(value: boolean): Promise<void>;
 
   // Components
 
