@@ -64,6 +64,7 @@ class MusicModule(reactContext: ReactApplicationContext?) :
 
     companion object {
         var binder: MusicBinder? = null
+        var isAppOpen: Boolean = false
         var isAndroidTv: Boolean = false
     }
 
@@ -1069,11 +1070,14 @@ class MusicModule(reactContext: ReactApplicationContext?) :
         isAndroidTv = value
     }
 
-    override fun onHostResume() {}
+    override fun onHostResume() {
+        isAppOpen = true
+    }
 
     override fun onHostPause() {}
 
     override fun onHostDestroy() {
+        isAppOpen = false
         if (AutoConnectionDetector.isCarConnected || isAndroidTv) {
             musicService?.clear()
 

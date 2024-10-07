@@ -237,9 +237,6 @@ class MusicService : HeadlessJsMediaService() {
             @SuppressLint("VisibleForTests") val reactContext =
                 reactNativeHost.reactInstanceManager.currentReactContext
 
-            val params = Arguments.createMap()
-            params.putBoolean("connected", true)
-
             if (reactContext == null) {
                 reactNativeHost.reactInstanceManager.addReactInstanceEventListener(object :
                     @Suppress("DEPRECATION")
@@ -250,6 +247,9 @@ class MusicService : HeadlessJsMediaService() {
 
                         AutoConnectionDetector.isCarConnected = true
 
+                        val params = Arguments.createMap()
+                        params.putBoolean("connected", true)
+
                         context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
                             "car-connection-update", params
                         )
@@ -257,11 +257,36 @@ class MusicService : HeadlessJsMediaService() {
                 })
                 reactNativeHost.reactInstanceManager.createReactContextInBackground()
             } else {
-                AutoConnectionDetector.isCarConnected = true
+                if (MusicModule.isAppOpen) {
+                    AutoConnectionDetector.isCarConnected = true
 
-                reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
-                    "car-connection-update", params
-                )
+                    val params = Arguments.createMap()
+                    params.putBoolean("connected", true)
+
+                    reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
+                        "car-connection-update", params
+                    )
+                } else {
+                    reactNativeHost.reactInstanceManager.destroy()
+                    reactNativeHost.reactInstanceManager.addReactInstanceEventListener(object :
+                        @Suppress("DEPRECATION")
+                        ReactInstanceManager.ReactInstanceEventListener {
+                        override fun onReactContextInitialized(context: ReactContext) {
+                            invokeStartTask(context)
+                            reactNativeHost.reactInstanceManager.removeReactInstanceEventListener(this)
+
+                            AutoConnectionDetector.isCarConnected = true
+
+                            val params = Arguments.createMap()
+                            params.putBoolean("connected", true)
+
+                            context.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)?.emit(
+                                "car-connection-update", params
+                            )
+                        }
+                    })
+                    reactNativeHost.reactInstanceManager.createReactContextInBackground()
+                }
             }
         }
 
