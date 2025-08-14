@@ -64,14 +64,20 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             self.crossfadeWrapper = self.wrapper2!
             self.wrapper = self.wrapper1
         }
+
         // switch the event emittting delegate
         self.wrapper.delegate = self
         self.crossfadeWrapper.delegate = nil
+
         // broadcast nowplaying to system
         self.findOrInsert(item: self.crossfadeItem!)
         loadNowPlayingMetaValues()
+        emitCurrentItemEvent()
+
         self.crossfadeItem = nil
         self.currentAVPlayer = !self.currentAVPlayer
+
+        // fade volume
         Task {
             var fadeOutDuration = fadeDuration
             let startFadeOutTime = DispatchTime.now()
@@ -294,15 +300,8 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         }
     }
 
-    // MARK: - QueueManagerDelegate
-
-    func onCurrentItemChanged() {
-        let lastPosition = currentTime;
-        if let currentItem = currentItem {
-            super.load(item: currentItem)
-        } else {
-            super.clear()
-        }
+    func emitCurrentItemEvent(lastPosition: Double = 0) {
+        let currentItem = currentItem
         event.currentItem.emit(
             data: (
                 item: currentItem,
@@ -314,6 +313,18 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         )
         lastItem = currentItem
         lastIndex = currentIndex
+    }
+
+    // MARK: - QueueManagerDelegate
+
+    func onCurrentItemChanged() {
+        let lastPosition = currentTime;
+        if let currentItem = currentItem {
+            super.load(item: currentItem)
+        } else {
+            super.clear()
+        }
+        emitCurrentItemEvent(lastPosition: lastPosition)
     }
 
     func onSkippedToSameCurrentItem() {
