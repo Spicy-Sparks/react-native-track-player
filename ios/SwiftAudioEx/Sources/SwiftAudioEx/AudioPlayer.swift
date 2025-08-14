@@ -14,7 +14,14 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     /// The wrapper around the underlying AVPlayer
     let wrapper: AVPlayerWrapperProtocol = AVPlayerWrapper()
 
+
+    public func crossfadePrepare() {
+        
+    }
     
+    public func switchExoPlayer() {
+        
+    }
     /**
      Set an instance of AudioTap, to receive frame information and audio buffer access during playback.
      */
