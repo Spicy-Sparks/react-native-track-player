@@ -109,14 +109,14 @@ struct PlayerView: View {
             .padding(.top, 20)
 
             HStack {
-                Button(action: controller.player.crossfadePrepare, label: {
+                Button(action: { controller.player.crossfadePrepare() }, label: {
                     Text("Crossfade Prepare")
                         .font(.system(size: 14))
                 })
                 .frame(maxWidth: .infinity)
 
                 .frame(maxWidth: .infinity)
-                Button(action: controller.player.switchExoPlayer, label: {
+                Button(action: { controller.player.switchExoPlayer() }, label: {
                     Text("Crossfade Switch")
                         .font(.system(size: 14))
                 })
