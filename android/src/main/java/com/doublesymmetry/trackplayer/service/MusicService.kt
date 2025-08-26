@@ -59,6 +59,11 @@ import androidx.core.net.toUri
 @OptIn(UnstableApi::class)
 @MainThread
 class MusicService : HeadlessJsMediaService() {
+    companion object {
+        @JvmStatic
+        var instance: MusicService? = null
+            private set
+    }
     private lateinit var player: QueuedAudioPlayer
     private val binder = MusicBinder()
     private val scope = MainScope()
@@ -125,6 +130,7 @@ class MusicService : HeadlessJsMediaService() {
 
     @ExperimentalCoroutinesApi
     override fun onCreate() {
+        instance = this
         Timber.plant(Timber.DebugTree())
         Timber.tag("APM").d("RNTP musicservice created.")
         fakePlayer = ExoPlayer.Builder(this).build()
@@ -933,6 +939,7 @@ class MusicService : HeadlessJsMediaService() {
             player.destroy()
         }
 
+        instance = null
         progressUpdateJob?.cancel()
         super.onDestroy()
     }

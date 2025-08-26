@@ -17,6 +17,11 @@ import React
 @objc(RNTrackPlayer)
 public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
+    // Expose underlying AVPlayer for video rendering
+    @objc public var avPlayer: AVPlayer? {
+        return player.wrapper.player
+    }
+
     // newarch swift event emitter
     @objc public weak var delegate: RNTPDelegate? = nil
     // MARK: - Attributes

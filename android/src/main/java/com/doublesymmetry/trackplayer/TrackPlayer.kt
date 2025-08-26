@@ -27,4 +27,7 @@ class TrackPlayer : BaseReactPackage() {
               )
           )
     }
+
+    override fun createViewManagers(reactContext: ReactApplicationContext) =
+        listOf<com.facebook.react.uimanager.ViewManager<*, *>>(com.doublesymmetry.trackplayer.video.TrackPlayerVideoViewManager())
 }
