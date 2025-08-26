@@ -4,7 +4,6 @@ import React
 
 @objc(RNTrackPlayerVideoView)
 class RNTrackPlayerVideoView: UIView {
-    // Use AVPlayerLayer as the backing layer
     override class var layerClass: AnyClass { AVPlayerLayer.self }
 
     private var playerLayer: AVPlayerLayer {
@@ -46,9 +45,26 @@ class RNTrackPlayerVideoView: UIView {
             name: .RNTPPlayerRecreated,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appDidEnterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification,
+                                               object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(appWillEnterForeground),
+                                               name: UIApplication.willEnterForegroundNotification,
+                                               object: nil)
     }
 
     @objc private func onPlayerRecreated() {
+        playerLayer.player = RNTrackPlayer.sharedAVPlayer
+    }
+
+    @objc private func appDidEnterBackground() {
+        playerLayer.player = nil
+    }
+
+    @objc private func appWillEnterForeground() {
         playerLayer.player = RNTrackPlayer.sharedAVPlayer
     }
 
