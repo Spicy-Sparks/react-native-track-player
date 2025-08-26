@@ -17,9 +17,16 @@ import React
 @objc(RNTrackPlayer)
 public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
+    // MARK: - Shared AVPlayer
+    // Exposed for external UI like VideoView that need the video layer from the single player instance.
+    @objc public static var sharedAVPlayer: AVPlayer?
+
     // Expose underlying AVPlayer for video rendering
     @objc public var avPlayer: AVPlayer? {
-        return player.wrapper.player
+        if let w = player.wrapper as? AVPlayerWrapper {
+            return w.player
+        }
+        return nil
     }
 
     // newarch swift event emitter
@@ -51,10 +58,17 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         player.event.currentItem.addListener(self, handleAudioPlayerCurrentItemChange)
         player.event.secondElapse.addListener(self, handleAudioPlayerSecondElapse)
         player.event.playWhenReadyChange.addListener(self, handlePlayWhenReadyChange)
+
+        // Store global reference to the underlying AVPlayer so that other native views can reuse it.
+        if let wrapper = player.wrapper as? AVPlayerWrapper {
+            RNTrackPlayer.sharedAVPlayer = wrapper.player
+        }
     }
 
     deinit {
         reset(resolve: { _ in }, reject: { _, _, _  in })
+
+        RNTrackPlayer.sharedAVPlayer = nil
     }
 
     private func emit(event: EventType, body: Any? = nil) {

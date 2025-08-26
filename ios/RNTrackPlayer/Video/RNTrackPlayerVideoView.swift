@@ -4,7 +4,14 @@ import React
 
 @objc(RNTrackPlayerVideoView)
 class RNTrackPlayerVideoView: UIView {
-    private var playerLayer: AVPlayerLayer?
+    // Use AVPlayerLayer as the backing layer
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+
+    private var playerLayer: AVPlayerLayer {
+        return self.layer as! AVPlayerLayer
+    }
+
+    weak var bridge: RCTBridge?
     private var resizeMode: String = "contain" {
         didSet { updateResizeMode() }
     }
@@ -20,7 +27,6 @@ class RNTrackPlayerVideoView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        playerLayer?.frame = bounds
     }
 
     override func didMoveToWindow() {
@@ -29,25 +35,29 @@ class RNTrackPlayerVideoView: UIView {
     }
 
     private func attachPlayerIfNeeded() {
-        guard playerLayer == nil else { return }
-        guard let bridge = self.reactSuperview()?.bridge ?? (self.reactViewController()?.bridge) else { return }
-        guard let module = bridge.module(forName: "RNTrackPlayer") as? RNTrackPlayer else { return }
-        guard let avPlayer = module.avPlayer else { return }
-
-        let layer = AVPlayerLayer(player: avPlayer)
-        layer.frame = bounds
-        self.layer.addSublayer(layer)
-        self.playerLayer = layer
+        guard playerLayer.player == nil else { return }
+        guard let avPlayer = RNTrackPlayer.sharedAVPlayer else { return }
+        playerLayer.player = avPlayer
         updateResizeMode()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onPlayerRecreated),
+            name: .RNTPPlayerRecreated,
+            object: nil
+        )
+    }
+
+    @objc private func onPlayerRecreated() {
+        playerLayer.player = RNTrackPlayer.sharedAVPlayer
     }
 
     private func updateResizeMode() {
-        guard let layer = playerLayer else { return }
         switch resizeMode {
-        case "cover": layer.videoGravity = .resizeAspectFill
-        case "stretch": layer.videoGravity = .resize
-        case "none": layer.videoGravity = .resizeAspect
-        default: layer.videoGravity = .resizeAspect // contain
+        case "cover": playerLayer.videoGravity = .resizeAspectFill
+        case "stretch": playerLayer.videoGravity = .resize
+        case "none": playerLayer.videoGravity = .resizeAspect
+        default: playerLayer.videoGravity = .resizeAspect // contain
         }
     }
 

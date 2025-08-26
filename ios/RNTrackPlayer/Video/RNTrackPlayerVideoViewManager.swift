@@ -6,7 +6,9 @@ class RNTrackPlayerVideoViewManager: RCTViewManager {
     override static func requiresMainQueueSetup() -> Bool { true }
 
     override func view() -> UIView! {
-        return RNTrackPlayerVideoView()
+        let v = RNTrackPlayerVideoView()
+        v.bridge = self.bridge
+        return v
     }
 
     @objc override func setValue(_ value: Any!, forKey key: String!) {

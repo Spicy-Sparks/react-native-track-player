@@ -9,6 +9,7 @@
 import Foundation
 import AVFoundation
 import MediaPlayer
+import UIKit
 
 public enum PlaybackEndedReason: String {
     case playedUntilEnd
@@ -21,6 +22,7 @@ public enum PlaybackEndedReason: String {
 }
 
 class AVPlayerWrapper: AVPlayerWrapperProtocol {
+    public var player: AVPlayer { avPlayer }
     // MARK: - Properties
     
     fileprivate var avPlayer = AVPlayer()
@@ -402,8 +404,12 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         stopObservingAVPlayerItem()
         clearCurrentItem()
 
-        avPlayer = AVPlayer();
+        avPlayer = AVPlayer()
         setupAVPlayer()
+
+        // Update global reference and notify.
+        RNTrackPlayer.sharedAVPlayer = avPlayer
+        NotificationCenter.default.post(name: .RNTPPlayerRecreated, object: nil)
 
         delegate?.AVWrapperDidRecreateAVPlayer()
     }
@@ -518,4 +524,8 @@ extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
     func item(didReceiveTimedMetadata metadata: [AVTimedMetadataGroup]) {
         delegate?.AVWrapper(didReceiveTimedMetadata: metadata)
     }
+}
+
+extension Notification.Name {
+    static let RNTPPlayerRecreated = Notification.Name("RNTPPlayerRecreated")
 }
