@@ -63,8 +63,65 @@ class MusicService : HeadlessJsMediaService() {
         @JvmStatic
         var instance: MusicService? = null
             private set
+        const val EMPTY_NOTIFICATION_ID = 1
+        const val STATE_KEY = "state"
+        const val ERROR_KEY  = "error"
+        const val EVENT_KEY = "event"
+        const val DATA_KEY = "data"
+        const val TRACK_KEY = "track"
+        const val NEXT_TRACK_KEY = "nextTrack"
+        const val POSITION_KEY = "position"
+        const val DURATION_KEY = "duration"
+        const val BUFFERED_POSITION_KEY = "buffered"
+
+        const val TASK_KEY = "TrackPlayer"
+
+        const val MIN_BUFFER_KEY = "minBuffer"
+        const val MAX_BUFFER_KEY = "maxBuffer"
+        const val PLAY_BUFFER_KEY = "playBuffer"
+        const val BACK_BUFFER_KEY = "backBuffer"
+
+        const val FORWARD_JUMP_INTERVAL_KEY = "forwardJumpInterval"
+        const val BACKWARD_JUMP_INTERVAL_KEY = "backwardJumpInterval"
+        const val PROGRESS_UPDATE_EVENT_INTERVAL_KEY = "progressUpdateEventInterval"
+
+        const val MAX_CACHE_SIZE_KEY = "maxCacheSize"
+
+        const val ANDROID_OPTIONS_KEY = "android"
+
+        const val CUSTOM_ACTIONS_KEY = "customActions"
+        const val CUSTOM_ACTIONS_LIST_KEY = "customActionsList"
+
+        const val STOPPING_APP_PAUSES_PLAYBACK_KEY = "stoppingAppPausesPlayback"
+        const val APP_KILLED_PLAYBACK_BEHAVIOR_KEY = "appKilledPlaybackBehavior"
+        const val AUDIO_OFFLOAD_KEY = "audioOffload"
+        const val SHUFFLE_KEY = "shuffle"
+        const val STOP_FOREGROUND_GRACE_PERIOD_KEY = "stopForegroundGracePeriod"
+        const val PAUSE_ON_INTERRUPTION_KEY = "alwaysPauseOnInterruption"
+        const val AUTO_UPDATE_METADATA = "autoUpdateMetadata"
+        const val AUTO_HANDLE_INTERRUPTIONS = "autoHandleInterruptions"
+        const val USE_FFT_PROCESSOR = "useFFTProcessor"
+        const val ANDROID_AUDIO_CONTENT_TYPE = "androidAudioContentType"
+        const val IS_FOCUS_LOSS_PERMANENT_KEY = "permanent"
+        const val IS_PAUSED_KEY = "paused"
+
+        const val PARSE_EMBEDDED_ARTWORK = "androidParseEmbeddedArtwork"
+        const val HANDLE_NOISY = "androidHandleAudioBecomingNoisy"
+        const val CROSSFADE = "crossfade"
+        const val ALWAYS_SHOW_NEXT = "androidAlwaysShowNext"
+        const val SKIP_SILENCE = "androidSkipSilence"
+        const val WAKE_MODE = "androidWakeMode"
+
+        const val AA_FOR_YOU_KEY = "for-you"
+        const val AA_ROOT_KEY = "/"
+
+        const val DEFAULT_JUMP_INTERVAL = 15.0
+        const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5
     }
     private lateinit var player: QueuedAudioPlayer
+    // Expose the internal QueuedAudioPlayer instance for other classes (e.g. TrackPlayerVideoView)
+    val audioPlayer: QueuedAudioPlayer
+        get() = player
     private val binder = MusicBinder()
     private val scope = MainScope()
     private lateinit var fakePlayer: ExoPlayer
@@ -1197,63 +1254,6 @@ class MusicService : HeadlessJsMediaService() {
 
     private fun getPendingIntentFlags(): Int {
         return PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT
-    }
-
-    companion object {
-        const val EMPTY_NOTIFICATION_ID = 1
-        const val STATE_KEY = "state"
-        const val ERROR_KEY  = "error"
-        const val EVENT_KEY = "event"
-        const val DATA_KEY = "data"
-        const val TRACK_KEY = "track"
-        const val NEXT_TRACK_KEY = "nextTrack"
-        const val POSITION_KEY = "position"
-        const val DURATION_KEY = "duration"
-        const val BUFFERED_POSITION_KEY = "buffered"
-
-        const val TASK_KEY = "TrackPlayer"
-
-        const val MIN_BUFFER_KEY = "minBuffer"
-        const val MAX_BUFFER_KEY = "maxBuffer"
-        const val PLAY_BUFFER_KEY = "playBuffer"
-        const val BACK_BUFFER_KEY = "backBuffer"
-
-        const val FORWARD_JUMP_INTERVAL_KEY = "forwardJumpInterval"
-        const val BACKWARD_JUMP_INTERVAL_KEY = "backwardJumpInterval"
-        const val PROGRESS_UPDATE_EVENT_INTERVAL_KEY = "progressUpdateEventInterval"
-
-        const val MAX_CACHE_SIZE_KEY = "maxCacheSize"
-
-        const val ANDROID_OPTIONS_KEY = "android"
-
-        const val CUSTOM_ACTIONS_KEY = "customActions"
-        const val CUSTOM_ACTIONS_LIST_KEY = "customActionsList"
-
-        const val STOPPING_APP_PAUSES_PLAYBACK_KEY = "stoppingAppPausesPlayback"
-        const val APP_KILLED_PLAYBACK_BEHAVIOR_KEY = "appKilledPlaybackBehavior"
-        const val AUDIO_OFFLOAD_KEY = "audioOffload"
-        const val SHUFFLE_KEY = "shuffle"
-        const val STOP_FOREGROUND_GRACE_PERIOD_KEY = "stopForegroundGracePeriod"
-        const val PAUSE_ON_INTERRUPTION_KEY = "alwaysPauseOnInterruption"
-        const val AUTO_UPDATE_METADATA = "autoUpdateMetadata"
-        const val AUTO_HANDLE_INTERRUPTIONS = "autoHandleInterruptions"
-        const val USE_FFT_PROCESSOR = "useFFTProcessor"
-        const val ANDROID_AUDIO_CONTENT_TYPE = "androidAudioContentType"
-        const val IS_FOCUS_LOSS_PERMANENT_KEY = "permanent"
-        const val IS_PAUSED_KEY = "paused"
-
-        const val PARSE_EMBEDDED_ARTWORK = "androidParseEmbeddedArtwork"
-        const val HANDLE_NOISY = "androidHandleAudioBecomingNoisy"
-        const val CROSSFADE = "crossfade"
-        const val ALWAYS_SHOW_NEXT = "androidAlwaysShowNext"
-        const val SKIP_SILENCE = "androidSkipSilence"
-        const val WAKE_MODE = "androidWakeMode"
-
-        const val AA_FOR_YOU_KEY = "for-you"
-        const val AA_ROOT_KEY = "/"
-
-        const val DEFAULT_JUMP_INTERVAL = 15.0
-        const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5
     }
 }
 

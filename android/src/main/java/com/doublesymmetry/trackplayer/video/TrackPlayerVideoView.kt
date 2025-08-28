@@ -3,6 +3,7 @@ package com.doublesymmetry.trackplayer.video
 import android.content.Context
 import android.widget.FrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.doublesymmetry.trackplayer.service.MusicService
 
 /**
@@ -32,10 +33,10 @@ class TrackPlayerVideoView(context: Context) : FrameLayout(context) {
 
     fun setResizeMode(mode: String?) {
         when (mode) {
-            "cover" -> playerView.resizeMode = PlayerView.RESIZE_MODE_ZOOM
-            "stretch" -> playerView.resizeMode = PlayerView.RESIZE_MODE_FILL
-            "none" -> playerView.resizeMode = PlayerView.RESIZE_MODE_FIXED_WIDTH
-            else -> playerView.resizeMode = PlayerView.RESIZE_MODE_FIT // contain default
+            "cover" -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            "stretch" -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL
+            "none" -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+            else -> playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT // contain default
         }
     }
 }
