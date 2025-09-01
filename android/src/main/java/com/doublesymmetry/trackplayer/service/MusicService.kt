@@ -1239,7 +1239,12 @@ class MusicService : HeadlessJsMediaService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             Timber.tag("APM").d("onGetSearchResult: ${browser.packageName}, $query")
-            val results = this@MusicService.searchResults[query] ?: emptyList()
+            val results = when {
+                this@MusicService.searchResults.containsKey(query) -> this@MusicService.searchResults[query]
+                // Fallback: if a default list is stored under "", return it
+                this@MusicService.searchResults.containsKey("") -> this@MusicService.searchResults[""]
+                else -> null
+            } ?: emptyList()
             return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(results), null))
         }
 
