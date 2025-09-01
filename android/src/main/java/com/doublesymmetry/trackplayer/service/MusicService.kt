@@ -55,6 +55,7 @@ import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 import androidx.core.net.toUri
+import android.service.media.MediaBrowserService
 
 @OptIn(UnstableApi::class)
 @MainThread
@@ -131,7 +132,7 @@ class MusicService : HeadlessJsMediaService() {
     var mediaTreeStyle: List<Int> = listOf(
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
-    var searchResult: Result<MutableList<MediaItem>> = null
+    var searchResult: MediaBrowserService.Result<MutableList<MediaItem>>? = null
     private var sessionCommands: SessionCommands? = null
     private var playerCommands: Player.Commands? = null
     private var customLayout: List<CommandButton> = listOf()
@@ -1237,7 +1238,7 @@ class MusicService : HeadlessJsMediaService() {
             return super.onGetSearchResult(session, browser, query, page, pageSize, params)
         }
 
-        override fun onSearch(query: String, extras: Bundle?, result: Result<MutableList<MediaItem>>) {
+        override fun onSearch(query: String, extras: Bundle?, result: MediaBrowserService.Result<MutableList<MediaItem>>) {
             searchResult = result
             result.detach()
         }
