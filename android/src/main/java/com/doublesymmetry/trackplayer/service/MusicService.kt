@@ -1211,7 +1211,7 @@ class MusicService : HeadlessJsMediaService() {
             } else {
                 val md = mediaItems[0].mediaMetadata
                 emit(MusicEvents.BUTTON_PLAY_FROM_SEARCH, Bundle().apply {
-                    putString("query", searchQuery)
+                    putString("query", md.searchQuery)
                     putString("title", md.title?.toString())
                     putString("artist", md.artist)
                     putString("album", md.albumTitle?.toString())
