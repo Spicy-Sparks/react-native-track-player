@@ -718,6 +718,14 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         callback.resolve(null)
     }
 
+    override fun setSearchResults(mediaItems: ReadableMap, callback: Promise) = launchInScope {
+        val mediaItemsMap = mediaItems.toHashMap()
+        musicService.searchResult?.sendResult(
+            mediaItemsMap.mapValues { readableArrayToMediaItems(it.value as ArrayList<HashMap<String, String>>) }
+        )
+        callback.resolve(null)
+    }
+
     override fun setPlaybackState(mediaID: String, callback: Promise) = launchInScope {
         // TODO: not implemented!
         if (verifyServiceBoundOrReject(callback)) return@launchInScope

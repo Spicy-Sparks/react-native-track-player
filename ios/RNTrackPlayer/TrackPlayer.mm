@@ -228,6 +228,9 @@ RCT_EXPORT_MODULE()
 - (void)setBrowseTreeStyle:(double)browsableStyle playableStyle:(double)playableStyle resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
 }
 
+- (void)setSearchResults:(nonnull NSDictionary *)browseTree resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+}
+
 - (void)setEqualizerPreset:(double)preset resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
 }
 

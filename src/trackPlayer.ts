@@ -19,6 +19,7 @@ import type {
   TrackMetadataBase,
   UpdateOptions,
   AndroidAutoBrowseTree,
+  MediaItem,
 } from './interfaces';
 import resolveAssetSource from './resolveAssetSource';
 
@@ -691,6 +692,20 @@ export function setBrowseTreeStyle(
   if (!isAndroid) return null;
   TrackPlayer.setBrowseTreeStyle(browsableStyle, playableStyle);
   return null;
+}
+
+/**
+ * Sets the search results of Android Auto (Android only). The hierarchy structure is a dict with
+ * the mediaId as keys, and a list of MediaItem as values.
+ *
+ * @param searchResults the search results.
+ * @returns a serialized copy of the searchResults set by native. For debug purposes.
+ */
+export async function setSearchResults(
+  searchResults: MediaItem[],
+): Promise<void> {
+  if (!isAndroid) return new Promise(() => '');
+  return TrackPlayer.setSearchResults(searchResults);
 }
 
 /**
