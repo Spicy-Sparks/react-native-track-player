@@ -131,12 +131,7 @@ class MusicService : HeadlessJsMediaService() {
     var mediaTreeStyle: List<Int> = listOf(
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
-    /**
-     * Storage for browseable search results keyed by the original query string. The list is returned
-     * later from [APMMediaSessionCallback.onGetSearchResult]. This lets the JS layer populate
-     * Android Auto search suggestions via [MusicModule.setSearchResults].
-     */
-    var searchResults: Map<String, List<MediaItem>> = HashMap()
+    var searchResult: Result<MutableList<MediaItem>> = null
     private var sessionCommands: SessionCommands? = null
     private var playerCommands: Player.Commands? = null
     private var customLayout: List<CommandButton> = listOf()
@@ -1238,14 +1233,13 @@ class MusicService : HeadlessJsMediaService() {
             pageSize: Int,
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            Timber.tag("APM").d("onGetSearchResult: ${browser.packageName}, $query")
-            val results = when {
-                this@MusicService.searchResults.containsKey(query) -> this@MusicService.searchResults[query]
-                // Fallback: if a default list is stored under "", return it
-                this@MusicService.searchResults.containsKey("") -> this@MusicService.searchResults[""]
-                else -> null
-            } ?: emptyList()
-            return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(results), null))
+            Timber.tag("APM").d("searching2: ${browser.packageName}, $query")
+            return super.onGetSearchResult(session, browser, query, page, pageSize, params)
+        }
+
+        override fun onSearch(query: String, extras: Bundle?, result: Result<MutableList<MediaItem>>) {
+            searchResult = result
+            result.detach()
         }
 
         override fun onPlaybackResumption(
