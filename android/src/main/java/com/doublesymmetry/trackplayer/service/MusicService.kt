@@ -1180,6 +1180,9 @@ class MusicService : HeadlessJsMediaService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<Void>> {
             Timber.tag("APM").d("searching: ${browser.packageName}, $query")
+            emit(MusicEvents.BUTTON_PLAY_FROM_SEARCH, Bundle().apply {
+                putString("query", query)
+            })
             return super.onSearch(session, browser, query, params)
         }
 
