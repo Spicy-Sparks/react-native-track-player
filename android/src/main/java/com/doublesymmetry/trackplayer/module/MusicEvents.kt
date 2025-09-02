@@ -24,6 +24,7 @@ class MusicEvents(private val reactContext: ReactContext) : BroadcastReceiver() 
         const val BUTTON_PLAY_PAUSE = "remote-play-pause"
         const val BUTTON_PLAY_FROM_ID = "remote-play-id"
         const val BUTTON_PLAY_FROM_SEARCH = "remote-play-search"
+        const val BUTTON_SEARCH = "remote-search"
         const val BUTTON_PAUSE = "remote-pause"
         const val BUTTON_STOP = "remote-stop"
         const val BUTTON_SKIP = "remote-skip"

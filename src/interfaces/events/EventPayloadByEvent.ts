@@ -16,6 +16,7 @@ import type { RemoteJumpBackwardEvent } from './RemoteJumpBackwardEvent';
 import type { RemoteJumpForwardEvent } from './RemoteJumpForwardEvent';
 import type { RemotePlayIdEvent } from './RemotePlayIdEvent';
 import type { RemotePlaySearchEvent } from './RemotePlaySearchEvent';
+import type { RemoteSearchEvent } from './RemoteSearchEvent';
 import type { RemoteSeekEvent } from './RemoteSeekEvent';
 import type { RemoteSetRatingEvent } from './RemoteSetRatingEvent';
 import type { RemoteSkipEvent } from './RemoteSkipEvent';
@@ -43,6 +44,7 @@ export type EventPayloadByEvent = {
   [Event.RemotePlayPause]: never;
   [Event.RemotePlayId]: RemotePlayIdEvent;
   [Event.RemotePlaySearch]: RemotePlaySearchEvent;
+  [Event.RemoteSearch]: RemoteSearchEvent;
   [Event.RemotePause]: never;
   [Event.RemoteStop]: never;
   [Event.RemoteSkip]: RemoteSkipEvent;

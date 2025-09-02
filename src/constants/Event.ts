@@ -123,6 +123,11 @@ export enum Event {
    **/
   RemotePlaySearch = 'remote-play-search',
   /**
+   * (Android only) Fired when the user searches for content.
+   * See https://rntp.dev/docs/api/events#remotesearch
+   **/
+  RemoteSearch = 'remote-search',
+  /**
    * (Android only) Fired when the user presses the skip button.
    * See https://rntp.dev/docs/api/events#remoteskip
    **/

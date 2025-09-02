@@ -719,7 +719,7 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
     }
 
     override fun setSearchResults(mediaItems: ReadableArray, callback: Promise) = launchInScope {
-        // musicService.searchResult = readableArrayToMediaItems(mediaItems.toArrayList() as ArrayList<HashMap<String, String>>)
+        musicService.setSearchResults(readableArrayToMediaItems(mediaItems.toArrayList() as ArrayList<HashMap<String, String>>).toTypedArray())
         callback.resolve(null)
     }
 

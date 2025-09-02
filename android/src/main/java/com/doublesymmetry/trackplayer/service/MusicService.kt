@@ -135,6 +135,9 @@ class MusicService : HeadlessJsMediaService() {
     private var playerCommands: Player.Commands? = null
     private var customLayout: List<CommandButton> = listOf()
     private var lastWake: Long = 0
+    var searchResults: List<MediaItem> = listOf()
+    var searchBrowser: MediaSession.ControllerInfo? = null
+    var searchQuery: String = ""
     var lastConnectedPackage: String = ""
 
     fun setEqualizerPreset(preset: Int) {
@@ -1054,6 +1057,19 @@ class MusicService : HeadlessJsMediaService() {
         return null
     }
 
+    public fun setSearchResults (mediaItems: Array<MediaItem>) {
+        Timber.tag("APM").d("set search results")
+        searchResults = mediaItems.toList()
+        scope.launch {
+            // Tell the browser that results are ready (or changed)
+            val browser = searchBrowser
+            if (browser != null) {
+                Timber.tag("APM").d("notify search results are ready")
+                mediaSession.notifySearchResultChanged(browser, searchQuery, 10, null)
+            }
+        }
+    }
+
     @MainThread
     inner class MusicBinder : Binder() {
         val service = this@MusicService
@@ -1180,7 +1196,12 @@ class MusicService : HeadlessJsMediaService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<Void>> {
             Timber.tag("APM").d("searching: ${browser.packageName}, $query")
-            return super.onSearch(session, browser, query, params)
+            searchBrowser = browser
+            searchQuery = query
+            emit(MusicEvents.BUTTON_SEARCH, Bundle().apply {
+                putString("query", query)
+            })
+            return Futures.immediateFuture(LibraryResult.ofVoid())
         }
 
         override fun onAddMediaItems(
@@ -1236,7 +1257,7 @@ class MusicService : HeadlessJsMediaService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             Timber.tag("APM").d("searching2: ${browser.packageName}, $query")
-            return super.onGetSearchResult(session, browser, query, page, pageSize, params)
+            return Futures.immediateFuture(LibraryResult.ofItemList(searchResults, null))
         }
 
         override fun onPlaybackResumption(

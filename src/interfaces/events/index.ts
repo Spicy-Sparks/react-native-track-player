@@ -11,6 +11,7 @@ export * from './RemoteJumpBackwardEvent';
 export * from './RemoteJumpForwardEvent';
 export * from './RemotePlayIdEvent';
 export * from './RemotePlaySearchEvent';
+export * from './RemoteSearchEvent';
 export * from './RemoteSeekEvent';
 export * from './RemoteSetRatingEvent';
 export * from './RemoteSkipEvent';
