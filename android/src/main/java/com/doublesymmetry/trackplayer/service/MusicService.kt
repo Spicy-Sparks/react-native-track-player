@@ -55,7 +55,6 @@ import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import kotlin.system.exitProcess
 import androidx.core.net.toUri
-import android.service.media.MediaBrowserService
 
 @OptIn(UnstableApi::class)
 @MainThread
@@ -132,7 +131,6 @@ class MusicService : HeadlessJsMediaService() {
     var mediaTreeStyle: List<Int> = listOf(
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
-    var searchResult: MediaBrowserService.Result<MutableList<MediaItem>>? = null
     private var sessionCommands: SessionCommands? = null
     private var playerCommands: Player.Commands? = null
     private var customLayout: List<CommandButton> = listOf()
@@ -1176,9 +1174,6 @@ class MusicService : HeadlessJsMediaService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<Void>> {
             Timber.tag("APM").d("searching: ${browser.packageName}, $query")
-            emit(MusicEvents.BUTTON_PLAY_FROM_SEARCH, Bundle().apply {
-                putString("query", query)
-            })
             return super.onSearch(session, browser, query, params)
         }
 
@@ -1236,11 +1231,6 @@ class MusicService : HeadlessJsMediaService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             Timber.tag("APM").d("searching2: ${browser.packageName}, $query")
             return super.onGetSearchResult(session, browser, query, page, pageSize, params)
-        }
-
-        override fun onSearch(query: String, extras: Bundle?, result: MediaBrowserService.Result<MutableList<MediaItem>>) {
-            searchResult = result
-            result.detach()
         }
 
         override fun onPlaybackResumption(
