@@ -6,6 +6,7 @@ enum EventType: String, CaseIterable {
     case RemotePlaySearch = "remote-play-search"
     case RemoteBrowse = "remote-browse"
     case RemoteCustomAction = "remote-custom-action"
+    case RemoteSearch = "remote-search"
 
     case RemoteDuck = "remote-duck"
     case RemoteSeek = "remote-seek"
