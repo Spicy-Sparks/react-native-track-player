@@ -1,5 +1,5 @@
 {
-  "name": "react-native-track-player",
+  "name": "@javascriptcommon/react-native-track-player",
   "version": "4.1.4",
   "description": "A fully fledged audio module created for music apps",
   "main": "lib/src/index.js",
@@ -16,8 +16,6 @@
     "example": "yarn --cwd example",
     "pods": "cd example/ios && pod install",
     "bootstrap": "yarn example && yarn && yarn pods",
-    "prepublishOnly": "yarn lint",
-    "preversion": "yarn lint",
     "version": "yarn format && git add -A src && yarn changelog && git add CHANGELOG.md",
     "postversion": "if [[ ${npm_package_version} != *'nightly'* ]]; then yarn publish:git && yarn publish:npm; fi",
     "ci:lint": "eslint src --max-warnings=0",
