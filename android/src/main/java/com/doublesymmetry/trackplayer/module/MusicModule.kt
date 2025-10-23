@@ -29,6 +29,7 @@ import timber.log.Timber
 import java.util.*
 import androidx.core.net.toUri
 import com.facebook.react.module.annotations.ReactModule
+import com.lovegaoshi.kotlinaudio.models.AudioPlayerState
 
 
 /**
@@ -766,6 +767,10 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
     override fun getLastConnectedPackage(callback: Promise) = launchInScope {
         if (verifyServiceBoundOrReject(callback)) return@launchInScope
         callback.resolve(musicService.lastConnectedPackage)
+    }
+
+    fun isPlaying(): Boolean {
+        return musicService.state == AudioPlayerState.PLAYING
     }
 
     // Bridgeless interop layer tries to pass the `Job` from `scope.launch` to the JS side
