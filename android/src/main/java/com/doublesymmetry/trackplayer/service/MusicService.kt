@@ -1001,10 +1001,14 @@ class MusicService : HeadlessJsMediaService() {
     override fun onDestroy() {
         Timber.tag("APM").d("RNTP service is destroyed.")
         if (::player.isInitialized) {
-            mediaSession.release()
+            // moved down ->
+            // mediaSession.release()
             player.destroy()
         }
 
+        // -> Attempt to fix https://github.com/doublesymmetry/react-native-track-player/issues/2485
+        mediaSession.release()
+        
         instance = null
         progressUpdateJob?.cancel()
         super.onDestroy()
