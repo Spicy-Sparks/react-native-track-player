@@ -111,4 +111,7 @@ dependencies {
 
     implementation 'androidx.test:rules:1.7.0'
     implementation 'jp.wasabeef.transformers:coil:1.0.6'
+
+    // FORK PATCH: Used by AutoConnectionDetector
+    implementation "androidx.car.app:app:1.7.0"
 }
