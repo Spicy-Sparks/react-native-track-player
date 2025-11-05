@@ -951,30 +951,33 @@ class MusicService : HeadlessJsMediaService() {
 
     @SuppressLint("VisibleForTests")
     private fun selfWake(clientPackageName: String): Boolean {
-        val reactActivity = reactContext?.currentActivity
-        if (
-        // HACK: validate reactActivity is present; if not, send wake intent
-            (reactActivity == null || reactActivity.isDestroyed)
-            && Settings.canDrawOverlays(this)
-        ) {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastWake < 100000) {
-                return false
-            }
-            lastWake = currentTime
-            val activityIntent = packageManager.getLaunchIntentForPackage(packageName)
-            activityIntent!!.data = "trackplayer://service-bound".toUri()
-            activityIntent.action = Intent.ACTION_VIEW
-            activityIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            var activityOptions = ActivityOptions.makeBasic()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                activityOptions = activityOptions.setPendingIntentBackgroundActivityStartMode(
-                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
-            }
-            this.startActivity(activityIntent, activityOptions.toBundle())
-            return true
-        }
+        // FORK PATCH: AVOID STARTING APP IN FOREGROUND, PREFER STARTING HEADLESS
         return false
+
+//        val reactActivity = reactContext?.currentActivity
+//        if (
+//        // HACK: validate reactActivity is present; if not, send wake intent
+//            (reactActivity == null || reactActivity.isDestroyed)
+//            && Settings.canDrawOverlays(this)
+//        ) {
+//            val currentTime = System.currentTimeMillis()
+//            if (currentTime - lastWake < 100000) {
+//                return false
+//            }
+//            lastWake = currentTime
+//            val activityIntent = packageManager.getLaunchIntentForPackage(packageName)
+//            activityIntent!!.data = "trackplayer://service-bound".toUri()
+//            activityIntent.action = Intent.ACTION_VIEW
+//            activityIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+//            var activityOptions = ActivityOptions.makeBasic()
+//            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+//                activityOptions = activityOptions.setPendingIntentBackgroundActivityStartMode(
+//                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+//            }
+//            this.startActivity(activityIntent, activityOptions.toBundle())
+//            return true
+//        }
+//        return false
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession {
@@ -1006,6 +1009,7 @@ class MusicService : HeadlessJsMediaService() {
             player.destroy()
         }
 
+        // FORK PATCH
         // -> Attempt to fix https://github.com/doublesymmetry/react-native-track-player/issues/2485
         mediaSession.release()
         
@@ -1086,15 +1090,17 @@ class MusicService : HeadlessJsMediaService() {
         private val rootItem = buildMediaItem(title = "root", mediaId = AA_ROOT_KEY, isPlayable = false)
         private val forYouItem = buildMediaItem(title = "For You", mediaId = AA_FOR_YOU_KEY, isPlayable = false)
 
-        override fun onDisconnected(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo
-        ) {
-            emit(MusicEvents.CONNECTOR_DISCONNECTED, Bundle().apply {
-                putString("package", controller.packageName)
-            })
-            super.onDisconnected(session, controller)
-        }
+        // FORK PATCH: onDisconnected it's called only a long time after Android Auto disconnection, replaced with AutoConnectionDetector
+//        override fun onDisconnected(
+//            session: MediaSession,
+//            controller: MediaSession.ControllerInfo
+//        ) {
+//
+//            emit(MusicEvents.CONNECTOR_DISCONNECTED, Bundle().apply {
+//                putString("package", controller.packageName)
+//            })
+//            super.onDisconnected(session, controller)
+//        }
         // Configure commands available to the controller in onConnect()
         @OptIn(UnstableApi::class)
         override fun onConnect(

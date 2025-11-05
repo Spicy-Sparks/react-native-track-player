@@ -15,6 +15,7 @@ import com.doublesymmetry.trackplayer.model.Track
 import com.doublesymmetry.trackplayer.module.MusicEvents.Companion.EVENT_INTENT
 import com.doublesymmetry.trackplayer.service.MusicService
 import com.doublesymmetry.trackplayer.utils.AppForegroundTracker
+import com.doublesymmetry.trackplayer.utils.AutoConnectionDetector
 import com.doublesymmetry.trackplayer.utils.RejectionException
 import com.doublesymmetry.trackplayer.NativeTrackPlayerSpec
 import com.facebook.react.bridge.*
@@ -64,6 +65,7 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
 
     override fun initialize() {
         AppForegroundTracker.start()
+        AutoConnectionDetector(context).registerCarConnectionReceiver()
     }
 
     override fun onServiceConnected(name: ComponentName, service: IBinder) {
