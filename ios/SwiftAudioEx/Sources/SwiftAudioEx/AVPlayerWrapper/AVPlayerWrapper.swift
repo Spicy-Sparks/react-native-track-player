@@ -40,6 +40,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         label: "AVPlayerWrapper.stateQueue",
         attributes: .concurrent
     )
+    private var cachedDuration: TimeInterval = 0.0
 
     public init() {
         playerTimeObserver = AVPlayerTimeObserver(periodicObserverTimeInterval: timeEventFrequency.getTime())
@@ -115,17 +116,8 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     }
     
     var duration: TimeInterval {
-        if let seconds = currentItem?.asset.duration.seconds, !seconds.isNaN {
-            return seconds
-        }
-        else if let seconds = currentItem?.duration.seconds, !seconds.isNaN {
-            return seconds
-        }
-        else if let seconds = currentItem?.seekableTimeRanges.last?.timeRangeValue.duration.seconds,
-                !seconds.isNaN {
-            return seconds
-        }
-        return 0.0
+        // Return cached duration to avoid synchronous access to AVAsset properties
+        return cachedDuration
     }
     
     var bufferedPosition: TimeInterval {
@@ -242,7 +234,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
             state = .loading
             
             // Load metadata keys asynchronously and separate from playable, to allow that to execute as quickly as it can
-            let metdataKeys = ["commonMetadata", "availableChapterLocales", "availableMetadataFormats"]
+            let metdataKeys = ["commonMetadata", "availableChapterLocales", "availableMetadataFormats", "duration"]
             pendingAsset.loadValuesAsynchronously(forKeys: metdataKeys, completionHandler: { [weak self] in
                 guard let self = self else { return }
                 if (pendingAsset != self.asset) { return; }
@@ -381,6 +373,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         
         asset.cancelLoading()
         self.asset = nil
+        cachedDuration = 0.0
         
         avPlayer.replaceCurrentItem(with: nil)
     }
@@ -518,6 +511,7 @@ extension AVPlayerWrapper: AVPlayerItemObserverDelegate {
     }
         
     func item(didUpdateDuration duration: Double) {
+        cachedDuration = duration
         delegate?.AVWrapper(didUpdateDuration: duration)
     }
     
