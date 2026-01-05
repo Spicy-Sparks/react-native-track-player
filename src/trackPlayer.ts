@@ -804,3 +804,83 @@ export async function getEqualizerPresets(): Promise<string[]> {
   if (!isAndroid) return [];
   return TrackPlayer.getEqualizerPresets();
 }
+
+// MARK: - Cross-Platform Equalizer API (Band Control)
+
+/**
+ * Enable or disable the parametric equalizer.
+ * - iOS: 10-band biquad peaking filters
+ * - Android: System equalizer (band count varies by device, typically 5)
+ */
+export async function setEqualizerEnabled(enabled: boolean): Promise<void> {
+  return TrackPlayer.setEqualizerEnabled(enabled);
+}
+
+/**
+ * Check if the equalizer is enabled.
+ */
+export async function getEqualizerEnabled(): Promise<boolean> {
+  return TrackPlayer.getEqualizerEnabled();
+}
+
+/**
+ * Set the gain for a specific equalizer band.
+ * @param band Band index (0 to bandCount-1)
+ * @param gain Gain in dB (range varies by platform, typically -12 to +12)
+ */
+export async function setEqualizerBand(
+  band: number,
+  gain: number,
+): Promise<void> {
+  return TrackPlayer.setEqualizerBand(band, gain);
+}
+
+/**
+ * Set all equalizer band gains at once.
+ * @param gains Array of gain values in dB
+ * Note: iOS has 10 bands, Android typically has 5 (device dependent)
+ */
+export async function setEqualizerBands(gains: number[]): Promise<void> {
+  return TrackPlayer.setEqualizerBands(gains);
+}
+
+/**
+ * Get all current equalizer band gains.
+ * @returns Array of gain values in dB
+ */
+export async function getEqualizerBands(): Promise<number[]> {
+  return TrackPlayer.getEqualizerBands();
+}
+
+/**
+ * Get the center frequencies for each equalizer band.
+ * @returns Array of frequency values in Hz
+ * - iOS: [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+ * - Android: varies by device (typically 5 bands)
+ */
+export async function getEqualizerFrequencies(): Promise<number[]> {
+  return TrackPlayer.getEqualizerFrequencies();
+}
+
+/**
+ * Apply a preset to the equalizer.
+ * @param presetIndex Index of the preset (use getEqualizerPresetNames to get available presets)
+ */
+export async function applyEqualizerPreset(presetIndex: number): Promise<void> {
+  return TrackPlayer.applyEqualizerPreset(presetIndex);
+}
+
+/**
+ * Get available equalizer preset names.
+ * @returns Array of preset names ["Flat", "Rock", "Pop", "Jazz", ...]
+ */
+export async function getEqualizerPresetNames(): Promise<string[]> {
+  return TrackPlayer.getEqualizerPresetNames();
+}
+
+/**
+ * Reset all equalizer bands to 0 (flat response).
+ */
+export async function resetEqualizer(): Promise<void> {
+  return TrackPlayer.resetEqualizer();
+}

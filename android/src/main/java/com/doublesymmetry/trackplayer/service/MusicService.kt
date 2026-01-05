@@ -156,6 +156,48 @@ class MusicService : HeadlessJsMediaService() {
         player.setLoudnessEnhance(gain)
     }
 
+    // Cross-platform Equalizer Band API
+
+    fun setEqualizerEnabled(enabled: Boolean) {
+        player.setEqualizerEnabled(enabled)
+    }
+
+    fun getEqualizerEnabled(): Boolean {
+        return player.getEqualizerEnabled()
+    }
+
+    fun setEqualizerBand(band: Int, gain: Float) {
+        player.setEqualizerBand(band, gain)
+    }
+
+    fun setEqualizerBands(gains: List<Float>) {
+        player.setEqualizerBands(gains)
+    }
+
+    fun getEqualizerBands(): List<Float> {
+        return player.getEqualizerBands()
+    }
+
+    fun getEqualizerFrequencies(): List<Int> {
+        return player.getEqualizerFrequencies()
+    }
+
+    fun getEqualizerBandLevelRange(): List<Float> {
+        return player.getEqualizerBandLevelRange()
+    }
+
+    fun applyEqualizerPreset(presetIndex: Int) {
+        player.applyEqualizerPreset(presetIndex)
+    }
+
+    fun getEqualizerPresetNames(): List<String> {
+        return player.getEqualizerPresetNames()
+    }
+
+    fun resetEqualizer() {
+        player.resetEqualizer()
+    }
+
     fun crossFadePrepare(previous: Boolean = false, seekTo: Double = 0.0) {
         player.crossFadePrepare(previous, seekTo)
     }

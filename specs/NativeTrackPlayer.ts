@@ -68,6 +68,17 @@ export interface Spec extends TurboModule {
   getCurrentEqualizerPreset(): Promise<number>;
   getEqualizerPresets(): Promise<string[]>;
 
+  // iOS Equalizer methods (10-band parametric EQ)
+  setEqualizerEnabled(enabled: boolean): Promise<void>;
+  getEqualizerEnabled(): Promise<boolean>;
+  setEqualizerBand(band: number, gain: number): Promise<void>;
+  setEqualizerBands(gains: number[]): Promise<void>;
+  getEqualizerBands(): Promise<number[]>;
+  getEqualizerFrequencies(): Promise<number[]>;
+  applyEqualizerPreset(presetIndex: number): Promise<void>;
+  getEqualizerPresetNames(): Promise<string[]>;
+  resetEqualizer(): Promise<void>;
+
   // event listeners
   addListener(eventName: string): void;
   removeListeners(count: number): void;

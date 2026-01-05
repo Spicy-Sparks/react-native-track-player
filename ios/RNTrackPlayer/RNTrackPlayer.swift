@@ -35,6 +35,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     private var hasInitialized = false
     private let player = QueuedAudioPlayer()
     private let audioSessionController = AudioSessionController.shared
+    private let equalizerTap = EqualizerAudioTap()  // Always created, attached at setup
     private var shouldEmitProgressEvent: Bool = false
     private var shouldResumePlaybackAfterInterruptionEnds: Bool = false
     private var forwardJumpInterval: NSNumber? = nil;
@@ -134,11 +135,12 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             return
         }
 
-        // configure the FFT audio tap
+        // configure the FFT audio tap if specified
         if let fftLength = config["useFFTProcessor"] as? Int {
             player.audioTap = WaveformAudioTap(mFFTLength: fftLength, mEmit: {data in
                 self.emit(event:EventType.FFTUpdated, body:data)})
         }
+        // Note: Equalizer tap is NOT attached by default. Call setEqualizerEnabled(true) to enable.
 
         // configure buffer size
         if let bufferDuration = config["minBuffer"] as? TimeInterval {
@@ -894,6 +896,82 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
                 "playWhenReady": playWhenReady
             ]
         )
+    }
+
+    // MARK: - iOS Equalizer Methods
+
+    @objc(setEqualizerEnabled:resolver:rejecter:)
+    public func setEqualizerEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        // Toggle the enabled flag
+        // Note: For the equalizer to work, the tap must be attached to the player first
+        equalizerTap.isEnabled = enabled
+        resolve(NSNull())
+    }
+
+    @objc(getEqualizerEnabled:rejecter:)
+    public func getEqualizerEnabled(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        resolve(equalizerTap.isEnabled)
+    }
+
+    @objc(setEqualizerBand:gain:resolver:rejecter:)
+    public func setEqualizerBand(band: Int, gain: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        equalizerTap.setGain(band: band, gainDB: gain)
+        resolve(NSNull())
+    }
+
+    @objc(setEqualizerBands:resolver:rejecter:)
+    public func setEqualizerBands(gains: [NSNumber], resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        let floatGains = gains.map { $0.floatValue }
+        equalizerTap.setAllGains(floatGains)
+        resolve(NSNull())
+    }
+
+    @objc(getEqualizerBands:rejecter:)
+    public func getEqualizerBands(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        resolve(equalizerTap.getAllGains())
+    }
+
+    @objc(getEqualizerFrequencies:rejecter:)
+    public func getEqualizerFrequencies(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        resolve(EqualizerAudioTap.frequencies)
+    }
+
+    @objc(applyEqualizerPreset:resolver:rejecter:)
+    public func applyEqualizerPreset(presetIndex: Int, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        let presets = EqualizerAudioTap.Preset.allCases
+        guard presetIndex >= 0 && presetIndex < presets.count else {
+            reject("invalid_preset", "Preset index out of bounds", nil)
+            return
+        }
+
+        let preset = presets[presetIndex]
+        equalizerTap.applyPreset(preset)
+        resolve(NSNull())
+    }
+
+    @objc(getEqualizerPresetNames:rejecter:)
+    public func getEqualizerPresetNames(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        resolve(EqualizerAudioTap.presetNames)
+    }
+
+    @objc(resetEqualizer:rejecter:)
+    public func resetEqualizer(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        equalizerTap.resetGains()
+        resolve(NSNull())
     }
 }
 

@@ -295,6 +295,154 @@ abstract class AudioPlayer internal constructor(
             .map { i -> equalizers[0].getPresetName(i.toShort()) }
     }
 
+    // 10-band Equalizer API (cross-platform compatible)
+
+    /**
+     * Enable or disable the equalizer
+     */
+    fun setEqualizerEnabled(enabled: Boolean) {
+        equalizers.forEach { equalizer ->
+            equalizer.enabled = enabled
+        }
+    }
+
+    /**
+     * Check if the equalizer is enabled
+     */
+    fun getEqualizerEnabled(): Boolean {
+        if (equalizers.isEmpty()) return false
+        return equalizers[0].enabled
+    }
+
+    /**
+     * Get the number of equalizer bands available
+     */
+    fun getEqualizerBandCount(): Int {
+        if (equalizers.isEmpty()) return 0
+        return equalizers[0].numberOfBands.toInt()
+    }
+
+    /**
+     * Set the gain for a specific equalizer band
+     * @param band Band index (0 to bandCount-1)
+     * @param gainDB Gain in millibels (mB). 1 dB = 100 mB
+     */
+    fun setEqualizerBand(band: Int, gainDB: Float) {
+        equalizers.forEach { equalizer ->
+            if (band >= 0 && band < equalizer.numberOfBands) {
+                // Convert dB to millibels (mB)
+                val millibels = (gainDB * 100).toInt().toShort()
+                val range = equalizer.bandLevelRange
+                val clampedLevel = millibels.coerceIn(range[0], range[1])
+                equalizer.setBandLevel(band.toShort(), clampedLevel)
+                equalizer.enabled = true
+            }
+        }
+    }
+
+    /**
+     * Set gains for all equalizer bands at once
+     * @param gainsDB Array of gain values in dB
+     */
+    fun setEqualizerBands(gainsDB: List<Float>) {
+        equalizers.forEach { equalizer ->
+            val bandCount = equalizer.numberOfBands.toInt()
+            val range = equalizer.bandLevelRange
+            for (i in 0 until minOf(gainsDB.size, bandCount)) {
+                val millibels = (gainsDB[i] * 100).toInt().toShort()
+                val clampedLevel = millibels.coerceIn(range[0], range[1])
+                equalizer.setBandLevel(i.toShort(), clampedLevel)
+            }
+            equalizer.enabled = true
+        }
+    }
+
+    /**
+     * Get all current equalizer band gains
+     * @return Array of gain values in dB
+     */
+    fun getEqualizerBands(): List<Float> {
+        if (equalizers.isEmpty()) return emptyList()
+        val equalizer = equalizers[0]
+        val bandCount = equalizer.numberOfBands.toInt()
+        return (0 until bandCount).map { band ->
+            // Convert millibels to dB
+            equalizer.getBandLevel(band.toShort()).toFloat() / 100f
+        }
+    }
+
+    /**
+     * Get the center frequencies for each equalizer band
+     * @return Array of frequency values in Hz
+     */
+    fun getEqualizerFrequencies(): List<Int> {
+        if (equalizers.isEmpty()) return emptyList()
+        val equalizer = equalizers[0]
+        val bandCount = equalizer.numberOfBands.toInt()
+        return (0 until bandCount).map { band ->
+            // getCenterFreq returns milliHz, convert to Hz
+            (equalizer.getCenterFreq(band.toShort()) / 1000)
+        }
+    }
+
+    /**
+     * Get the band level range in dB [min, max]
+     */
+    fun getEqualizerBandLevelRange(): List<Float> {
+        if (equalizers.isEmpty()) return listOf(-12f, 12f)
+        val range = equalizers[0].bandLevelRange
+        // Convert millibels to dB
+        return listOf(range[0].toFloat() / 100f, range[1].toFloat() / 100f)
+    }
+
+    /**
+     * Reset all equalizer bands to 0 (flat response)
+     */
+    fun resetEqualizer() {
+        equalizers.forEach { equalizer ->
+            val bandCount = equalizer.numberOfBands.toInt()
+            for (i in 0 until bandCount) {
+                equalizer.setBandLevel(i.toShort(), 0)
+            }
+        }
+    }
+
+    /**
+     * Get preset names for iOS compatibility (custom presets mapped to Android system presets)
+     */
+    fun getEqualizerPresetNames(): List<String> {
+        // Return iOS-compatible preset names
+        return listOf(
+            "Flat", "Rock", "Pop", "Jazz", "Classical",
+            "Hip Hop", "Electronic", "Acoustic", "Bass Boost",
+            "Treble Boost", "Vocal", "Loudness"
+        )
+    }
+
+    /**
+     * Apply a preset by index (iOS-compatible)
+     * Maps iOS preset index to gain values
+     */
+    fun applyEqualizerPreset(presetIndex: Int) {
+        val presets = listOf(
+            listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),           // Flat
+            listOf(5f, 4f, 3f, 1f, -1f, 0f, 2f, 3f, 4f, 4f),          // Rock
+            listOf(-1f, 1f, 3f, 4f, 3f, 1f, 0f, 1f, 2f, 2f),          // Pop
+            listOf(3f, 2f, 1f, 2f, -1f, -1f, 0f, 1f, 2f, 3f),         // Jazz
+            listOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f),         // Classical
+            listOf(5f, 5f, 3f, 1f, -1f, 0f, 1f, 0f, 2f, 3f),          // Hip Hop
+            listOf(4f, 4f, 2f, 0f, -2f, -1f, 0f, 2f, 4f, 4f),         // Electronic
+            listOf(3f, 2f, 1f, 1f, 0f, 0f, 1f, 2f, 2f, 2f),           // Acoustic
+            listOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f),           // Bass Boost
+            listOf(0f, 0f, 0f, 0f, 0f, 1f, 2f, 4f, 5f, 6f),           // Treble Boost
+            listOf(-2f, -1f, 0f, 2f, 4f, 4f, 3f, 1f, 0f, -1f),        // Vocal
+            listOf(5f, 4f, 2f, 0f, -2f, -2f, 0f, 2f, 4f, 5f)          // Loudness
+        )
+        if (presetIndex >= 0 && presetIndex < presets.size) {
+            setEqualizerBands(presets[presetIndex])
+        }
+    }
+
     fun togglePlaying() {
         if (exoPlayer.isPlaying) {
             pause()

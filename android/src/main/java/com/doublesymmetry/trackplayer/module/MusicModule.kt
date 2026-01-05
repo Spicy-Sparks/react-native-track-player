@@ -325,6 +325,63 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         callback.resolve(Arguments.fromList(musicService.getEqualizerPresets()))
     }
 
+    // Cross-platform Equalizer Band API
+
+    override fun setEqualizerEnabled(enabled: Boolean, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setEqualizerEnabled(enabled)
+        callback.resolve(null)
+    }
+
+    override fun getEqualizerEnabled(callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        callback.resolve(musicService.getEqualizerEnabled())
+    }
+
+    override fun setEqualizerBand(band: Double, gain: Double, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setEqualizerBand(band.toInt(), gain.toFloat())
+        callback.resolve(null)
+    }
+
+    override fun setEqualizerBands(gains: ReadableArray?, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        val gainsList = mutableListOf<Float>()
+        gains?.let {
+            for (i in 0 until it.size()) {
+                gainsList.add(it.getDouble(i).toFloat())
+            }
+        }
+        musicService.setEqualizerBands(gainsList)
+        callback.resolve(null)
+    }
+
+    override fun getEqualizerBands(callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        callback.resolve(Arguments.fromList(musicService.getEqualizerBands()))
+    }
+
+    override fun getEqualizerFrequencies(callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        callback.resolve(Arguments.fromList(musicService.getEqualizerFrequencies()))
+    }
+
+    override fun applyEqualizerPreset(presetIndex: Double, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.applyEqualizerPreset(presetIndex.toInt())
+        callback.resolve(null)
+    }
+
+    override fun getEqualizerPresetNames(callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        callback.resolve(Arguments.fromList(musicService.getEqualizerPresetNames()))
+    }
+
+    override fun resetEqualizer(callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.resetEqualizer()
+        callback.resolve(null)
+    }
 
     override fun setLoudnessEnhance(gain: Double, callback: Promise) = launchInScope {
         musicService.setLoudnessEnhance(gain.toInt())

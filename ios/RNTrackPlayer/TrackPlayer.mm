@@ -243,7 +243,45 @@ RCT_EXPORT_MODULE()
 - (void)setPlaybackState:(nonnull NSString *)mediaID resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
 }
 
-- (void)switchExoPlayer:(double)fadeDuration fadeInterval:(double)fadeInterval fadeToVolume:(double)fadeToVolume waitUntil:(nonnull NSNumber *)waitUntil resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject { 
+- (void)switchExoPlayer:(double)fadeDuration fadeInterval:(double)fadeInterval fadeToVolume:(double)fadeToVolume waitUntil:(nonnull NSNumber *)waitUntil resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+}
+
+// iOS Equalizer methods
+
+- (void)setEqualizerEnabled:(BOOL)enabled resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setEqualizerEnabled:enabled resolver:resolve rejecter:reject];
+}
+
+- (void)getEqualizerEnabled:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer getEqualizerEnabled:resolve rejecter:reject];
+}
+
+- (void)setEqualizerBand:(double)band gain:(double)gain resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setEqualizerBand:(NSInteger)band gain:(float)gain resolver:resolve rejecter:reject];
+}
+
+- (void)setEqualizerBands:(nonnull NSArray *)gains resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setEqualizerBands:gains resolver:resolve rejecter:reject];
+}
+
+- (void)getEqualizerBands:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer getEqualizerBands:resolve rejecter:reject];
+}
+
+- (void)getEqualizerFrequencies:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer getEqualizerFrequencies:resolve rejecter:reject];
+}
+
+- (void)applyEqualizerPreset:(double)presetIndex resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer applyEqualizerPreset:(NSInteger)presetIndex resolver:resolve rejecter:reject];
+}
+
+- (void)getEqualizerPresetNames:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer getEqualizerPresetNames:resolve rejecter:reject];
+}
+
+- (void)resetEqualizer:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer resetEqualizer:resolve rejecter:reject];
 }
 
 @end
