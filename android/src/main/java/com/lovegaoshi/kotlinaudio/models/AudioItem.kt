@@ -77,15 +77,23 @@ enum class MediaType(val value: String) {
 
 
 fun audioItem2MediaItem(audioItem: AudioItem, context: Context? = null): MediaItem {
+    // Check if this is a placeholder track (notPlayable flag from TrackAudioItem)
+    val isNotPlayable = (audioItem as? com.doublesymmetry.trackplayer.model.TrackAudioItem)?.notPlayable ?: false
+    val hasValidUrl = audioItem.audioUrl.isNotBlank()
+
     return MediaItem.Builder()
         .setMediaId(audioItem.mediaId ?: UUID.randomUUID().toString())
+        // Always set URI (even empty string) so ExoPlayer adds item to timeline
         .setUri(audioItem.audioUrl)
         .setMediaMetadata(
             MediaMetadata.Builder()
             .setTitle(audioItem.title)
             .setArtist(audioItem.artist)
+            // Mark placeholder tracks as not playable so Android Auto shows them correctly in queue
+            .setIsPlayable(true)
+            .setIsBrowsable(false)
             .setArtworkUri((
-                if (context != null && audioItem.audioUrl.startsWith("file://")) {
+                if (context != null && hasValidUrl && audioItem.audioUrl.startsWith("file://")) {
                     saveMediaCoverToPng(
                         audioItem.audioUrl,
                         context.contentResolver,
@@ -94,7 +102,7 @@ fun audioItem2MediaItem(audioItem: AudioItem, context: Context? = null): MediaIt
                         ?: audioItem.artwork
                 }
                 else audioItem.artwork)?.toUri())
-            .setArtworkData(if (audioItem.audioUrl.startsWith("file://")) getEmbeddedBitmapArray(
+            .setArtworkData(if (hasValidUrl && audioItem.audioUrl.startsWith("file://")) getEmbeddedBitmapArray(
                 audioItem.audioUrl.substring(7)) else null, MediaMetadata.PICTURE_TYPE_MEDIA)
             .setExtras(Bundle().apply {
                 audioItem.options?.headers?.let {
@@ -108,6 +116,7 @@ fun audioItem2MediaItem(audioItem: AudioItem, context: Context? = null): MediaIt
                 }
                 putString("type", audioItem.type.toString())
                 putString("uri", audioItem.audioUrl)
+                putBoolean("notPlayable", isNotPlayable)
             }).build())
         .setTag(audioItem)
         .build()
