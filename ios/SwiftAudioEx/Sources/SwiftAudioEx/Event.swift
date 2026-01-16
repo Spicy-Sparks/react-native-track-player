@@ -27,6 +27,10 @@ extension AudioPlayer {
         lastIndex: Int?,
         lastPosition: Double?
     )
+    public typealias NotPlayableTrackActiveEventData = (
+        item: AudioItem?,
+        index: Int?
+    )
     
     public struct EventHolder {
         
@@ -104,6 +108,13 @@ extension AudioPlayer {
          - Note: It is only fired for instances of a QueuedAudioPlayer.
          */
         public let currentItem: AudioPlayer.Event<CurrentItemEventData> = AudioPlayer.Event()
+
+        /**
+         Emitted when a track with notPlayable=true becomes the active track.
+         The track stays current but won't load or play.
+         - Important: Remember to dispatch to the main queue if any UI is updated in the event handler.
+         */
+        public let notPlayableTrackActive: AudioPlayer.Event<NotPlayableTrackActiveEventData> = AudioPlayer.Event()
     }
     
     public typealias EventClosure<EventData> = (EventData) -> Void

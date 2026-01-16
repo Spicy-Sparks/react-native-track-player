@@ -357,6 +357,16 @@ class MusicService : HeadlessJsMediaService() {
             putDoubleArray("data", v)
 
         })}
+        // Set up callback for notPlayable tracks
+        player.onNotPlayableTrackActive = { index, item ->
+            val bundle = Bundle().apply {
+                putInt("index", index)
+                if (item is TrackAudioItem) {
+                    putBundle("track", item.track.originalItem)
+                }
+            }
+            emit(MusicEvents.PLAYBACK_NOT_PLAYABLE_TRACK_ACTIVE, bundle)
+        }
         fakePlayer.release()
         mediaSession.player = player.player
         observeEvents()
@@ -711,6 +721,27 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     fun updateNowPlayingMetadata(track: Track) {
         updateMetadataForTrack(player.currentIndex, track)
+    }
+
+    @MainThread
+    fun setTrackPlayable(index: Int, playable: Boolean) {
+        val track = tracks.getOrNull(index) ?: return
+        val wasNotPlayable = track.notPlayable
+        track.notPlayable = !playable
+        player.replaceItem(index, track.toAudioItem())
+
+        // If current track: notPlayable -> playable, load it
+        if (wasNotPlayable && playable && player.currentIndex == index) {
+            player.load(track.toAudioItem())
+        }
+        // If current track: playable -> notPlayable, stop and emit event
+        else if (!wasNotPlayable && !playable && player.currentIndex == index) {
+            player.stop()
+            emit(MusicEvents.PLAYBACK_NOT_PLAYABLE_TRACK_ACTIVE, Bundle().apply {
+                putInt("index", index)
+                putBundle("track", track.originalItem)
+            })
+        }
     }
 
     @MainThread

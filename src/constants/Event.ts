@@ -170,4 +170,9 @@ export enum Event {
    * Fired when there is an fft update
    **/
   fftUpdate = 'fft-updated',
+  /**
+   * Fired when a track with notPlayable=true becomes the active track.
+   * The track stays current but won't load or play.
+   */
+  PlaybackNotPlayableTrackActive = 'playback-not-playable-track-active',
 }

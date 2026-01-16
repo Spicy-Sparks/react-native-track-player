@@ -68,6 +68,7 @@ export type EventPayloadByEvent = {
   [Event.connectorConnected]: ControllerConnectedEvent;
   [Event.connectorDisconnected]: ControllerDisconnectedEvent;
   [Event.fftUpdate]: FFTUpdateEvent;
+  [Event.PlaybackNotPlayableTrackActive]: never;
 };
 
 // eslint-disable-next-line

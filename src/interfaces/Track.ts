@@ -13,6 +13,11 @@ export interface Track extends TrackMetadataBase {
   pitchAlgorithm?: PitchAlgorithm;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   headers?: { [key: string]: any };
+  /**
+   * When true, the track won't load or play when it becomes current.
+   * The track stays in the queue but playback is blocked.
+   */
+  notPlayable?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

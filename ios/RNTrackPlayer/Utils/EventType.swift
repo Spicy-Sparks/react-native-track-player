@@ -38,6 +38,7 @@ enum EventType: String, CaseIterable {
     case ControllerConnected = "android-controller-connected"
     case ControllerDisconnected = "android-controller-disconnected"
     case PlaybackAnimatedVolumeChanged = "playback-animated-volume-changed"
+    case PlaybackNotPlayableTrackActive = "playback-not-playable-track-active"
 
     static func allRawValues() -> [String] {
         return allCases.map { $0.rawValue }

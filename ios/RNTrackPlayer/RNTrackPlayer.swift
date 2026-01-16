@@ -59,6 +59,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         player.event.currentItem.addListener(self, handleAudioPlayerCurrentItemChange)
         player.event.secondElapse.addListener(self, handleAudioPlayerSecondElapse)
         player.event.playWhenReadyChange.addListener(self, handlePlayWhenReadyChange)
+        player.event.notPlayableTrackActive.addListener(self, handleNotPlayableTrackActive)
 
         // Store global reference to the underlying AVPlayer so that other native views can reuse it.
         if let wrapper = player.wrapper as? AVPlayerWrapper {
@@ -896,6 +897,47 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
                 "playWhenReady": playWhenReady
             ]
         )
+    }
+
+    func handleNotPlayableTrackActive(item: AudioItem?, index: Int?) {
+        var body: Dictionary<String, Any> = [:]
+        if let index = index {
+            body["index"] = index
+        }
+        if let track = (item as? Track)?.toObject() {
+            body["track"] = track
+        }
+        emit(event: EventType.PlaybackNotPlayableTrackActive, body: body)
+    }
+
+    // MARK: - NotPlayable Track Control
+
+    @objc(setTrackPlayable:playable:resolver:rejecter:)
+    public func setTrackPlayable(
+        trackIndex: Int,
+        playable: Bool,
+        resolve: RCTPromiseResolveBlock,
+        reject: RCTPromiseRejectBlock
+    ) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        if (rejectWhenTrackIndexOutOfBounds(index: trackIndex, reject: reject)) { return }
+
+        let track: Track = player.items[trackIndex] as! Track
+        let wasNotPlayable = track.notPlayable
+        track.notPlayable = !playable
+
+        // If current track: notPlayable -> playable, load it
+        if wasNotPlayable && playable && player.currentIndex == trackIndex {
+            player.load(item: track)
+        }
+        // If current track: playable -> notPlayable, unload it
+        else if !wasNotPlayable && !playable && player.currentIndex == trackIndex {
+            player.wrapper.unload()
+            player.wrapper.state = .idle
+            handleNotPlayableTrackActive(item: track, index: trackIndex)
+        }
+
+        resolve(NSNull())
     }
 
     // MARK: - iOS Equalizer Methods

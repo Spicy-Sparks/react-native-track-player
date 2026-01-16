@@ -485,6 +485,19 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         callback.resolve(null)
     }
 
+    override fun setTrackPlayable(trackIndex: Double, playable: Boolean, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+
+        val index = trackIndex.toInt()
+        if (index < 0 || index >= musicService.tracks.size) {
+            callback.reject("index_out_of_bounds", "The track index is out of bounds")
+            return@launchInScope
+        }
+
+        musicService.setTrackPlayable(index, playable)
+        callback.resolve(null)
+    }
+
     override fun removeUpcomingTracks(callback: Promise) = launchInScope {
         if (verifyServiceBoundOrReject(callback)) return@launchInScope
 

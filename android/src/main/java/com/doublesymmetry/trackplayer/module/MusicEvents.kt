@@ -48,6 +48,7 @@ class MusicEvents(private val reactContext: ReactContext) : BroadcastReceiver() 
         const val PLAYBACK_PROGRESS_UPDATED = "playback-progress-updated"
         const val PLAYBACK_ERROR = "playback-error"
         const val PLAYBACK_ANIMATED_VOLUME_CHANGED = "playback-animated-volume-changed"
+        const val PLAYBACK_NOT_PLAYABLE_TRACK_ACTIVE = "playback-not-playable-track-active"
         const val PLAYBACK_RESUME = "playback-resume-android"
         const val FFT_UPDATED = "fft-updated"
 

@@ -8,6 +8,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.lovegaoshi.kotlinaudio.models.*
+import com.doublesymmetry.trackplayer.model.TrackAudioItem
 import java.util.*
 import kotlin.math.max
 import kotlin.math.min
@@ -18,6 +19,12 @@ class QueuedAudioPlayer(
 ) : AudioPlayer(context, options) {
 
     var parseEmbeddedArtwork: Boolean = false
+
+    /**
+     * Callback invoked when a track with notPlayable=true becomes current.
+     * The player will stay on this track but won't load or play it.
+     */
+    var onNotPlayableTrackActive: ((index: Int, item: AudioItem) -> Unit)? = null
 
     private val queue = LinkedList<MediaItem>()
 
@@ -91,11 +98,21 @@ class QueuedAudioPlayer(
         get() = items.getOrNull(currentIndex - 1)
 
     override fun load(item: AudioItem, playWhenReady: Boolean) {
+        // Check if item is notPlayable
+        if (item is TrackAudioItem && item.notPlayable) {
+            onNotPlayableTrackActive?.invoke(currentIndex, item)
+            return
+        }
         load(item)
         exoPlayer.playWhenReady = playWhenReady
     }
 
     override fun load(item: AudioItem) {
+        // Check if item is notPlayable
+        if (item is TrackAudioItem && item.notPlayable) {
+            onNotPlayableTrackActive?.invoke(currentIndex, item)
+            return
+        }
         if (queue.isEmpty()) {
             add(item)
         } else {
@@ -230,6 +247,13 @@ class QueuedAudioPlayer(
      */
     fun jumpToItem(index: Int) {
         try {
+            // Check if the target item is notPlayable
+            val item = items.getOrNull(index)
+            if (item is TrackAudioItem && item.notPlayable) {
+                exoPlayer.seekTo(index, C.TIME_UNSET)
+                onNotPlayableTrackActive?.invoke(index, item)
+                return
+            }
             exoPlayer.seekTo(index, C.TIME_UNSET)
             exoPlayer.prepare()
         } catch (e: IllegalSeekPositionException) {

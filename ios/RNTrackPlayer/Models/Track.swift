@@ -29,6 +29,9 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
     var album: String?
     var artwork: MPMediaItemArtwork?
 
+    /// When true, the track won't load or play when it becomes current.
+    var notPlayable: Bool = false
+
     private var originalObject: [String: Any] = [:]
 
     init?(dictionary: [String: Any]) {
@@ -37,6 +40,7 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
         self.headers = dictionary["headers"] as? [String: Any]
         self.userAgent = dictionary["userAgent"] as? String
         self.pitchAlgorithm = dictionary["pitchAlgorithm"] as? String
+        self.notPlayable = dictionary["notPlayable"] as? Bool ?? false
 
         updateMetadata(dictionary: dictionary);
     }
@@ -58,6 +62,9 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
         self.duration = dictionary["duration"] as? Double
         self.artworkURL = MediaURL(object: dictionary["artwork"])
         self.isLiveStream = dictionary["isLiveStream"] as? Bool
+        if let notPlayable = dictionary["notPlayable"] as? Bool {
+            self.notPlayable = notPlayable
+        }
 
         self.originalObject = self.originalObject.merging(dictionary) { (_, new) in new }
     }

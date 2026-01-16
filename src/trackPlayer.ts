@@ -82,7 +82,7 @@ export function registerPlaybackService(factory: () => ServiceHandler) {
   }
 }
 
-export function addEventListener<T extends Event>(
+export function addEventListener<T extends keyof EventPayloadByEvent>(
   event: T,
   listener: EventPayloadByEvent[T] extends never
     ? () => void
@@ -274,6 +274,21 @@ export function updateNowPlayingMetadata(
 }
 
 // MARK: - Player API
+
+/**
+ * Updates the playable status of a track in the queue.
+ * When playable is false (notPlayable is true), the track won't load or play when current.
+ * When playable is true (notPlayable is false), normal playback behavior resumes.
+ *
+ * @param trackIndex The index of the track to update.
+ * @param playable Whether the track should be playable.
+ */
+export async function setTrackPlayable(
+  trackIndex: number,
+  playable: boolean,
+): Promise<void> {
+  return TrackPlayer.setTrackPlayable(trackIndex, playable);
+}
 
 /**
  * Resets the player stopping the current track and clearing the queue.

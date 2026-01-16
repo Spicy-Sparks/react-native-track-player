@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { addEventListener } from '../trackPlayer';
-import { Event } from '../constants';
-import type { EventPayloadByEventWithType } from '../interfaces';
+import type { EventPayloadByEvent, EventPayloadByEventWithType } from '../interfaces';
 
 /**
  * Attaches a handler to the given TrackPlayer events and performs cleanup on unmount
@@ -10,7 +9,7 @@ import type { EventPayloadByEventWithType } from '../interfaces';
  * @param handler - callback invoked when the event fires
  */
 export const useTrackPlayerEvents = <
-  T extends Event[],
+  T extends (keyof EventPayloadByEvent)[],
   H extends (data: EventPayloadByEventWithType[T[number]]) => void
 >(
   events: T,

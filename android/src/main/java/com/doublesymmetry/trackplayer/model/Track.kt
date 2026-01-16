@@ -24,15 +24,17 @@ class Track
     var originalItem: Bundle?
     var headers: HashMap<String, String>? = null
     val queueId: Long
+    var notPlayable: Boolean = false
 
     override fun setMetadata(context: Context, bundle: Bundle?, ratingType: Int) {
         super.setMetadata(context, bundle, ratingType)
         if (originalItem != null && originalItem != bundle) originalItem!!.putAll(bundle)
+        bundle?.getBoolean("notPlayable", false)?.let { notPlayable = it }
     }
 
     fun toAudioItem(): TrackAudioItem {
         return TrackAudioItem(this, type, uri.toString(), artist, title, album, artwork.toString(), duration,
-                AudioItemOptions(headers, userAgent, resourceId), mediaId)
+                AudioItemOptions(headers, userAgent, resourceId), mediaId, notPlayable)
     }
 
     init {
@@ -60,6 +62,7 @@ class Track
                 headers!![header] = httpHeaders.getString(header)!!
             }
         }
+        notPlayable = bundle.getBoolean("notPlayable", false)
         setMetadata(context, bundle, ratingType)
         queueId = System.currentTimeMillis()
         originalItem = bundle
