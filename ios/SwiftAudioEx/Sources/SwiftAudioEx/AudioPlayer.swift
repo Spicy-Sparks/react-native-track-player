@@ -214,7 +214,7 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
                 // Reset playback values without updating, because that will happen in
                 // the loadNowPlayingMetaValues call straight after:
                 nowPlayingInfoController.setWithoutUpdate(keyValues: [
-                    MediaItemProperty.duration(nil),
+                    MediaItemProperty.duration(item.getDuration()),
                     NowPlayingInfoProperty.playbackRate(nil),
                     NowPlayingInfoProperty.elapsedPlaybackTime(nil)
                 ])
@@ -328,6 +328,7 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
             MediaItemProperty.artist(item.getArtist()),
             MediaItemProperty.title(item.getTitle()),
             MediaItemProperty.albumTitle(item.getAlbumTitle()),
+            MediaItemProperty.duration(item.getDuration()),
         ])
         loadArtwork(forItem: item)
     }
@@ -341,8 +342,10 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      - Playback rate
      */
     func updateNowPlayingPlaybackValues() {
+        // Use wrapper.duration if valid, otherwise fallback to currentItem's duration (from metadata)
+        let duration = wrapper.duration > 0 ? wrapper.duration : (currentItem?.getDuration() ?? 0)
         nowPlayingInfoController.set(keyValues: [
-            MediaItemProperty.duration(wrapper.duration),
+            MediaItemProperty.duration(duration),
             NowPlayingInfoProperty.playbackRate(wrapper.playWhenReady ? Double(wrapper.rate) : 0),
             NowPlayingInfoProperty.elapsedPlaybackTime(wrapper.currentTime)
         ])
@@ -422,6 +425,9 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
 
     func AVWrapper(didUpdateDuration duration: Double) {
         event.updateDuration.emit(data: duration)
+        /*if(automaticallyUpdateNowPlayingInfo){
+            updateNowPlayingPlaybackValues()
+        }*/
     }
     
     func AVWrapper(didReceiveCommonMetadata metadata: [AVMetadataItem]) {
