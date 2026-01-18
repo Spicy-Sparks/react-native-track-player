@@ -104,9 +104,12 @@ class AVPlayerItemObserver: NSObject {
             }
             
         case AVPlayerItemKeyPath.loadedTimeRanges:
-            // Note: loadedTimeRanges represents buffered content, not total duration.
-            // Do NOT call didUpdateDuration here - it would report buffer size instead of actual duration.
-            break
+            if let item = observingItem, item.duration.isIndefinite || item.duration.seconds.isNaN,
+               let ranges = change?[.newKey] as? [NSValue],
+               let bufferDuration = ranges.first?.timeRangeValue.duration,
+              !bufferDuration.seconds.isNaN {
+                delegate?.item(didUpdateDuration: bufferDuration.seconds)
+             }
             
         case AVPlayerItemKeyPath.playbackLikelyToKeepUp:
             if let playbackLikelyToKeepUp = change?[.newKey] as? Bool {
