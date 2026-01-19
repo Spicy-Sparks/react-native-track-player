@@ -25,6 +25,7 @@ public protocol AudioItem {
     func getSourceUrl() -> String
     func getArtist() -> String?
     func getTitle() -> String?
+    func getDuration() -> Double?
     func getAlbumTitle() -> String?
     func getSourceType() -> SourceType
     func getArtwork(_ handler: @escaping (AudioItemImage?) -> Void)
@@ -57,6 +58,8 @@ public class DefaultAudioItem: AudioItem, Identifiable {
     
     public var albumTitle: String?
     
+    public var duration: Double?
+    
     public var sourceType: SourceType
     
     public var artwork: AudioItemImage?
@@ -84,6 +87,10 @@ public class DefaultAudioItem: AudioItem, Identifiable {
     
     public func getAlbumTitle() -> String? {
         albumTitle
+    }
+    
+    public func getDuration() -> Double? {
+        duration
     }
     
     public func getSourceType() -> SourceType {

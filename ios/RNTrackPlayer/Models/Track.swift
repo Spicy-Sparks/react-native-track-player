@@ -86,6 +86,10 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
     func getAlbumTitle() -> String? {
         return album
     }
+    
+    func getDuration() -> Double? {
+        return duration
+    }
 
     func getSourceType() -> SourceType {
         return url.isLocal ? .file : .stream
