@@ -142,6 +142,10 @@ export enum Event {
    * See https://rntp.dev/docs/api/events#remoteCustomAction
    **/
   RemoteCustomAction = 'remote-custom-action',
+  /**
+   * (Android only) Fired when the user presses the shuffle button.
+   **/
+  RemoteShuffle = 'remote-shuffle',
   /** (iOS only) Fired when chapter metadata is received.
    * See https://rntp.dev/docs/api/events#chaptermetadatareceived
    **/

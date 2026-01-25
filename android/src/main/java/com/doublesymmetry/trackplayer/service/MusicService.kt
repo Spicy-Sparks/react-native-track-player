@@ -135,6 +135,9 @@ class MusicService : HeadlessJsMediaService() {
     private var playerCommands: Player.Commands? = null
     private var customLayout: List<CommandButton> = listOf()
     private var lastWake: Long = 0
+    private var shuffleState: Boolean = false
+    private var heartState: Boolean = false
+    private var notificationCapabilities: List<Capability> = emptyList()
     var searchResults: List<MediaItem> = listOf()
     var searchBrowser: MediaSession.ControllerInfo? = null
     var searchQuery: String = ""
@@ -402,7 +405,14 @@ class MusicService : HeadlessJsMediaService() {
         }
 
         player.alwaysPauseOnInterruption = androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
-        player.shuffleMode = androidOptions?.getBoolean(SHUFFLE_KEY) ?: false
+        val newShuffleState = androidOptions?.getBoolean(SHUFFLE_KEY) ?: false
+        player.shuffleMode = newShuffleState
+        shuffleState = newShuffleState
+
+        // Update heart state if provided
+        if (androidOptions?.containsKey("heartState") == true) {
+            heartState = androidOptions.getBoolean("heartState")
+        }
 
         // setup progress update events if configured
         progressUpdateJob?.cancel()
@@ -414,7 +424,7 @@ class MusicService : HeadlessJsMediaService() {
         }
 
         val capabilities = options.getIntegerArrayList("capabilities")?.map { Capability.entries[it] } ?: emptyList()
-        var notificationCapabilities = options.getIntegerArrayList("notificationCapabilities")?.map { Capability.entries[it] } ?: emptyList()
+        notificationCapabilities = options.getIntegerArrayList("notificationCapabilities")?.map { Capability.entries[it] } ?: emptyList()
         compactCapabilities = options.getIntegerArrayList("compactCapabilities")?.map { Capability.entries[it] } ?: emptyList()
         val customActions = options.getBundle(CUSTOM_ACTIONS_KEY)
         val customActionsList = customActions?.getStringArrayList(CUSTOM_ACTIONS_LIST_KEY)
@@ -464,7 +474,7 @@ class MusicService : HeadlessJsMediaService() {
                 else -> { }
             }
         }
-        customLayout = customActionsList?.map {
+        val customButtons = customActionsList?.map {
                 v -> CustomButton(
             displayName = v,
             sessionCommand = v,
@@ -475,7 +485,29 @@ class MusicService : HeadlessJsMediaService() {
                 TrackPlayerR.drawable.ifl_24px
             )
         ).commandButton
-        } ?: ImmutableList.of()
+        }?.toMutableList() ?: mutableListOf()
+
+        // Add heart button if SetRating capability is present
+        if (notificationCapabilities.contains(Capability.SET_RATING)) {
+            val heartIcon = if (heartState) TrackPlayerR.drawable.heart_24px else TrackPlayerR.drawable.hearte_24px
+            customButtons.add(0, CustomButton(
+                displayName = "Heart",
+                sessionCommand = "heart",
+                iconRes = heartIcon
+            ).commandButton)
+        }
+
+        // Add shuffle button if capability is present
+        if (notificationCapabilities.contains(Capability.SHUFFLE)) {
+            val shuffleIcon = if (shuffleState) TrackPlayerR.drawable.shuffle_on_24px else TrackPlayerR.drawable.shuffle_24px
+            customButtons.add(0, CustomButton(
+                displayName = "Shuffle",
+                sessionCommand = "shuffle",
+                iconRes = shuffleIcon
+            ).commandButton)
+        }
+
+        customLayout = customButtons
 
         val sessionCommandsBuilder = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
         customLayout.forEach {
@@ -486,17 +518,15 @@ class MusicService : HeadlessJsMediaService() {
         sessionCommands = sessionCommandsBuilder.build()
         playerCommands = playerCommandsBuilder.build()
 
-        if (mediaSession.mediaNotificationControllerInfo != null) {
+        // Use safe call to avoid race condition
+        mediaSession.mediaNotificationControllerInfo?.let { controllerInfo ->
             // https://github.com/androidx/media/blob/c35a9d62baec57118ea898e271ac66819399649b/demos/session_service/src/main/java/androidx/media3/demo/session/DemoMediaLibrarySessionCallback.kt#L107
-            mediaSession.setCustomLayout(
-                mediaSession.mediaNotificationControllerInfo!!,
-                customLayout
-            )
-            mediaSession.setAvailableCommands(
-                mediaSession.mediaNotificationControllerInfo!!,
-                sessionCommands!!,
-                playerCommands!!
-            )
+            mediaSession.setCustomLayout(controllerInfo, customLayout)
+            sessionCommands?.let { sc ->
+                playerCommands?.let { pc ->
+                    mediaSession.setAvailableCommands(controllerInfo, sc, pc)
+                }
+            }
         }
     }
 
@@ -646,6 +676,61 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     fun setRepeatMode(value: RepeatMode) {
         player.repeatMode = value
+    }
+
+    @MainThread
+    fun setShuffleState(enabled: Boolean) {
+        if (shuffleState != enabled) {
+            shuffleState = enabled
+            updateCustomLayout()
+        }
+    }
+
+    @MainThread
+    fun setHeartState(saved: Boolean) {
+        if (heartState != saved) {
+            heartState = saved
+            updateCustomLayout()
+        }
+    }
+
+    @MainThread
+    private fun updateCustomLayout() {
+        // Check if mediaSession is initialized before accessing it
+        if (!::mediaSession.isInitialized) return
+
+        try {
+            val customButtons = mutableListOf<CommandButton>()
+
+            // Add heart button if SetRating capability is present
+            if (notificationCapabilities.contains(Capability.SET_RATING)) {
+                val heartIcon = if (heartState) TrackPlayerR.drawable.heart_24px else TrackPlayerR.drawable.hearte_24px
+                customButtons.add(CustomButton(
+                    displayName = "Heart",
+                    sessionCommand = "heart",
+                    iconRes = heartIcon
+                ).commandButton)
+            }
+
+            // Add shuffle button if capability is present
+            if (notificationCapabilities.contains(Capability.SHUFFLE)) {
+                val shuffleIcon = if (shuffleState) TrackPlayerR.drawable.shuffle_on_24px else TrackPlayerR.drawable.shuffle_24px
+                customButtons.add(0, CustomButton(
+                    displayName = "Shuffle",
+                    sessionCommand = "shuffle",
+                    iconRes = shuffleIcon
+                ).commandButton)
+            }
+
+            customLayout = customButtons
+
+            // Use safe call to avoid race condition where mediaNotificationControllerInfo becomes null
+            mediaSession.mediaNotificationControllerInfo?.let { controllerInfo ->
+                mediaSession.setCustomLayout(controllerInfo, customLayout)
+            }
+        } catch (e: Exception) {
+            // Ignore errors in custom layout update - notification is non-critical
+        }
     }
 
     @MainThread
@@ -869,9 +954,13 @@ class MusicService : HeadlessJsMediaService() {
                     }
 
                     is MediaSessionCallback.CUSTOMACTION -> {
-                        Bundle().apply {
-                            putString("customAction", it.customAction)
-                            emit(MusicEvents.BUTTON_CUSTOM_ACTION, this)
+                        when (it.customAction) {
+                            "shuffle" -> emit(MusicEvents.BUTTON_SHUFFLE)
+                            "heart" -> emit(MusicEvents.BUTTON_SET_RATING, Bundle())
+                            else -> Bundle().apply {
+                                putString("customAction", it.customAction)
+                                emit(MusicEvents.BUTTON_CUSTOM_ACTION, this)
+                            }
                         }
                     }
                 }
@@ -1224,7 +1313,11 @@ class MusicService : HeadlessJsMediaService() {
             customCommand: SessionCommand,
             args: Bundle
         ): ListenableFuture<SessionResult> {
-            emit(MusicEvents.BUTTON_CUSTOM_ACTION, Bundle().apply { putString("customAction", customCommand.customAction) })
+            when (customCommand.customAction) {
+                "shuffle" -> emit(MusicEvents.BUTTON_SHUFFLE)
+                "heart" -> emit(MusicEvents.BUTTON_SET_RATING, Bundle())
+                else -> emit(MusicEvents.BUTTON_CUSTOM_ACTION, Bundle().apply { putString("customAction", customCommand.customAction) })
+            }
             return super.onCustomCommand(session, controller, customCommand, args)
         }
 

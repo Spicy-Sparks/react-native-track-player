@@ -62,6 +62,7 @@ export type EventPayloadByEvent = {
   [Event.RemoteBrowse]: RemoteBrowseEvent;
   [Event.PlaybackResume]: PlaybackResumeEvent;
   [Event.RemoteCustomAction]: RemoteCustomActionEvent;
+  [Event.RemoteShuffle]: never;
   [Event.MetadataChapterReceived]: AudioMetadataReceivedEvent;
   [Event.MetadataTimedReceived]: AudioMetadataReceivedEvent;
   [Event.MetadataCommonReceived]: AudioCommonMetadataReceivedEvent;

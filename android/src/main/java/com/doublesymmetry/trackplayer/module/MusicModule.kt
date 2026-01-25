@@ -242,6 +242,7 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
             this["CAPABILITY_LIKE"] = -1
             this["CAPABILITY_DISLIKE"] = -1
             this["CAPABILITY_BOOKMARK"] = -1
+            this["CAPABILITY_SHUFFLE"] = Capability.SHUFFLE.ordinal
 
         }
     }
@@ -420,6 +421,18 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         val bundle = Arguments.toBundle(data)
         if (bundle is Bundle) {
             musicService.load(bundleToTrack(bundle))
+
+            // Update heart state based on rating (for notification icon)
+            try {
+                val rating = bundle.get("rating")
+                val heartState = when (rating) {
+                    is Number -> rating.toDouble() > 0
+                    is Boolean -> rating
+                    else -> false
+                }
+                musicService.setHeartState(heartState)
+            } catch (_: Exception) { }
+
             callback.resolve(null)
         } else {
             callback.reject("invalid_track_object", "Track was not a dictionary type")
@@ -474,12 +487,27 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
     override fun updateNowPlayingMetadata(map: ReadableMap?, callback: Promise) = launchInScope {
         if (verifyServiceBoundOrReject(callback)) return@launchInScope
 
-        if (musicService.tracks.isEmpty())
+        if (musicService.tracks.isEmpty()) {
             callback.reject("no_current_item", "There is no current item in the player")
+            return@launchInScope
+        }
 
         Arguments.toBundle(map)?.let {
             val track = bundleToTrack(it)
             musicService.updateNowPlayingMetadata(track)
+
+            // Update heart state based on rating (for notification icon)
+            try {
+                val rating = it.get("rating")
+                if (rating != null) {
+                    val heartState = when (rating) {
+                        is Number -> rating.toDouble() > 0
+                        is Boolean -> rating
+                        else -> false
+                    }
+                    musicService.setHeartState(heartState)
+                }
+            } catch (_: Exception) { }
         }
 
         callback.resolve(null)

@@ -16,4 +16,5 @@ export enum Capability {
   Like = TrackPlayer.CAPABILITY_LIKE,
   Dislike = TrackPlayer.CAPABILITY_DISLIKE,
   Bookmark = TrackPlayer.CAPABILITY_BOOKMARK,
+  Shuffle = TrackPlayer.CAPABILITY_SHUFFLE,
 }
