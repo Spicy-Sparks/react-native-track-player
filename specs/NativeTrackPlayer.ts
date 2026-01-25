@@ -101,6 +101,7 @@ export interface Spec extends TurboModule {
     CAPABILITY_LIKE: number;
     CAPABILITY_DISLIKE: number;
     CAPABILITY_BOOKMARK: number;
+    CAPABILITY_SHUFFLE: number;
 
     // States
     STATE_NONE: string;
