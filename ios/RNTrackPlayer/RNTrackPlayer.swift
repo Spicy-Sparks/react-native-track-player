@@ -1055,6 +1055,7 @@ extension RNTrackPlayer {
                 "CAPABILITY_LIKE": Capability.like.rawValue,
                 "CAPABILITY_DISLIKE": Capability.dislike.rawValue,
                 "CAPABILITY_BOOKMARK": Capability.bookmark.rawValue,
+                "CAPABILITY_SHUFFLE": "NOOP",
 
                 "REPEAT_OFF": RepeatMode.off.rawValue,
                 "REPEAT_TRACK": RepeatMode.track.rawValue,

@@ -37,6 +37,7 @@ class MusicEvents(private val reactContext: ReactContext) : BroadcastReceiver() 
         const val BUTTON_DUCK = "remote-duck"
         const val BUTTON_BROWSE = "remote-browse"
         const val BUTTON_CUSTOM_ACTION = "remote-custom-action"
+        const val BUTTON_SHUFFLE = "remote-shuffle"
 
         // Playback Events
         const val PLAYBACK_PLAY_WHEN_READY_CHANGED = "playback-play-when-ready-changed"
