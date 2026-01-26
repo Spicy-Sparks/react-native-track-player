@@ -406,7 +406,8 @@ class MusicService : HeadlessJsMediaService() {
 
         player.alwaysPauseOnInterruption = androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
         val newShuffleState = androidOptions?.getBoolean(SHUFFLE_KEY) ?: false
-        player.shuffleMode = newShuffleState
+        // Don't set player.shuffleMode - shuffle is managed by JS layer through queue reordering
+        // Only track shuffleState for notification icon display
         shuffleState = newShuffleState
 
         // Update heart state if provided
