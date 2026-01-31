@@ -696,9 +696,12 @@ abstract class AudioPlayer internal constructor(
                 Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> playerEventHolder.updateAudioItemTransition(
                     AudioItemTransitionReason.QUEUE_CHANGED(oldPosition)
                 )
-                Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> playerEventHolder.updateAudioItemTransition(
-                    AudioItemTransitionReason.REPEAT(oldPosition)
-                )
+                Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> {
+                    // Seek to 0 to update MediaSession position when track loops
+                    // This fixes the notification progress bar not resetting on loop
+                    exoPlayer.seekTo(0)
+                    playerEventHolder.updateAudioItemTransition(AudioItemTransitionReason.REPEAT(oldPosition))
+                }
                 Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> playerEventHolder.updateAudioItemTransition(
                     AudioItemTransitionReason.SEEK_TO_ANOTHER_AUDIO_ITEM(oldPosition)
                 )
