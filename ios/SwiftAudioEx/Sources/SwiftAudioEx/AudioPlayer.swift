@@ -215,8 +215,8 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
                 // the loadNowPlayingMetaValues call straight after:
                 nowPlayingInfoController.setWithoutUpdate(keyValues: [
                     MediaItemProperty.duration(item.getDuration()),
-                    NowPlayingInfoProperty.playbackRate(nil),
-                    NowPlayingInfoProperty.elapsedPlaybackTime(nil)
+                    NowPlayingInfoProperty.playbackRate(0.0),
+                    NowPlayingInfoProperty.elapsedPlaybackTime(0.0)
                 ])
                 loadNowPlayingMetaValues()
             }
@@ -398,7 +398,9 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
         }
 
         switch state {
-        case .ready, .loading, .playing, .paused:
+        case .ready, .playing, .paused:
+            // Only update on ready/playing/paused, not on loading (removed .loading)
+            // This prevents showing incorrect progress during item transitions
             if (automaticallyUpdateNowPlayingInfo) {
                 updateNowPlayingPlaybackValues()
             }
