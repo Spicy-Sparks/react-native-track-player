@@ -38,6 +38,8 @@ import com.lovegaoshi.kotlinaudio.player.components.Cache
 import com.lovegaoshi.kotlinaudio.player.components.FocusManager
 import com.lovegaoshi.kotlinaudio.player.components.MediaFactory
 import com.lovegaoshi.kotlinaudio.player.components.setupBuffer
+import com.lovegaoshi.kotlinaudio.processors.BalanceAudioProcessor
+import com.lovegaoshi.kotlinaudio.processors.EqualizerAudioProcessor
 import com.lovegaoshi.kotlinaudio.processors.FFTEmitter
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
@@ -70,6 +72,8 @@ abstract class AudioPlayer internal constructor(
     private val focusListener = APMFocusListener()
     private val focusManager = FocusManager(context, listener=focusListener, options=options)
     var fftEmitter: (DoubleArray) -> Unit = { v -> Timber.tag("APMFFT").d("FFT emitted $v") }
+    private val balanceProcessor = BalanceAudioProcessor()
+    private val equalizerProcessor = EqualizerAudioProcessor()
 
     var alwaysPauseOnInterruption: Boolean
         get() = focusManager.alwaysPauseOnInterruption
@@ -209,7 +213,9 @@ abstract class AudioPlayer internal constructor(
                     }
                 }
 
-        }) else DefaultRenderersFactory(context)
+        }, arrayOf(equalizerProcessor, balanceProcessor)) else APMRenderersFactory(
+            context, 0, null, arrayOf(equalizerProcessor, balanceProcessor)
+        )
         renderer.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         val mPlayer = ExoPlayer
             .Builder(context)
@@ -295,152 +301,122 @@ abstract class AudioPlayer internal constructor(
             .map { i -> equalizers[0].getPresetName(i.toShort()) }
     }
 
-    // 10-band Equalizer API (cross-platform compatible)
+    // 8-band Software Equalizer API (cross-platform, biquad with coefficient smoothing)
 
-    /**
-     * Enable or disable the equalizer
-     */
     fun setEqualizerEnabled(enabled: Boolean) {
-        equalizers.forEach { equalizer ->
-            equalizer.enabled = enabled
-        }
+        equalizerProcessor.isEnabled = enabled
     }
 
-    /**
-     * Check if the equalizer is enabled
-     */
-    fun getEqualizerEnabled(): Boolean {
-        if (equalizers.isEmpty()) return false
-        return equalizers[0].enabled
-    }
+    fun getEqualizerEnabled(): Boolean = equalizerProcessor.isEnabled
 
-    /**
-     * Get the number of equalizer bands available
-     */
-    fun getEqualizerBandCount(): Int {
-        if (equalizers.isEmpty()) return 0
-        return equalizers[0].numberOfBands.toInt()
-    }
+    fun getEqualizerBandCount(): Int = EqualizerAudioProcessor.BAND_COUNT
 
-    /**
-     * Set the gain for a specific equalizer band
-     * @param band Band index (0 to bandCount-1)
-     * @param gainDB Gain in millibels (mB). 1 dB = 100 mB
-     */
     fun setEqualizerBand(band: Int, gainDB: Float) {
-        equalizers.forEach { equalizer ->
-            if (band >= 0 && band < equalizer.numberOfBands) {
-                // Convert dB to millibels (mB)
-                val millibels = (gainDB * 100).toInt().toShort()
-                val range = equalizer.bandLevelRange
-                val clampedLevel = millibels.coerceIn(range[0], range[1])
-                equalizer.setBandLevel(band.toShort(), clampedLevel)
-                equalizer.enabled = true
-            }
-        }
+        equalizerProcessor.setGain(band, gainDB)
     }
 
-    /**
-     * Set gains for all equalizer bands at once
-     * @param gainsDB Array of gain values in dB
-     */
     fun setEqualizerBands(gainsDB: List<Float>) {
-        equalizers.forEach { equalizer ->
-            val bandCount = equalizer.numberOfBands.toInt()
-            val range = equalizer.bandLevelRange
-            for (i in 0 until minOf(gainsDB.size, bandCount)) {
-                val millibels = (gainsDB[i] * 100).toInt().toShort()
-                val clampedLevel = millibels.coerceIn(range[0], range[1])
-                equalizer.setBandLevel(i.toShort(), clampedLevel)
-            }
-            equalizer.enabled = true
-        }
+        equalizerProcessor.setAllGains(gainsDB)
     }
 
-    /**
-     * Get all current equalizer band gains
-     * @return Array of gain values in dB
-     */
     fun getEqualizerBands(): List<Float> {
-        if (equalizers.isEmpty()) return emptyList()
-        val equalizer = equalizers[0]
-        val bandCount = equalizer.numberOfBands.toInt()
-        return (0 until bandCount).map { band ->
-            // Convert millibels to dB
-            equalizer.getBandLevel(band.toShort()).toFloat() / 100f
-        }
+        return equalizerProcessor.getAllGains().toList()
     }
 
-    /**
-     * Get the center frequencies for each equalizer band
-     * @return Array of frequency values in Hz
-     */
     fun getEqualizerFrequencies(): List<Int> {
-        if (equalizers.isEmpty()) return emptyList()
-        val equalizer = equalizers[0]
-        val bandCount = equalizer.numberOfBands.toInt()
-        return (0 until bandCount).map { band ->
-            // getCenterFreq returns milliHz, convert to Hz
-            (equalizer.getCenterFreq(band.toShort()) / 1000)
-        }
+        return EqualizerAudioProcessor.FREQUENCIES.map { it.toInt() }
     }
 
-    /**
-     * Get the band level range in dB [min, max]
-     */
-    fun getEqualizerBandLevelRange(): List<Float> {
-        if (equalizers.isEmpty()) return listOf(-12f, 12f)
-        val range = equalizers[0].bandLevelRange
-        // Convert millibels to dB
-        return listOf(range[0].toFloat() / 100f, range[1].toFloat() / 100f)
-    }
+    fun getEqualizerBandLevelRange(): List<Float> = listOf(-12f, 12f)
 
-    /**
-     * Reset all equalizer bands to 0 (flat response)
-     */
     fun resetEqualizer() {
-        equalizers.forEach { equalizer ->
-            val bandCount = equalizer.numberOfBands.toInt()
-            for (i in 0 until bandCount) {
-                equalizer.setBandLevel(i.toShort(), 0)
-            }
-        }
+        equalizerProcessor.resetGains()
     }
+
+    // Bass Boost API (software DSP — matches iOS low shelf filter)
+
+    fun setBassBoostEnabled(enabled: Boolean) {
+        equalizerProcessor.isBassBoostEnabled = enabled
+    }
+
+    fun setBassBoostLevel(level: Float) {
+        equalizerProcessor.updateBassBoostLevel(level)
+    }
+
+    // Loudness Enhancer API (software DSP — matches iOS low+high shelf)
+
+    fun setLoudnessEnabled(enabled: Boolean) {
+        equalizerProcessor.isLoudnessEnabled = enabled
+    }
+
+    fun setLoudnessLevel(level: Float) {
+        equalizerProcessor.updateLoudnessLevel(level)
+    }
+
+    // Virtualizer API (software DSP — matches iOS all-pass stereo widener)
+
+    fun setVirtualizerEnabled(enabled: Boolean) {
+        equalizerProcessor.isVirtualizerEnabled = enabled
+    }
+
+    fun setVirtualizerLevel(level: Float) {
+        equalizerProcessor.updateVirtualizerLevel(level)
+    }
+
+    // Balance API
+
+    fun setBalance(balance: Float) {
+        balanceProcessor.setBalance(balance)
+    }
+
+    fun getBalance(): Float = balanceProcessor.getBalance()
 
     /**
      * Get preset names for iOS compatibility (custom presets mapped to Android system presets)
      */
     fun getEqualizerPresetNames(): List<String> {
-        // Return iOS-compatible preset names
+        // Must match iOS EqualizerAudioTap.Preset order
         return listOf(
-            "Flat", "Rock", "Pop", "Jazz", "Classical",
-            "Hip Hop", "Electronic", "Acoustic", "Bass Boost",
-            "Treble Boost", "Vocal", "Loudness"
+            "eqAcoustic", "eqBassBooster", "eqBassReducer", "eqClassical",
+            "eqDance", "eqDeep", "eqElectronic", "eqFlat",
+            "eqHipHop", "eqJazz", "eqLatin", "eqLoudness",
+            "eqLounge", "eqPiano", "eqPop", "eqRnb",
+            "eqRock", "eqSmallSpeakers", "eqSpokenWord",
+            "eqTrebleBooster", "eqTrebleReducer", "eqVocalBooster"
         )
     }
 
     /**
-     * Apply a preset by index (iOS-compatible)
-     * Maps iOS preset index to gain values
+     * Apply a preset by index (matches iOS preset order).
+     * 8 bands: 60, 150, 400, 1K, 2.5K, 6K, 12K, 16K — same as software EQ.
      */
     fun applyEqualizerPreset(presetIndex: Int) {
         val presets = listOf(
-            listOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),           // Flat
-            listOf(5f, 4f, 3f, 1f, -1f, 0f, 2f, 3f, 4f, 4f),          // Rock
-            listOf(-1f, 1f, 3f, 4f, 3f, 1f, 0f, 1f, 2f, 2f),          // Pop
-            listOf(3f, 2f, 1f, 2f, -1f, -1f, 0f, 1f, 2f, 3f),         // Jazz
-            listOf(4f, 3f, 2f, 1f, -1f, -1f, 0f, 2f, 3f, 4f),         // Classical
-            listOf(5f, 5f, 3f, 1f, -1f, 0f, 1f, 0f, 2f, 3f),          // Hip Hop
-            listOf(4f, 4f, 2f, 0f, -2f, -1f, 0f, 2f, 4f, 4f),         // Electronic
-            listOf(3f, 2f, 1f, 1f, 0f, 0f, 1f, 2f, 2f, 2f),           // Acoustic
-            listOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f),           // Bass Boost
-            listOf(0f, 0f, 0f, 0f, 0f, 1f, 2f, 4f, 5f, 6f),           // Treble Boost
-            listOf(-2f, -1f, 0f, 2f, 4f, 4f, 3f, 1f, 0f, -1f),        // Vocal
-            listOf(5f, 4f, 2f, 0f, -2f, -2f, 0f, 2f, 4f, 5f)          // Loudness
+            listOf( 3f,  2f,  1f,  0f,  1f,  2f,  2f,  2f),  // Acoustic
+            listOf( 6f,  5f,  3f,  1f,  0f,  0f,  0f,  0f),  // Bass Booster
+            listOf(-6f, -5f, -3f, -1f,  0f,  0f,  0f,  0f),  // Bass Reducer
+            listOf( 4f,  2f,  0f, -1f,  0f,  2f,  3f,  3f),  // Classical
+            listOf( 5f,  4f,  1f,  0f,  2f,  4f,  3f,  2f),  // Dance
+            listOf( 5f,  4f,  2f,  1f,  0f, -1f, -2f, -3f),  // Deep
+            listOf( 4f,  3f,  0f, -1f,  0f,  3f,  4f,  4f),  // Electronic
+            listOf( 0f,  0f,  0f,  0f,  0f,  0f,  0f,  0f),  // Flat
+            listOf( 5f,  4f,  2f,  0f, -1f,  1f,  2f,  3f),  // Hip-Hop
+            listOf( 3f,  2f,  1f,  0f, -1f,  1f,  2f,  2f),  // Jazz
+            listOf( 4f,  3f,  0f, -1f,  0f,  2f,  4f,  3f),  // Latin
+            listOf( 5f,  3f,  0f, -2f,  0f,  2f,  4f,  4f),  // Loudness
+            listOf(-1f,  1f,  2f,  1f,  0f, -1f,  1f,  1f),  // Lounge
+            listOf( 1f,  0f,  1f,  2f,  3f,  2f,  2f,  1f),  // Piano
+            listOf(-1f,  1f,  3f,  3f,  2f,  1f,  1f,  1f),  // Pop
+            listOf( 5f,  4f,  2f,  0f, -1f,  1f,  2f,  2f),  // R&B
+            listOf( 4f,  3f,  0f, -1f,  1f,  3f,  4f,  3f),  // Rock
+            listOf( 5f,  4f,  3f,  1f,  0f, -1f,  2f,  3f),  // Small Speakers
+            listOf(-2f,  0f,  1f,  3f,  4f,  3f,  1f, -1f),  // Spoken Word
+            listOf( 0f,  0f,  0f,  0f,  1f,  3f,  5f,  6f),  // Treble Booster
+            listOf( 0f,  0f,  0f,  0f, -1f, -3f, -5f, -6f),  // Treble Reducer
+            listOf(-2f, -1f,  1f,  3f,  4f,  3f,  1f,  0f)   // Vocal Booster
         )
-        if (presetIndex >= 0 && presetIndex < presets.size) {
-            setEqualizerBands(presets[presetIndex])
-        }
+        if (presetIndex < 0 || presetIndex >= presets.size) return
+        setEqualizerBands(presets[presetIndex])
     }
 
     fun togglePlaying() {
@@ -605,7 +581,13 @@ abstract class AudioPlayer internal constructor(
     inner class AudioFxInitListener: AnalyticsListener {
         @OptIn(UnstableApi::class)
         override fun onAudioSessionIdChanged(eventTime: AnalyticsListener.EventTime, audioSessionId: Int) {
-            // Try to add LoudnessEnhancer
+            // Release old native effects before creating new ones
+            loudnessEnhancers.forEach { try { it.release() } catch (_: Exception) {} }
+            loudnessEnhancers.clear()
+            equalizers.forEach { try { it.release() } catch (_: Exception) {} }
+            equalizers.clear()
+
+            // Native LoudnessEnhancer (only for setLoudnessEnhance legacy API)
             try {
                 val enhancer = LoudnessEnhancer(audioSessionId)
                 loudnessEnhancers.add(enhancer)
@@ -613,13 +595,16 @@ abstract class AudioPlayer internal constructor(
                 Timber.tag("APMAudioFx").e("[AudioFx] failed to load loudnessEnhancer. it's fine if in dev!")
             }
 
-            // Try to add Equalizer
+            // Native Equalizer (only for setEqualizerPreset legacy API)
             try {
                 val equalizer = Equalizer(0, audioSessionId)
                 equalizers.add(equalizer)
             } catch (e: RuntimeException) {
                 Timber.tag("APMAudioFx").e("[AudioFx] failed to load equalizer. it's fine if in dev!")
             }
+
+            // Bass boost, loudness, virtualizer, EQ bands — all handled by
+            // software EqualizerAudioProcessor (no native effects needed)
         }
     }
 

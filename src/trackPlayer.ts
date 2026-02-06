@@ -899,3 +899,61 @@ export async function getEqualizerPresetNames(): Promise<string[]> {
 export async function resetEqualizer(): Promise<void> {
   return TrackPlayer.resetEqualizer();
 }
+
+// MARK: - Audio Effects
+
+/**
+ * Enable or disable the bass boost effect.
+ * iOS: Low-shelf filter at 100Hz with +8dB gain
+ */
+export async function setBassBoostEnabled(enabled: boolean): Promise<void> {
+  return TrackPlayer.setBassBoostEnabled(enabled);
+}
+
+/**
+ * Enable or disable the loudness enhancer.
+ * iOS: Low-shelf boost at 200Hz + High-shelf boost at 3kHz
+ */
+export async function setLoudnessEnabled(enabled: boolean): Promise<void> {
+  return TrackPlayer.setLoudnessEnabled(enabled);
+}
+
+/**
+ * Enable or disable the virtualizer (stereo widening) effect.
+ * iOS: Mid-side processing to widen the stereo image
+ */
+export async function setVirtualizerEnabled(enabled: boolean): Promise<void> {
+  return TrackPlayer.setVirtualizerEnabled(enabled);
+}
+
+/**
+ * Set the bass boost intensity level.
+ * @param level 0.0 (minimum) to 1.0 (maximum)
+ */
+export async function setBassBoostLevel(level: number): Promise<void> {
+  return TrackPlayer.setBassBoostLevel(level);
+}
+
+/**
+ * Set the loudness enhancer intensity level.
+ * @param level 0.0 (minimum) to 1.0 (maximum)
+ */
+export async function setLoudnessLevel(level: number): Promise<void> {
+  return TrackPlayer.setLoudnessLevel(level);
+}
+
+/**
+ * Set the virtualizer (stereo widening) intensity level.
+ * @param level 0.0 (minimum) to 1.0 (maximum)
+ */
+export async function setVirtualizerLevel(level: number): Promise<void> {
+  return TrackPlayer.setVirtualizerLevel(level);
+}
+
+/**
+ * Set the stereo balance.
+ * @param balance -1.0 (full left) to 1.0 (full right), 0.0 = center
+ */
+export async function setBalance(balance: number): Promise<void> {
+  return TrackPlayer.setBalance(balance);
+}

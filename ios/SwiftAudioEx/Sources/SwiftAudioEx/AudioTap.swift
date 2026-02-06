@@ -41,55 +41,58 @@ open class AudioTap {
 extension AVPlayerWrapper {
     internal func attachTap(_ tap: AudioTap?, to item: AVPlayerItem) {
         guard let tap else { return }
-        guard let track = item.asset.tracks(withMediaType: .audio).first else {
+
+        // Try sync first (works for local/progressive files)
+        if let track = item.asset.tracks(withMediaType: .audio).first {
+            applyTap(tap, to: item, track: track)
             return
         }
-        
+
+        // Async fallback for HLS streams where tracks aren't immediately available
+        Task {
+            guard let tracks = try? await item.asset.loadTracks(withMediaType: .audio),
+                  let track = tracks.first else { return }
+            await MainActor.run {
+                self.applyTap(tap, to: item, track: track)
+            }
+        }
+    }
+
+    private func applyTap(_ tap: AudioTap, to item: AVPlayerItem, track: AVAssetTrack) {
         let audioMix = AVMutableAudioMix()
         let params = AVMutableAudioMixInputParameters(track: track)
-        
-        // we need to retain this pointer so it doesn't disappear out from under us.
-        // we'll then let it go after we finalize.  If the tap changed upstream, we
-        // aren't going to pick up the new one until after this player item goes away.
+
         let client = UnsafeMutableRawPointer(Unmanaged.passRetained(tap).toOpaque())
-        
+
         var callbacks = MTAudioProcessingTapCallbacks(version: kMTAudioProcessingTapCallbacksVersion_0, clientInfo: client)
         { tapRef, clientInfo, tapStorageOut in
-            // initial tap setup
             guard let clientInfo else { return }
             tapStorageOut.pointee = clientInfo
             let audioTap = Unmanaged<AudioTap>.fromOpaque(clientInfo).takeUnretainedValue()
             audioTap.initialize()
         } finalize: { tapRef in
-            // clean up
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
             audioTap.finalize()
-            // we're done, we can let go of the pointer we retained.
             Unmanaged.passUnretained(audioTap).release()
         } prepare: { tapRef, maxFrames, processingFormat in
-            // allocate memory for sound processing
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
             audioTap.prepare(description: processingFormat.pointee)
         } unprepare: { tapRef in
-            // deallocate memory for sound processing
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
             audioTap.unprepare()
         } process: { tapRef, numberFrames, flags, bufferListInOut, numberFramesOut, flagsOut in
             guard noErr == MTAudioProcessingTapGetSourceAudio(tapRef, numberFrames, bufferListInOut, flagsOut, nil, numberFramesOut) else {
                 return
             }
-            
-            // process sound data
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
             audioTap.process(numberOfFrames: numberFrames, buffer: UnsafeMutableAudioBufferListPointer(bufferListInOut))
         }
-        
+
         var tapRef: MTAudioProcessingTap?
         let error = MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PreEffects, &tapRef)
-        assert(error == noErr)
-        
+        if error != noErr { return }
+
         params.audioTapProcessor = tapRef
-        
         audioMix.inputParameters = [params]
         item.audioMix = audioMix
     }

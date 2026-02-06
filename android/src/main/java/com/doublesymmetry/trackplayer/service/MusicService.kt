@@ -201,6 +201,36 @@ class MusicService : HeadlessJsMediaService() {
         player.resetEqualizer()
     }
 
+    // Audio Effects (BassBoost, Loudness, Virtualizer)
+
+    fun setBassBoostEnabled(enabled: Boolean) {
+        player.setBassBoostEnabled(enabled)
+    }
+
+    fun setBassBoostLevel(level: Float) {
+        player.setBassBoostLevel(level)
+    }
+
+    fun setLoudnessEnabled(enabled: Boolean) {
+        player.setLoudnessEnabled(enabled)
+    }
+
+    fun setLoudnessLevel(level: Float) {
+        player.setLoudnessLevel(level)
+    }
+
+    fun setVirtualizerEnabled(enabled: Boolean) {
+        player.setVirtualizerEnabled(enabled)
+    }
+
+    fun setVirtualizerLevel(level: Float) {
+        player.setVirtualizerLevel(level)
+    }
+
+    fun setBalance(balance: Float) {
+        player.setBalance(balance)
+    }
+
     fun crossFadePrepare(previous: Boolean = false, seekTo: Double = 0.0) {
         player.crossFadePrepare(previous, seekTo)
     }

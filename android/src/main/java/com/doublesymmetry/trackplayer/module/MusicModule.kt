@@ -389,6 +389,49 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         callback.resolve(null)
     }
 
+    // Audio Effects (BassBoost, Loudness, Virtualizer)
+
+    override fun setBassBoostEnabled(enabled: Boolean, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setBassBoostEnabled(enabled)
+        callback.resolve(null)
+    }
+
+    override fun setBassBoostLevel(level: Double, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setBassBoostLevel(level.toFloat())
+        callback.resolve(null)
+    }
+
+    override fun setLoudnessEnabled(enabled: Boolean, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setLoudnessEnabled(enabled)
+        callback.resolve(null)
+    }
+
+    override fun setLoudnessLevel(level: Double, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setLoudnessLevel(level.toFloat())
+        callback.resolve(null)
+    }
+
+    override fun setVirtualizerEnabled(enabled: Boolean, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setVirtualizerEnabled(enabled)
+        callback.resolve(null)
+    }
+
+    override fun setVirtualizerLevel(level: Double, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setVirtualizerLevel(level.toFloat())
+        callback.resolve(null)
+    }
+
+    override fun setBalance(balance: Double, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        musicService.setBalance(balance.toFloat())
+        callback.resolve(null)
+    }
 
     override fun add(data: ReadableArray?, insertBeforeIndex: Double, callback: Promise) = launchInScope {
         if (verifyServiceBoundOrReject(callback)) return@launchInScope

@@ -284,4 +284,34 @@ RCT_EXPORT_MODULE()
     [trackPlayer resetEqualizer:resolve rejecter:reject];
 }
 
+// Audio Effects
+
+- (void)setBassBoostEnabled:(BOOL)enabled resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setBassBoostEnabled:enabled resolver:resolve rejecter:reject];
+}
+
+- (void)setLoudnessEnabled:(BOOL)enabled resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setLoudnessEnabled:enabled resolver:resolve rejecter:reject];
+}
+
+- (void)setVirtualizerEnabled:(BOOL)enabled resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setVirtualizerEnabled:enabled resolver:resolve rejecter:reject];
+}
+
+- (void)setBassBoostLevel:(double)level resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setBassBoostLevel:(float)level resolver:resolve rejecter:reject];
+}
+
+- (void)setLoudnessLevel:(double)level resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setLoudnessLevel:(float)level resolver:resolve rejecter:reject];
+}
+
+- (void)setVirtualizerLevel:(double)level resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setVirtualizerLevel:(float)level resolver:resolve rejecter:reject];
+}
+
+- (void)setBalance:(double)balance resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setBalance:(float)balance resolver:resolve rejecter:reject];
+}
+
 @end

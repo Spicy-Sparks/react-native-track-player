@@ -140,8 +140,11 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         if let fftLength = config["useFFTProcessor"] as? Int {
             player.audioTap = WaveformAudioTap(mFFTLength: fftLength, mEmit: {data in
                 self.emit(event:EventType.FFTUpdated, body:data)})
+        } else {
+            // Always attach equalizer tap — transparent pass-through when no effects are active.
+            // This avoids audio glitches from re-attaching the tap when effects are toggled.
+            player.audioTap = equalizerTap
         }
-        // Note: Equalizer tap is NOT attached by default. Call setEqualizerEnabled(true) to enable.
 
         // configure buffer size
         if let bufferDuration = config["minBuffer"] as? TimeInterval {
@@ -822,7 +825,6 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         lastIndex: Int?,
         lastPosition: Double?
     ) {
-
         if let item = item {
             DispatchQueue.main.async {
                 UIApplication.shared.beginReceivingRemoteControlEvents();
@@ -946,9 +948,8 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     public func setEqualizerEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
-        // Toggle the enabled flag
-        // Note: For the equalizer to work, the tap must be attached to the player first
         equalizerTap.isEnabled = enabled
+
         resolve(NSNull())
     }
 
@@ -1013,6 +1014,57 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
         equalizerTap.resetGains()
+        resolve(NSNull())
+    }
+
+    // MARK: - Audio Effects
+
+    @objc(setBassBoostEnabled:resolver:rejecter:)
+    public func setBassBoostEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.isBassBoostEnabled = enabled
+        resolve(NSNull())
+    }
+
+    @objc(setLoudnessEnabled:resolver:rejecter:)
+    public func setLoudnessEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.isLoudnessEnabled = enabled
+        resolve(NSNull())
+    }
+
+    @objc(setVirtualizerEnabled:resolver:rejecter:)
+    public func setVirtualizerEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.isVirtualizerEnabled = enabled
+        resolve(NSNull())
+    }
+
+    @objc(setBassBoostLevel:resolver:rejecter:)
+    public func setBassBoostLevel(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.updateBassBoostLevel(level)
+        resolve(NSNull())
+    }
+
+    @objc(setLoudnessLevel:resolver:rejecter:)
+    public func setLoudnessLevel(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.updateLoudnessLevel(level)
+        resolve(NSNull())
+    }
+
+    @objc(setVirtualizerLevel:resolver:rejecter:)
+    public func setVirtualizerLevel(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.updateVirtualizerLevel(level)
+        resolve(NSNull())
+    }
+
+    @objc(setBalance:resolver:rejecter:)
+    public func setBalance(balance: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        equalizerTap.balance = max(-1, min(1, balance))
         resolve(NSNull())
     }
 }

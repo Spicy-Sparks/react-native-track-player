@@ -1,6 +1,7 @@
 package com.lovegaoshi.kotlinaudio.player.components
 
 import android.content.Context
+import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
@@ -13,20 +14,23 @@ import com.lovegaoshi.kotlinaudio.processors.TeeListener
 class APMRenderersFactory(
     context: Context,
     sampleRate: Int = 4096,
-    emitter: FFTEmitter?
+    emitter: FFTEmitter?,
+    private val extraProcessors: Array<AudioProcessor> = emptyArray()
 ) : DefaultRenderersFactory(context) {
-    val teeProcessor = TeeAudioProcessor(TeeListener(sampleRate, emitter))
-
+    val teeProcessor = if (sampleRate > 0 && emitter != null)
+        TeeAudioProcessor(TeeListener(sampleRate, emitter)) else null
 
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean
     ): AudioSink? {
+        val processors = if (teeProcessor != null)
+            arrayOf(*extraProcessors, teeProcessor) else arrayOf(*extraProcessors)
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            .setAudioProcessors(arrayOf(teeProcessor))
+            .setAudioProcessors(processors)
             .build()
     }
 

@@ -80,6 +80,15 @@ export interface Spec extends TurboModule {
   getEqualizerPresetNames(): Promise<string[]>;
   resetEqualizer(): Promise<void>;
 
+  // Audio Effects
+  setBassBoostEnabled(enabled: boolean): Promise<void>;
+  setLoudnessEnabled(enabled: boolean): Promise<void>;
+  setVirtualizerEnabled(enabled: boolean): Promise<void>;
+  setBassBoostLevel(level: number): Promise<void>;
+  setLoudnessLevel(level: number): Promise<void>;
+  setVirtualizerLevel(level: number): Promise<void>;
+  setBalance(balance: number): Promise<void>;
+
   // event listeners
   addListener(eventName: string): void;
   removeListeners(count: number): void;
