@@ -28,6 +28,15 @@ class BalanceAudioProcessor : BaseAudioProcessor() {
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val bal = balance
+        if (bal == 0f) {
+            val output = replaceOutputBuffer(inputBuffer.remaining())
+            if (output !== inputBuffer) {
+                output.put(inputBuffer)
+            }
+            output.flip()
+            return
+        }
+
         val leftGain = if (bal <= 0f) 1f else 1f - bal
         val rightGain = if (bal >= 0f) 1f else 1f + bal
 
