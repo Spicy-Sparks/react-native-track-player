@@ -234,6 +234,10 @@ abstract class AudioPlayer internal constructor(
             .setContentType(options.audioContentType)
             .build()
         mPlayer.setAudioAttributes(audioAttributes, options.handleAudioFocus)
+        // Prevent ExoPlayer from auto-advancing to the next queue item when a track ends.
+        // All track transitions are handled by the JS side via playNext() -> load().
+        // This avoids ExoPlayer trying to load queue items that don't have a URL yet.
+        mPlayer.pauseAtEndOfMediaItems = true
         nameHolder[0] = mPlayer.toString()
         // https://github.com/androidx/media/issues/2319
         mPlayer.addAnalyticsListener(AudioFxInitListener())
