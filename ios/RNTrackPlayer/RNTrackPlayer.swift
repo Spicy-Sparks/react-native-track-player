@@ -33,6 +33,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     @objc public weak var delegate: RNTPDelegate? = nil
     // MARK: - Attributes
     private var hasInitialized = false
+    private var crossfadeWarmedUp = false
     private let player = QueuedAudioPlayer()
     private let audioSessionController = AudioSessionController.shared
     private let equalizerTap = EqualizerAudioTap()  // Always created, attached at setup
@@ -390,6 +391,15 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         }
 
         player.load(item: track)
+
+        // Warm up the crossfade player on first load so the audio pipeline
+        // is ready and the first crossfade transition is smooth
+        if player.crossfade && !crossfadeWarmedUp {
+            crossfadeWarmedUp = true
+            player.crossfadePrepare(item: track)
+            player.crossfadeItem = nil
+        }
+
         resolve(player.currentIndex)
     }
 
