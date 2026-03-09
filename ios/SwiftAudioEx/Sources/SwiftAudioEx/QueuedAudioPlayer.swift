@@ -77,6 +77,12 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         self.crossfadeItem = nil
         self.currentAVPlayer = !self.currentAVPlayer
 
+        // Update shared AVPlayer reference so VideoView shows the new player's video
+        if let activeWrapper = self.wrapper as? AVPlayerWrapper {
+            RNTrackPlayer.sharedAVPlayer = activeWrapper.player
+            NotificationCenter.default.post(name: .RNTPPlayerRecreated, object: nil)
+        }
+
         // fade volume
         Task {
             var fadeOutDuration = fadeDuration
@@ -305,23 +311,13 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     func onCurrentItemChanged() {
         let lastPosition = currentTime;
         if let currentItem = currentItem {
-            // Check if the track is marked as notPlayable
-            if isTrackNotPlayable(currentItem) {
-                // Don't load the item, emit notPlayableTrackActive event
-                event.notPlayableTrackActive.emit(
-                    data: (
-                        item: currentItem,
-                        index: currentIndex == -1 ? nil : currentIndex
-                    )
-                )
-                // Set player to idle state without loading
-                wrapper.state = .idle
-            } else {
-                super.load(item: currentItem)
-            }
+            super.load(item: currentItem)
         } else {
             super.clear()
         }
+        emitCurrentItemEvent(lastPosition: lastPosition)
+    }
+
     func emitCurrentItemEvent(lastPosition: Double = 0) {
         let currentItem = currentItem
         event.currentItem.emit(
@@ -337,10 +333,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         lastIndex = currentIndex
     }
 
-    /// Check if an AudioItem is marked as notPlayable.
-    /// This method checks if the item has a notPlayable property set to true.
     private func isTrackNotPlayable(_ item: AudioItem) -> Bool {
-        // Use reflection to check for notPlayable property
         let mirror = Mirror(reflecting: item)
         for child in mirror.children {
             if child.label == "notPlayable", let value = child.value as? Bool {
@@ -348,16 +341,6 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             }
         }
         return false
-    // MARK: - QueueManagerDelegate
-
-    func onCurrentItemChanged() {
-        let lastPosition = currentTime;
-        if let currentItem = currentItem {
-            super.load(item: currentItem)
-        } else {
-            super.clear()
-        }
-        emitCurrentItemEvent(lastPosition: lastPosition)
     }
 
     func onSkippedToSameCurrentItem() {

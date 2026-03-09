@@ -65,7 +65,7 @@ RCT_EXPORT_MODULE()
     [trackPlayer getPlayWhenReady:resolve rejecter:reject];
 }
 
-- (void)getPlaybackState:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject { 
+- (void)getPlaybackState:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
     [trackPlayer getPlaybackState:resolve rejecter:reject];
 }
 
@@ -93,7 +93,7 @@ RCT_EXPORT_MODULE()
     [trackPlayer getVolume:resolve rejecter:reject];
 }
 
-- (void)load:(nonnull NSDictionary *)track resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject { 
+- (void)load:(nonnull NSDictionary *)track resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
     [trackPlayer load:track resolver:resolve rejecter:reject];
 }
 
@@ -205,6 +205,7 @@ RCT_EXPORT_MODULE()
 }
 
 - (void)crossFadePrepare:(BOOL)previous seekTo:(nonnull NSNumber *)seekTo resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer crossfadePrepare:previous seekTo:seekTo resolver:resolve rejecter:reject];
 }
 
 - (void)fadeOutJump:(double)index duration:(double)duration interval:(double)interval toVolume:(double)toVolume resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
@@ -244,6 +245,7 @@ RCT_EXPORT_MODULE()
 }
 
 - (void)switchExoPlayer:(double)fadeDuration fadeInterval:(double)fadeInterval fadeToVolume:(double)fadeToVolume waitUntil:(nonnull NSNumber *)waitUntil resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer switchExoPlayer:fadeDuration fadeInterval:fadeInterval fadeToVolume:fadeToVolume waitUntil:waitUntil resolver:resolve rejecter:reject];
 }
 
 // iOS Equalizer methods

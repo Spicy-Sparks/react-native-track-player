@@ -747,7 +747,6 @@ export async function abandonWakeLock() {
  * crossfade so the resource can be prepared.
  */
 export async function crossFadePrepare(previous = false, seekTo = 0) {
-  if (!isAndroid) return;
   TrackPlayer.crossFadePrepare(previous, seekTo);
 }
 
@@ -766,7 +765,6 @@ export async function crossFade(
   fadeToVolume = 1,
   waitUntil = 0,
 ) {
-  if (!isAndroid) return;
   TrackPlayer.switchExoPlayer(
     fadeDuration,
     fadeInterval,

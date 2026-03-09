@@ -155,6 +155,13 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             self.shouldResumePlaybackAfterInterruptionEnds = autoHandleInterruptions
         }
 
+        // configure crossfade
+        if let crossfade = config["crossfade"] as? Bool, crossfade {
+            player.crossfade = true
+            player.wrapper2 = AVPlayerWrapper()
+            player.crossfadeWrapper = player.wrapper2!
+        }
+
         // configure wether player waits to play (deprecated)
         if let waitForBuffer = config["waitForBuffer"] as? Bool {
             player.automaticallyWaitsToMinimizeStalling = waitForBuffer
@@ -493,6 +500,20 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         } else {
             resolve(NSNull())
         }
+    }
+
+    @objc(crossfadePrepare:seekTo:resolver:rejecter:)
+    public func crossfadePrepare(previous: Bool, seekTo: NSNumber, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        player.crossfadePrepare(previous: previous)
+        resolve(NSNull())
+    }
+
+    @objc(switchExoPlayer:fadeInterval:fadeToVolume:waitUntil:resolver:rejecter:)
+    public func switchExoPlayer(fadeDuration: Double, fadeInterval: Double, fadeToVolume: Double, waitUntil: NSNumber, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        player.switchExoPlayer(fadeDuration: Int(fadeDuration), fadeInterval: Int(fadeInterval), fadeToVolume: Float(fadeToVolume))
+        resolve(NSNull())
     }
 
     @objc(reset:rejecter:)
