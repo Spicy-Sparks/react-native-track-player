@@ -57,6 +57,7 @@ example/ios/Pods
 /ios/RNTrackPlayer.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 ios/Pods
 ios/RNTrackPlayer.xcworkspace
+ios/SwiftAudioEx/.build/
 Podfile.lock
 local.properties
 yarn.lock
