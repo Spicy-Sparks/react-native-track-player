@@ -890,7 +890,40 @@ abstract class AudioPlayer internal constructor(
 
     private inner class APMFocusListener: AudioManager.OnAudioFocusChangeListener {
         override fun onAudioFocusChange(focusChange: Int) {
-            // TODO: complete focusManager logic here
+            when (focusChange) {
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = true)
+                    pause()
+                    focusManager.hasAudioFocus = false
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = false)
+                    if (isPlaying) {
+                        wasDucking = false
+                        pause()
+                    }
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = false)
+                    if (alwaysPauseOnInterruption) {
+                        if (isPlaying) {
+                            wasDucking = false
+                            pause()
+                        }
+                    } else {
+                        wasDucking = true
+                        volumeMultiplier = 0.2f
+                    }
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    playerEventHolder.updateOnAudioFocusChanged(isPaused = false, isPermanent = false)
+                    if (wasDucking) {
+                        volumeMultiplier = 1f
+                        wasDucking = false
+                    }
+                    focusManager.hasAudioFocus = true
+                }
+            }
         }
     }
 }
