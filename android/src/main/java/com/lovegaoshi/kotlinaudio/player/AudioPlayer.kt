@@ -74,6 +74,11 @@ abstract class AudioPlayer internal constructor(
     var fftEmitter: (DoubleArray) -> Unit = { v -> Timber.tag("APMFFT").d("FFT emitted $v") }
     private val balanceProcessor = BalanceAudioProcessor()
     private val equalizerProcessor = EqualizerAudioProcessor()
+    // Separate processor instances for the second ExoPlayer (crossfade).
+    // Both players render audio simultaneously during crossfade, so sharing
+    // a single processor causes BufferOverflowException.
+    private val balanceProcessor2 = BalanceAudioProcessor()
+    private val equalizerProcessor2 = EqualizerAudioProcessor()
 
     var alwaysPauseOnInterruption: Boolean
         get() = focusManager.alwaysPauseOnInterruption
@@ -199,7 +204,7 @@ abstract class AudioPlayer internal constructor(
                 .build()
     }
 
-    private fun initExoPlayer(name: String): ExoPlayer {
+    private fun initExoPlayer(name: String, eqProcessor: EqualizerAudioProcessor = equalizerProcessor, balProcessor: BalanceAudioProcessor = balanceProcessor): ExoPlayer {
         // HACK: horrible memleak, but I cant think of how to track exoplayers
         val nameHolder = arrayOf("")
         val renderer = if (options.useFFTProcessor > 0) APMRenderersFactory(
@@ -213,8 +218,8 @@ abstract class AudioPlayer internal constructor(
                     }
                 }
 
-        }, arrayOf(equalizerProcessor, balanceProcessor)) else APMRenderersFactory(
-            context, 0, null, arrayOf(equalizerProcessor, balanceProcessor)
+        }, arrayOf(eqProcessor, balProcessor)) else APMRenderersFactory(
+            context, 0, null, arrayOf(eqProcessor, balProcessor)
         )
         renderer.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         val mPlayer = ExoPlayer
@@ -249,8 +254,10 @@ abstract class AudioPlayer internal constructor(
             cache = Cache.initCache(context, options.cacheSize)
         }
         playerEventHolder.updateAudioPlayerState(AudioPlayerState.IDLE)
-        exoPlayer1 = initExoPlayer("APM-Player1")
-        if (options.crossfade) { exoPlayer2 = initExoPlayer("APM-Player2") }
+        exoPlayer1 = initExoPlayer("APM-Player1", equalizerProcessor, balanceProcessor)
+        if (options.crossfade) {
+            exoPlayer2 = initExoPlayer("APM-Player2", equalizerProcessor2, balanceProcessor2)
+        }
         exoPlayer = exoPlayer1
         player = if (options.nativeExample) ExampleForwardingPlayer(exoPlayer1, exoPlayer2) else APMForwardingPlayer(exoPlayer1, exoPlayer2)
         player.addListener(playerListener)
@@ -307,8 +314,13 @@ abstract class AudioPlayer internal constructor(
 
     // 8-band Software Equalizer API (cross-platform, biquad with coefficient smoothing)
 
+    private fun forEachEqProcessor(action: (EqualizerAudioProcessor) -> Unit) {
+        action(equalizerProcessor)
+        if (options.crossfade) action(equalizerProcessor2)
+    }
+
     fun setEqualizerEnabled(enabled: Boolean) {
-        equalizerProcessor.isEnabled = enabled
+        forEachEqProcessor { it.isEnabled = enabled }
     }
 
     fun getEqualizerEnabled(): Boolean = equalizerProcessor.isEnabled
@@ -316,11 +328,11 @@ abstract class AudioPlayer internal constructor(
     fun getEqualizerBandCount(): Int = EqualizerAudioProcessor.BAND_COUNT
 
     fun setEqualizerBand(band: Int, gainDB: Float) {
-        equalizerProcessor.setGain(band, gainDB)
+        forEachEqProcessor { it.setGain(band, gainDB) }
     }
 
     fun setEqualizerBands(gainsDB: List<Float>) {
-        equalizerProcessor.setAllGains(gainsDB)
+        forEachEqProcessor { it.setAllGains(gainsDB) }
     }
 
     fun getEqualizerBands(): List<Float> {
@@ -334,43 +346,44 @@ abstract class AudioPlayer internal constructor(
     fun getEqualizerBandLevelRange(): List<Float> = listOf(-12f, 12f)
 
     fun resetEqualizer() {
-        equalizerProcessor.resetGains()
+        forEachEqProcessor { it.resetGains() }
     }
 
     // Bass Boost API (software DSP — matches iOS low shelf filter)
 
     fun setBassBoostEnabled(enabled: Boolean) {
-        equalizerProcessor.isBassBoostEnabled = enabled
+        forEachEqProcessor { it.isBassBoostEnabled = enabled }
     }
 
     fun setBassBoostLevel(level: Float) {
-        equalizerProcessor.updateBassBoostLevel(level)
+        forEachEqProcessor { it.updateBassBoostLevel(level) }
     }
 
     // Loudness Enhancer API (software DSP — matches iOS low+high shelf)
 
     fun setLoudnessEnabled(enabled: Boolean) {
-        equalizerProcessor.isLoudnessEnabled = enabled
+        forEachEqProcessor { it.isLoudnessEnabled = enabled }
     }
 
     fun setLoudnessLevel(level: Float) {
-        equalizerProcessor.updateLoudnessLevel(level)
+        forEachEqProcessor { it.updateLoudnessLevel(level) }
     }
 
     // Virtualizer API (software DSP — matches iOS all-pass stereo widener)
 
     fun setVirtualizerEnabled(enabled: Boolean) {
-        equalizerProcessor.isVirtualizerEnabled = enabled
+        forEachEqProcessor { it.isVirtualizerEnabled = enabled }
     }
 
     fun setVirtualizerLevel(level: Float) {
-        equalizerProcessor.updateVirtualizerLevel(level)
+        forEachEqProcessor { it.updateVirtualizerLevel(level) }
     }
 
     // Balance API
 
     fun setBalance(balance: Float) {
         balanceProcessor.setBalance(balance)
+        if (options.crossfade) balanceProcessor2.setBalance(balance)
     }
 
     fun getBalance(): Float = balanceProcessor.getBalance()
@@ -509,11 +522,14 @@ abstract class AudioPlayer internal constructor(
     fun crossFadePrepare(previous: Boolean = false, seekTo: Double = 0.0) {
         if (!options.crossfade) { return }
         val mPlayer = if (currentExoPlayer) exoPlayer2!! else exoPlayer1
+        val activeIndex = exoPlayer.currentMediaItemIndex
         // align playing index
-        mPlayer.seekTo(exoPlayer.currentMediaItemIndex, C.TIME_UNSET)
+        mPlayer.seekTo(activeIndex, C.TIME_UNSET)
         if (previous) { mPlayer.seekToPreviousMediaItem() }
         else { mPlayer.seekToNextMediaItem() }
+
         mPlayer.prepare()
+
         if (seekTo > 0) {
             mPlayer.seekTo((seekTo * 1000).toLong())
         }
@@ -550,8 +566,10 @@ abstract class AudioPlayer internal constructor(
                 exoPlayer = exoPlayer1
                 prevPlayer = exoPlayer2!!
             }
+
             prevPlayer.setAudioAttributes(prevPlayer.audioAttributes, false)
             player.switchCrossFadePlayer()
+
             scope.launch {
                 var fadeOutDuration = fadeDuration
                 val startFadeOutTime = System.currentTimeMillis()
@@ -577,7 +595,6 @@ abstract class AudioPlayer internal constructor(
                         delay(fadeInterval)
                     }
                 }
-                // player.broadcastMediaItem()
             }
         }
     }
