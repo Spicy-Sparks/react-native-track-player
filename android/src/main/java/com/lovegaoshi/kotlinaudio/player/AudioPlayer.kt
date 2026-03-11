@@ -93,14 +93,19 @@ abstract class AudioPlayer internal constructor(
             if (value != field) {
                 field = value
                 playerEventHolder.updateAudioPlayerState(value)
-                if (!options.handleAudioFocus) {
-                    when (value) {
-                        AudioPlayerState.IDLE,
-                        AudioPlayerState.ERROR -> focusManager.abandonAudioFocusIfHeld()
-                        AudioPlayerState.READY -> focusManager.requestAudioFocus()
-                        else -> {}
-                    }
+                
+                // Always register audio focus listener to emit events to JS,
+                // even when ExoPlayer handles focus internally (handleAudioFocus=true).
+                // This ensures RemoteDuck events reach JS for proper resume handling,
+                // especially on Android Auto where ExoPlayer's internal resume may fail.
+                // if (!options.handleAudioFocus) {
+                when (value) {
+                    AudioPlayerState.IDLE,
+                    AudioPlayerState.ERROR -> focusManager.abandonAudioFocusIfHeld()
+                    AudioPlayerState.READY -> focusManager.requestAudioFocus()
+                    else -> {}
                 }
+                // }
             }
         }
 
