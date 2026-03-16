@@ -984,6 +984,12 @@ class MusicService : HeadlessJsMediaService() {
                         }
                     }
 
+                    is MediaSessionCallback.PLAY_FROM_ID -> {
+                        Bundle().apply {
+                            putString("id", it.mediaId)
+                            emit(MusicEvents.BUTTON_PLAY_FROM_ID, this)
+                        }
+                    }
                     is MediaSessionCallback.CUSTOMACTION -> {
                         when (it.customAction) {
                             "shuffle" -> emit(MusicEvents.BUTTON_SHUFFLE)

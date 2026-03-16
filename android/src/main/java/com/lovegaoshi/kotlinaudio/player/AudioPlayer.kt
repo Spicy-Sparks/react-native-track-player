@@ -893,6 +893,24 @@ abstract class AudioPlayer internal constructor(
             playerEventHolder.updateOnPlayerActionTriggeredExternally(MediaSessionCallback.STOP)
         }
 
+        override fun seekToDefaultPosition(mediaItemIndex: Int) {
+            // Called when Android Auto user taps a queue item (COMMAND_SEEK_TO_MEDIA_ITEM).
+            // Intercept to prevent ExoPlayer from trying to load tracks with empty URLs
+            // (notPlayable). Emit PLAY_FROM_ID so the JS side resolves the source first.
+            try {
+                val mediaItem = this@AudioPlayer.exoPlayer.getMediaItemAt(mediaItemIndex)
+                val mediaId = mediaItem?.mediaId
+                if (!mediaId.isNullOrEmpty()) {
+                    playerEventHolder.updateOnPlayerActionTriggeredExternally(
+                        MediaSessionCallback.PLAY_FROM_ID(mediaId)
+                    )
+                    return
+                }
+            } catch (_: Exception) { }
+            // Fallback: delegate to ExoPlayer
+            super.seekToDefaultPosition(mediaItemIndex)
+        }
+
         override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
             playerEventHolder.updateOnPlayerActionTriggeredExternally(
                 MediaSessionCallback.SEEK(
