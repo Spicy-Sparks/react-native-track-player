@@ -42,24 +42,26 @@ class CoilBitmapLoader @Inject constructor(
     }
 
     override fun loadBitmap(uri: Uri): ListenableFuture<Bitmap> = scope.future {
-        val bitmap: Bitmap?
-        val parsedUri = uri.toString()
-        if (parsedUri.startsWith("file://")) {
-            bitmap = getEmbeddedBitmap(parsedUri.substring(7))
-        } else {
-            var imgrequest = ImageRequest.Builder(context)
-                .data(uri)
-                .allowHardware(false)
-            // HACK: header implementation should be done via parsed data from uri
+        val bitmap: Bitmap? = try {
+            val parsedUri = uri.toString()
+            if (parsedUri.startsWith("file://")) {
+                getEmbeddedBitmap(parsedUri.substring(7))
+            } else {
+                var imgrequest = ImageRequest.Builder(context)
+                    .data(uri)
+                    .allowHardware(false)
+                // HACK: header implementation should be done via parsed data from uri
 
-            if (Build.MANUFACTURER == "samsung" || cropSquare) {
-                imgrequest = imgrequest.transformations(CropSquareTransformation())
+                if (Build.MANUFACTURER == "samsung" || cropSquare) {
+                    imgrequest = imgrequest.transformations(CropSquareTransformation())
+                }
+                val response = imageLoader.execute(imgrequest.build())
+                (response.drawable as? BitmapDrawable)?.bitmap
             }
-            val response = imageLoader.execute(imgrequest.build())
-            bitmap = (response.drawable as? BitmapDrawable)?.bitmap
-
+        } catch (e: Exception) {
+            null
         }
-        bitmap ?: Bitmap.createBitmap(1, 1, Bitmap.Config.RGB_565)
+        bitmap ?: Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
 
     }
 }
