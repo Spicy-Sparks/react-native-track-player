@@ -33,10 +33,28 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     
     /**
      Set an instance of AudioTap, to receive frame information and audio buffer access during playback.
+
+     When crossfade is enabled, the same tap instance is attached to both wrappers. Use this only for
+     stateless taps. For taps that hold per-stream state (filters, FFT buffers, etc.), prefer
+     `setAudioTaps(primary:secondary:)` and pass two distinct instances so that wrapper1 and wrapper2
+     don't mutate the same internal state during the crossfade window.
      */
     public var audioTap: AudioTap? {
         get { return wrapper.audioTap }
-        set(value) { wrapper.audioTap = value }
+        set(value) {
+            wrapper1.audioTap = value
+            wrapper2?.audioTap = value
+        }
+    }
+
+    /**
+     Attach distinct audio tap instances to wrapper1 and wrapper2. Required for taps with internal
+     per-stream state (e.g. EQ filter state) so the two crossfade wrappers do not race on shared state.
+     If crossfade is not enabled, only `primary` is used.
+     */
+    public func setAudioTaps(primary: AudioTap?, secondary: AudioTap?) {
+        wrapper1.audioTap = primary
+        wrapper2?.audioTap = secondary
     }
 
     

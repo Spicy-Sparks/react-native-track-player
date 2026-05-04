@@ -36,7 +36,16 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     private var crossfadeWarmedUp = false
     private let player = QueuedAudioPlayer()
     private let audioSessionController = AudioSessionController.shared
-    private let equalizerTap = EqualizerAudioTap()  // Always created, attached at setup
+    // Two EQ taps — one per crossfade wrapper. They hold independent filter/limiter state but
+    // are kept in sync via `forEachEqualizerTap` so user-visible settings stay identical across
+    // a crossfade. Mirrors Android's equalizerProcessor / equalizerProcessor2 design.
+    private let equalizerTap = EqualizerAudioTap()
+    private let equalizerTap2 = EqualizerAudioTap()
+
+    private func forEachEqualizerTap(_ block: (EqualizerAudioTap) -> Void) {
+        block(equalizerTap)
+        block(equalizerTap2)
+    }
     private var shouldEmitProgressEvent: Bool = false
     private var shouldResumePlaybackAfterInterruptionEnds: Bool = false
     private var forwardJumpInterval: NSNumber? = nil;
@@ -137,15 +146,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             return
         }
 
-        // configure the FFT audio tap if specified
-        if let fftLength = config["useFFTProcessor"] as? Int {
-            player.audioTap = WaveformAudioTap(mFFTLength: fftLength, mEmit: {data in
-                self.emit(event:EventType.FFTUpdated, body:data)})
-        } else {
-            // Always attach equalizer tap — transparent pass-through when no effects are active.
-            // This avoids audio glitches from re-attaching the tap when effects are toggled.
-            player.audioTap = equalizerTap
-        }
+        let useFFTLength = config["useFFTProcessor"] as? Int
 
         // configure buffer size
         if let bufferDuration = config["minBuffer"] as? TimeInterval {
@@ -156,11 +157,29 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             self.shouldResumePlaybackAfterInterruptionEnds = autoHandleInterruptions
         }
 
-        // configure crossfade
+        // configure crossfade BEFORE attaching audio taps so wrapper2 exists when we set them
         if let crossfade = config["crossfade"] as? Bool, crossfade {
             player.crossfade = true
             player.wrapper2 = AVPlayerWrapper()
             player.crossfadeWrapper = player.wrapper2!
+        }
+
+        // configure the audio tap. Pair semantics: each wrapper gets its own instance so filter/
+        // FFT state is not raced during a crossfade (both wrappers process audio simultaneously).
+        if let fftLength = useFFTLength {
+            let waveTap1 = WaveformAudioTap(mFFTLength: fftLength, mEmit: { data in
+                self.emit(event: EventType.FFTUpdated, body: data)
+            })
+            let waveTap2: WaveformAudioTap? = player.crossfade
+                ? WaveformAudioTap(mFFTLength: fftLength, mEmit: { data in
+                    self.emit(event: EventType.FFTUpdated, body: data)
+                })
+                : nil
+            player.setAudioTaps(primary: waveTap1, secondary: waveTap2)
+        } else {
+            // Always attach equalizer tap — transparent pass-through when no effects are active.
+            // This avoids audio glitches from re-attaching the tap when effects are toggled.
+            player.setAudioTaps(primary: equalizerTap, secondary: equalizerTap2)
         }
 
         // configure wether player waits to play (deprecated)
@@ -979,7 +998,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     public func setEqualizerEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
-        equalizerTap.isEnabled = enabled
+        forEachEqualizerTap { $0.isEnabled = enabled }
 
         resolve(NSNull())
     }
@@ -995,7 +1014,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     public func setEqualizerBand(band: Int, gain: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
-        equalizerTap.setGain(band: band, gainDB: gain)
+        forEachEqualizerTap { $0.setGain(band: band, gainDB: gain) }
         resolve(NSNull())
     }
 
@@ -1004,7 +1023,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
         let floatGains = gains.map { $0.floatValue }
-        equalizerTap.setAllGains(floatGains)
+        forEachEqualizerTap { $0.setAllGains(floatGains) }
         resolve(NSNull())
     }
 
@@ -1031,7 +1050,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         }
 
         let preset = presets[presetIndex]
-        equalizerTap.applyPreset(preset)
+        forEachEqualizerTap { $0.applyPreset(preset) }
         resolve(NSNull())
     }
 
@@ -1044,7 +1063,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     public func resetEqualizer(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
-        equalizerTap.resetGains()
+        forEachEqualizerTap { $0.resetGains() }
         resolve(NSNull())
     }
 
@@ -1053,49 +1072,50 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     @objc(setBassBoostEnabled:resolver:rejecter:)
     public func setBassBoostEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.isBassBoostEnabled = enabled
+        forEachEqualizerTap { $0.isBassBoostEnabled = enabled }
         resolve(NSNull())
     }
 
     @objc(setLoudnessEnabled:resolver:rejecter:)
     public func setLoudnessEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.isLoudnessEnabled = enabled
+        forEachEqualizerTap { $0.isLoudnessEnabled = enabled }
         resolve(NSNull())
     }
 
     @objc(setVirtualizerEnabled:resolver:rejecter:)
     public func setVirtualizerEnabled(enabled: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.isVirtualizerEnabled = enabled
+        forEachEqualizerTap { $0.isVirtualizerEnabled = enabled }
         resolve(NSNull())
     }
 
     @objc(setBassBoostLevel:resolver:rejecter:)
     public func setBassBoostLevel(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.updateBassBoostLevel(level)
+        forEachEqualizerTap { $0.updateBassBoostLevel(level) }
         resolve(NSNull())
     }
 
     @objc(setLoudnessLevel:resolver:rejecter:)
     public func setLoudnessLevel(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.updateLoudnessLevel(level)
+        forEachEqualizerTap { $0.updateLoudnessLevel(level) }
         resolve(NSNull())
     }
 
     @objc(setVirtualizerLevel:resolver:rejecter:)
     public func setVirtualizerLevel(level: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.updateVirtualizerLevel(level)
+        forEachEqualizerTap { $0.updateVirtualizerLevel(level) }
         resolve(NSNull())
     }
 
     @objc(setBalance:resolver:rejecter:)
     public func setBalance(balance: Float, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        equalizerTap.balance = max(-1, min(1, balance))
+        let clamped = max(-1, min(1, balance))
+        forEachEqualizerTap { $0.balance = clamped }
         resolve(NSNull())
     }
 }
