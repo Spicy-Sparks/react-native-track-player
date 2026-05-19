@@ -116,9 +116,21 @@ class QueuedAudioPlayer(
         if (queue.isEmpty()) {
             add(item)
         } else {
+            val newMediaItem = parseAudioItem(item)
+            val idx = currentIndex
+            // Sync the queue mirror so musicService.tracks / getQueue reflect
+            // the new item — otherwise JS reads stale indices after load().
+            if (idx in queue.indices) {
+                queue[idx] = newMediaItem
+            }
             players().forEach { p ->
-                p.replaceMediaItem(currentIndex, parseAudioItem(item))
-                p.seekTo(currentIndex, C.TIME_UNSET)
+                p.replaceMediaItem(idx, newMediaItem)
+                // Only seek the ACTIVE wrapper. Seeking the inactive too would
+                // drag it out of any prebuffered position set by crossFadePrepare,
+                // causing the next crossFade-swap to land on the wrong content.
+                if (p === exoPlayer) {
+                    p.seekTo(idx, C.TIME_UNSET)
+                }
             }
             exoPlayer.prepare()
         }

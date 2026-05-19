@@ -83,34 +83,54 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             NotificationCenter.default.post(name: .RNTPPlayerRecreated, object: nil)
         }
 
+        // Capture the just-demoted and just-promoted wrappers. Without this
+        // the fade Tasks read `self.crossfadeWrapper` / `self.wrapper`
+        // dynamically each iteration — a subsequent switchExoPlayer would
+        // have these Tasks start writing volume to the wrong wrapper
+        // (audible as "doubled audio").
+        let prevWrapper = self.crossfadeWrapper
+        let newWrapper = self.wrapper
+
         // fade volume
         Task {
             var fadeOutDuration = fadeDuration
             let startFadeOutTime = DispatchTime.now()
-            let fadeFromVolume = self.crossfadeWrapper.volume
+            let fadeFromVolume = prevWrapper.volume
             while (fadeOutDuration > 0) {
                 fadeOutDuration -= fadeInterval
+                // Guard: if prevWrapper was re-promoted to active by a
+                // subsequent switchExoPlayer, stop touching its volume —
+                // the new fade-in Task owns it.
+                if prevWrapper === self.wrapper { break }
                 let timeDiff = DispatchTime.now().uptimeNanoseconds - startFadeOutTime.uptimeNanoseconds
                 let timeElapsed = Float(min(Int(timeDiff) / 1_000_000, fadeDuration))
-                self.crossfadeWrapper.volume = fadeFromVolume * (1 -  timeElapsed / Float(fadeDuration))
-                print("crossfade fading out...\(self.crossfadeWrapper.volume)")
+                prevWrapper.volume = fadeFromVolume * (1 -  timeElapsed / Float(fadeDuration))
                 try await Task.sleep(nanoseconds: UInt64(fadeInterval * 1000000))
             }
         }
-        
+
         Task {
-            self.wrapper.volume = 0
+            newWrapper.volume = 0
             if (fadeToVolume > 0) {
-                self.wrapper.play()
-                var fadeInDuration = fadeDuration
-                let startTime = DispatchTime.now()
-                while (fadeInDuration > 0) {
-                    fadeInDuration -= fadeInterval
-                    let timeDiff = DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
-                    let timeElapsed = Float(min(Int(timeDiff) / 1_000_000, fadeDuration))
-                    self.wrapper.volume = fadeToVolume * timeElapsed / Float(fadeDuration)
-                    print("crossfade fading in...\(self.wrapper.volume)")
-                    try await Task.sleep(nanoseconds: UInt64(fadeInterval * 1000000))
+                newWrapper.play()
+                if (fadeDuration <= 0) {
+                    // duration=0 means "instant swap": apply target volume
+                    // directly. Without this the fade loop never runs and
+                    // newWrapper stays at volume=0 → silent audio.
+                    newWrapper.volume = fadeToVolume
+                } else {
+                    var fadeInDuration = fadeDuration
+                    let startTime = DispatchTime.now()
+                    while (fadeInDuration > 0) {
+                        fadeInDuration -= fadeInterval
+                        // Guard: if newWrapper was demoted to inactive, stop —
+                        // the new fade-out Task owns its volume.
+                        if newWrapper !== self.wrapper { break }
+                        let timeDiff = DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
+                        let timeElapsed = Float(min(Int(timeDiff) / 1_000_000, fadeDuration))
+                        newWrapper.volume = fadeToVolume * timeElapsed / Float(fadeDuration)
+                        try await Task.sleep(nanoseconds: UInt64(fadeInterval * 1000000))
+                    }
                 }
             }
         }

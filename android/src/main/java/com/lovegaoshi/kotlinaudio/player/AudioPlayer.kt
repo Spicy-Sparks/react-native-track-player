@@ -555,6 +555,18 @@ abstract class AudioPlayer internal constructor(
             playerOperation()
             return
         }
+        // Reject the swap if the wrapper about to be promoted isn't in a state
+        // where playback can start. A stale JS prebuffer flag can otherwise
+        // crossFade to an IDLE/ENDED wrapper and leave audio stuck at 00:00.
+        // JS catches this throw and falls back to a cold TrackPlayer.load().
+        val targetPlayer = if (currentExoPlayer) exoPlayer2!! else exoPlayer1
+        if (targetPlayer.currentMediaItem == null
+            || targetPlayer.playbackState == Player.STATE_IDLE
+            || targetPlayer.playbackState == Player.STATE_ENDED) {
+            throw IllegalStateException(
+                "crossFade: inactive wrapper not ready (state=${targetPlayer.playbackState}, mediaItem=${targetPlayer.currentMediaItem?.mediaId})"
+            )
+        }
         scope.launch {
             val delayAmount = if (waitUntil == 0L) 0 else {
                 0L.coerceAtLeast(waitUntil - player.currentPosition)
@@ -581,23 +593,50 @@ abstract class AudioPlayer internal constructor(
                 val fadeFromVolume = prevPlayer.volume
                 while (fadeOutDuration > 0) {
                     fadeOutDuration -= fadeInterval
+                    // Guard: if prevPlayer was re-promoted to active by a
+                    // subsequent crossFade, stop touching its volume — the
+                    // new fade-in task owns it.
+                    if (prevPlayer === exoPlayer) break
                     prevPlayer.volume = fadeFromVolume * (1 - min((System.currentTimeMillis() - startFadeOutTime), fadeDuration).toFloat() / fadeDuration)
                     delay(fadeInterval)
                 }
-                prevPlayer.volume = 0f
-                prevPlayer.pause()
+                // Guard: only finalize/pause if prevPlayer is still the
+                // inactive wrapper. Without this, an overlapping crossFade
+                // sequence (rapid skips → chained crossfades) can have this
+                // task pause the now-active wrapper after its timer fires.
+                if (prevPlayer !== exoPlayer) {
+                    prevPlayer.volume = 0f
+                    prevPlayer.pause()
+                }
             }
+            // Capture the just-promoted wrapper. Without this the fade-in
+            // loop reads the GLOBAL `exoPlayer` each iteration — a subsequent
+            // crossFade would have this task start writing volume to the NEW
+            // active wrapper, racing with the new fade-in task and producing
+            // chaotic volumes (audible as "doubled audio").
+            val newPlayer = exoPlayer
             scope.launch {
-                exoPlayer.volume = 0f
+                newPlayer.volume = 0f
                 playerOperation()
-                exoPlayer.setAudioAttributes(exoPlayer.audioAttributes, options.handleAudioFocus)
+                newPlayer.setAudioAttributes(newPlayer.audioAttributes, options.handleAudioFocus)
                 if (fadeToVolume > 0) {
-                    var fadeInDuration = fadeDuration
-                    val startTime = System.currentTimeMillis()
-                    while (fadeInDuration > 0) {
-                        fadeInDuration -= fadeInterval
-                        exoPlayer.volume = fadeToVolume * min((System.currentTimeMillis() - startTime), fadeDuration) / fadeDuration
-                        delay(fadeInterval)
+                    if (fadeDuration <= 0) {
+                        // duration=0 means "instant swap": apply target volume
+                        // directly. Without this the fade loop never runs and
+                        // newPlayer stays at the volume=0f set above → silent
+                        // audio after a prebuffered-fast-path crossFade.
+                        newPlayer.volume = fadeToVolume
+                    } else {
+                        var fadeInDuration = fadeDuration
+                        val startTime = System.currentTimeMillis()
+                        while (fadeInDuration > 0) {
+                            fadeInDuration -= fadeInterval
+                            // Guard: if newPlayer was demoted to inactive, stop —
+                            // the new fade-out task owns its volume.
+                            if (newPlayer !== exoPlayer) break
+                            newPlayer.volume = fadeToVolume * min((System.currentTimeMillis() - startTime), fadeDuration) / fadeDuration
+                            delay(fadeInterval)
+                        }
                     }
                 }
             }

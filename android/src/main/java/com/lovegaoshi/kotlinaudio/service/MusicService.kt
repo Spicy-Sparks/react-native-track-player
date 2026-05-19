@@ -78,15 +78,23 @@ class MusicService : MediaLibraryService() {
             args: Bundle
         ): ListenableFuture<SessionResult> {
             Timber.tag("APM").d("custom command triggered: ${customCommand.customAction}")
-            when (customCommand.customAction) {
-                CROSSFADE_PREV_PREPARE -> { player.crossFadePrepare(true) }
-                CROSSFADE_PREV -> { player.switchExoPlayer({ player.previous() }) }
-                CROSSFADE_NEXT_PREPARE -> { player.crossFadePrepare() }
-                CROSSFADE_NEXT -> {
-                    player.switchExoPlayer()
-                    mediaSession.player = player.player
-                    this@MusicService.onUpdateNotification(mediaSession, true)
+            // Swallow IllegalStateException from switchExoPlayer's guard
+            // (inactive wrapper not ready). Without this, the MediaSession-
+            // triggered crossfade path produces an Uncaught (in promise)
+            // because there's no JS Promise/try-catch wrapping it.
+            try {
+                when (customCommand.customAction) {
+                    CROSSFADE_PREV_PREPARE -> { player.crossFadePrepare(true) }
+                    CROSSFADE_PREV -> { player.switchExoPlayer({ player.previous() }) }
+                    CROSSFADE_NEXT_PREPARE -> { player.crossFadePrepare() }
+                    CROSSFADE_NEXT -> {
+                        player.switchExoPlayer()
+                        mediaSession.player = player.player
+                        this@MusicService.onUpdateNotification(mediaSession, true)
+                    }
                 }
+            } catch (e: IllegalStateException) {
+                Timber.tag("APM").w("crossfade custom command skipped: ${e.message}")
             }
             return super.onCustomCommand(session, controller, customCommand, args)
         }
