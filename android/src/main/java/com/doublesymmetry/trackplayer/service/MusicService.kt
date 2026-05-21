@@ -2,12 +2,19 @@ package com.doublesymmetry.trackplayer.service
 
 import android.annotation.SuppressLint
 import android.app.*
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
 import androidx.annotation.MainThread
@@ -286,6 +293,7 @@ class MusicService : HeadlessJsMediaService() {
             // https://github.com/androidx/media/issues/1218
             .setSessionActivity(PendingIntent.getActivity(this, 0, openAppIntent, getPendingIntentFlags()))
             .build()
+        registerAudioDeviceCallback()
         super.onCreate()
     }
 
@@ -336,6 +344,51 @@ class MusicService : HeadlessJsMediaService() {
     private var latestOptions: Bundle? = null
     private var compactCapabilities: List<Capability> = emptyList()
     private var commandStarted = false
+
+    // Marks the brief window after a new audio output device (Bluetooth/wired/USB) becomes
+    // available, during which the OS may auto-issue a play command. RemotePlay fired inside
+    // this window is tagged with `autoResume: true` so JS can ignore it if the user had paused.
+    private var routeChangeWindowEndAtMs: Long = 0L
+    private val routeChangeWindowMs: Long = 2_000L
+    private var audioDeviceCallback: AudioDeviceCallback? = null
+
+    private val isInRouteChangeWindow: Boolean
+        get() = SystemClock.elapsedRealtime() < routeChangeWindowEndAtMs
+
+    private fun buttonPlayBundle(): Bundle = Bundle().apply {
+        putBoolean("autoResume", isInRouteChangeWindow)
+    }
+
+    private fun registerAudioDeviceCallback() {
+        if (audioDeviceCallback != null) return
+        val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val cb = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                val relevant = addedDevices?.any { isAutoResumeRoute(it.type) } == true
+                if (relevant) {
+                    routeChangeWindowEndAtMs = SystemClock.elapsedRealtime() + routeChangeWindowMs
+                }
+            }
+        }
+        am.registerAudioDeviceCallback(cb, Handler(Looper.getMainLooper()))
+        audioDeviceCallback = cb
+    }
+
+    private fun unregisterAudioDeviceCallback() {
+        val cb = audioDeviceCallback ?: return
+        val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        am?.unregisterAudioDeviceCallback(cb)
+        audioDeviceCallback = null
+    }
+
+    private fun isAutoResumeRoute(type: Int): Boolean {
+        return type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+            type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+            type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && type == AudioDeviceInfo.TYPE_BLE_HEADSET)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.tag("APM").d("onStartCommand: ${intent?.action}, ${intent?.`package`}")
@@ -962,7 +1015,7 @@ class MusicService : HeadlessJsMediaService() {
                             emit(MusicEvents.BUTTON_SEEK_TO, this)
                         }
                     }
-                    MediaSessionCallback.PLAY -> emit(MusicEvents.BUTTON_PLAY)
+                    MediaSessionCallback.PLAY -> emit(MusicEvents.BUTTON_PLAY, buttonPlayBundle())
                     MediaSessionCallback.PAUSE -> emit(MusicEvents.BUTTON_PAUSE)
                     MediaSessionCallback.NEXT -> emit(MusicEvents.BUTTON_SKIP_NEXT)
                     MediaSessionCallback.PREVIOUS -> emit(MusicEvents.BUTTON_SKIP_PREVIOUS)
@@ -1202,6 +1255,7 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     override fun onDestroy() {
         Timber.tag("APM").d("RNTP service is destroyed.")
+        unregisterAudioDeviceCallback()
         if (::player.isInitialized) {
             // moved down ->
             // mediaSession.release()
@@ -1211,7 +1265,7 @@ class MusicService : HeadlessJsMediaService() {
         // FORK PATCH
         // -> Attempt to fix https://github.com/doublesymmetry/react-native-track-player/issues/2485
         mediaSession.release()
-        
+
         instance = null
         progressUpdateJob?.cancel()
         super.onDestroy()
@@ -1239,7 +1293,7 @@ class MusicService : HeadlessJsMediaService() {
                     true
                 }
                 KeyEvent.KEYCODE_MEDIA_PLAY -> {
-                    emit(MusicEvents.BUTTON_PLAY)
+                    emit(MusicEvents.BUTTON_PLAY, buttonPlayBundle())
                     true
                 }
                 KeyEvent.KEYCODE_MEDIA_NEXT -> {

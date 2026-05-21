@@ -14,6 +14,7 @@ import { PlayerErrorEvent } from './PlayerErrorEvent';
 import type { RemoteDuckEvent } from './RemoteDuckEvent';
 import type { RemoteJumpBackwardEvent } from './RemoteJumpBackwardEvent';
 import type { RemoteJumpForwardEvent } from './RemoteJumpForwardEvent';
+import type { RemotePlayEvent } from './RemotePlayEvent';
 import type { RemotePlayIdEvent } from './RemotePlayIdEvent';
 import type { RemotePlaySearchEvent } from './RemotePlaySearchEvent';
 import type { RemoteSearchEvent } from './RemoteSearchEvent';
@@ -40,7 +41,7 @@ export type EventPayloadByEvent = {
   [Event.PlaybackMetadataReceived]: PlaybackMetadataReceivedEvent;
   [Event.PlaybackPlayWhenReadyChanged]: PlaybackPlayWhenReadyChangedEvent;
   [Event.PlaybackProgressUpdated]: PlaybackProgressUpdatedEvent;
-  [Event.RemotePlay]: never;
+  [Event.RemotePlay]: RemotePlayEvent;
   [Event.RemotePlayPause]: never;
   [Event.RemotePlayId]: RemotePlayIdEvent;
   [Event.RemotePlaySearch]: RemotePlaySearchEvent;

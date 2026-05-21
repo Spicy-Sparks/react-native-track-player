@@ -55,11 +55,23 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     private var sessionCategoryPolicy: AVAudioSession.RouteSharingPolicy = .default
     private var sessionCategoryOptions: AVAudioSession.CategoryOptions = []
 
+    // Marks the brief window after an audio route change (e.g. CarPlay/Bluetooth connect)
+    // during which iOS may auto-issue a play command. Used to tag RemotePlay with
+    // `autoResume: true` so JS can ignore it if the user had explicitly paused.
+    private var routeChangeWindowEndAt: Date?
+    private static let routeChangeWindowSeconds: TimeInterval = 2.0
+
     // MARK: - Lifecycle Methods
 
     public override init() {
         super.init()
         audioSessionController.delegate = self
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioRouteChange(_:)),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
         player.playWhenReady = false;
         player.event.receiveChapterMetadata.addListener(self, handleAudioPlayerChapterMetadataReceived)
         player.event.receiveTimedMetadata.addListener(self, handleAudioPlayerTimedMetadataReceived)
@@ -78,6 +90,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
         reset(resolve: { _ in }, reject: { _, _, _  in })
 
         RNTrackPlayer.sharedAVPlayer = nil
@@ -85,6 +98,27 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
     private func emit(event: EventType, body: Any? = nil) {
         delegate?.sendEvent(name: event.rawValue, body: body)
+    }
+
+    @objc private func handleAudioRouteChange(_ notification: Notification) {
+        guard
+            let userInfo = notification.userInfo,
+            let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+            let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
+        else { return }
+        if reason == .newDeviceAvailable {
+            routeChangeWindowEndAt = Date().addingTimeInterval(RNTrackPlayer.routeChangeWindowSeconds)
+        }
+    }
+
+    private var isInRouteChangeWindow: Bool {
+        guard let endAt = routeChangeWindowEndAt else { return false }
+        return Date() < endAt
+    }
+
+    private func emitRemotePlay() {
+        let autoResume = isInRouteChangeWindow
+        emit(event: EventType.RemotePlay, body: ["autoResume": autoResume])
     }
 
     // MARK: - AudioSessionControllerDelegate
@@ -236,7 +270,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         }
 
         player.remoteCommandController.handlePlayCommand = { [weak self] _ in
-            self?.emit(event: EventType.RemotePlay)
+            self?.emitRemotePlay()
             return MPRemoteCommandHandlerStatus.success
         }
 
@@ -271,10 +305,11 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         }
 
         player.remoteCommandController.handleTogglePlayPauseCommand = { [weak self] _ in
-            self?.emit(event: self?.player.playerState == .paused
-                ? EventType.RemotePlay
-                : EventType.RemotePause
-            )
+            if self?.player.playerState == .paused {
+                self?.emitRemotePlay()
+            } else {
+                self?.emit(event: EventType.RemotePause)
+            }
 
             return MPRemoteCommandHandlerStatus.success
         }

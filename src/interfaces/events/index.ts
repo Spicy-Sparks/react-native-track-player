@@ -9,6 +9,7 @@ export * from './PlaybackTrackChangedEvent';
 export * from './RemoteDuckEvent';
 export * from './RemoteJumpBackwardEvent';
 export * from './RemoteJumpForwardEvent';
+export * from './RemotePlayEvent';
 export * from './RemotePlayIdEvent';
 export * from './RemotePlaySearchEvent';
 export * from './RemoteSearchEvent';
