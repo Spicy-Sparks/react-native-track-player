@@ -101,8 +101,11 @@ export interface PlayerOptions {
   androidSkipSilence?: boolean;
   /**
    * set android exoplayer wake mode. 1 is WAKE_MODE_LOCAL, 2 is WAKE_MODE_NETWORK,
-   * and others is WAKE_MODE_NONE.
-   * @default 0
+   * and others is WAKE_MODE_NONE. Default is WAKE_MODE_NETWORK because this is
+   * a network-streaming audio player — without it, ExoPlayer's own NONE default
+   * causes ~10-minute Bluetooth-playback stalls during Android Doze (CPU
+   * suspends, buffer drains, audio pauses cyclically).
+   * @default 2
    */
   androidWakeMode?: number;
   /**

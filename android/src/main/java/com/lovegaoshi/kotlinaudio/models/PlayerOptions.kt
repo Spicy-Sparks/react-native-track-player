@@ -8,7 +8,11 @@ import androidx.media3.common.util.UnstableApi
 data class PlayerOptions(
     val cacheSize: Long = 0,
     val audioContentType: Int = C.AUDIO_CONTENT_TYPE_MUSIC,
-    val wakeMode: Int = 0,
+    // Default to NETWORK (2): this is a network-streaming audio player, so we
+    // want both a PartialWakeLock + WifiLock held while playing. ExoPlayer's
+    // own NONE default (0) causes ~10-minute Bluetooth-playback stalls during
+    // Doze because the CPU suspends and the buffer drains.
+    val wakeMode: Int = 2,
     val handleAudioBecomingNoisy: Boolean = true,
     val alwaysShowNext: Boolean = true,
     val handleAudioFocus: Boolean = true,

@@ -423,7 +423,8 @@ class MusicService : HeadlessJsMediaService() {
                 "unknown" -> C.AUDIO_CONTENT_TYPE_UNKNOWN
                 else -> C.AUDIO_CONTENT_TYPE_MUSIC
             },
-            wakeMode = playerOptions?.getInt(WAKE_MODE, 0) ?: 0,
+            // Default to WAKE_MODE_NETWORK (2) — see PlayerOptions.kt for rationale.
+            wakeMode = playerOptions?.getInt(WAKE_MODE, 2) ?: 2,
             handleAudioBecomingNoisy = playerOptions?.getBoolean(HANDLE_NOISY, true) ?: true,
             alwaysShowNext = playerOptions?.getBoolean(ALWAYS_SHOW_NEXT, true) ?: true,
             handleAudioFocus = playerOptions?.getBoolean(AUTO_HANDLE_INTERRUPTIONS) ?: true,
