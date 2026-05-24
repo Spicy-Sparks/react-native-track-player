@@ -53,7 +53,14 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     private var sessionCategory: AVAudioSession.Category = .playback
     private var sessionCategoryMode: AVAudioSession.Mode = .default
     private var sessionCategoryPolicy: AVAudioSession.RouteSharingPolicy = .default
-    private var sessionCategoryOptions: AVAudioSession.CategoryOptions = []
+    // Default to .allowAirPlay + .allowBluetoothA2DP so routing to AirPlay
+    // receivers and high-quality Bluetooth outputs works out of the box on the
+    // .playback category. Without these, setCategory(_:options:) below is
+    // called with an explicit empty set, which suppresses the implicit iOS
+    // defaults and silently disables AirPlay/A2DP routing (manifests as e.g.
+    // AirPlay to WIIM Ultra not working). Callers can still override by
+    // passing iosCategoryOptions from JS.
+    private var sessionCategoryOptions: AVAudioSession.CategoryOptions = [.allowAirPlay, .allowBluetoothA2DP]
 
     // Marks the brief window after an audio route change (e.g. CarPlay/Bluetooth connect)
     // during which iOS may auto-issue a play command. Used to tag RemotePlay with
@@ -243,9 +250,15 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             sessionCategoryPolicy = mappedCategoryPolicy.mapConfigToAVAudioSessionCategoryPolicy()
         }
 
-        let sessionCategoryOptsStr = config["iosCategoryOptions"] as? [String]
-        let mappedCategoryOpts = sessionCategoryOptsStr?.compactMap { SessionCategoryOptions(rawValue: $0)?.mapConfigToAVAudioSessionCategoryOptions() } ?? []
-        sessionCategoryOptions = AVAudioSession.CategoryOptions(mappedCategoryOpts)
+        // Only override the default when iosCategoryOptions is explicitly
+        // provided. Passing nil from JS must NOT collapse to an empty set,
+        // otherwise the .allowAirPlay/.allowBluetoothA2DP defaults declared
+        // in the property would be wiped out and AirPlay/A2DP routing would
+        // silently break.
+        if let sessionCategoryOptsStr = config["iosCategoryOptions"] as? [String] {
+            let mappedCategoryOpts = sessionCategoryOptsStr.compactMap { SessionCategoryOptions(rawValue: $0)?.mapConfigToAVAudioSessionCategoryOptions() }
+            sessionCategoryOptions = AVAudioSession.CategoryOptions(mappedCategoryOpts)
+        }
 
         configureAudioSession()
 
