@@ -1,6 +1,6 @@
 {
   "name": "@javascriptcommon/react-native-track-player",
-  "version": "4.1.38",
+  "version": "4.1.39",
   "description": "A fully fledged audio module created for music apps",
   "main": "lib/src/index.js",
   "types": "lib/src/index.d.ts",
@@ -28,6 +28,8 @@
     "src",
     "lib/**/*",
     "ios/**/*",
+    "!ios/SwiftAudioEx/.build/**",
+    "!ios/Example/**",
     "android/src/**/*",
     "android/build.gradle",
     "android/proguard-rules.txt",
