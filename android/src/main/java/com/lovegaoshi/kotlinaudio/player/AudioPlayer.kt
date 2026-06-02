@@ -571,11 +571,19 @@ abstract class AudioPlayer internal constructor(
     }
 
     open fun seek(duration: Long, unit: TimeUnit) {
+        // A seek mid-crossfade would only move the active wrapper while the
+        // outgoing wrapper keeps playing the old track at its fading volume.
+        // Finalize the fade first so the seek acts on a single coherent active
+        // wrapper (incoming at full volume, outgoing silenced + paused).
+        finalizeCrossfade()
         val positionMs = TimeUnit.MILLISECONDS.convert(duration, unit)
         exoPlayer.seekTo(positionMs)
     }
 
     open fun seekBy(offset: Long, unit: TimeUnit) {
+        // See seek(): finalize an in-flight crossfade before seeking so only the
+        // active wrapper is affected.
+        finalizeCrossfade()
         val positionMs = exoPlayer.currentPosition + TimeUnit.MILLISECONDS.convert(offset, unit)
         exoPlayer.seekTo(positionMs)
     }

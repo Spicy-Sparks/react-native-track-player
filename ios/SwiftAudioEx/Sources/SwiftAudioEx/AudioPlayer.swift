@@ -375,6 +375,11 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      Seek to a specific time in the item.
      */
     public func seek(to seconds: TimeInterval) {
+        // A seek mid-crossfade would only move the active wrapper while the
+        // outgoing wrapper keeps playing the old track at its fading volume.
+        // Finalize the fade first so the seek acts on a single coherent active
+        // wrapper (incoming at full volume, outgoing silenced + paused).
+        finalizeCrossfade()
         wrapper.seek(to: seconds)
     }
 
@@ -382,6 +387,9 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      Seek by relative a time offset in the item.
      */
     public func seek(by offset: TimeInterval) {
+        // See seek(to:): finalize an in-flight crossfade before seeking so only
+        // the active wrapper is affected.
+        finalizeCrossfade()
         wrapper.seek(by: offset)
     }
     
