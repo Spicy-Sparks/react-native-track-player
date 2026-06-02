@@ -91,8 +91,12 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         let prevWrapper = self.crossfadeWrapper
         let newWrapper = self.wrapper
 
+        self.crossfadeFadingOutWrapper = prevWrapper
+        self.crossfadeFadingInWrapper = newWrapper
+        self.crossfadeTargetVolume = fadeToVolume
+
         // fade volume
-        Task {
+        self.crossfadeFadeOutTask = Task {
             var fadeOutDuration = fadeDuration
             let startFadeOutTime = DispatchTime.now()
             let fadeFromVolume = prevWrapper.volume
@@ -107,9 +111,19 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
                 prevWrapper.volume = fadeFromVolume * (1 -  timeElapsed / Float(fadeDuration))
                 try await Task.sleep(nanoseconds: UInt64(fadeInterval * 1000000))
             }
+            // Finalize: once the fade-out completes, silence and PAUSE the
+            // outgoing wrapper so it stops consuming/playing. Without this the
+            // outgoing wrapper is left at ~0 volume but still playing (it keeps
+            // running to its own end / counts as a second active player). Only
+            // do this if it's still the outgoing wrapper (a chained crossfade
+            // may have re-promoted it).
+            if prevWrapper !== self.wrapper {
+                prevWrapper.volume = 0
+                prevWrapper.pause()
+            }
         }
 
-        Task {
+        self.crossfadeFadeInTask = Task {
             newWrapper.volume = 0
             if (fadeToVolume > 0) {
                 newWrapper.play()

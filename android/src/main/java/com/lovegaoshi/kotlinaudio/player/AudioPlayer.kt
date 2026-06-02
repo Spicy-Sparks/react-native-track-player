@@ -45,6 +45,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.Locale
@@ -62,6 +63,43 @@ abstract class AudioPlayer internal constructor(
     private var loudnessEnhancers = ArrayList<LoudnessEnhancer>()
     private var equalizers = ArrayList<Equalizer>()
     private var currentExoPlayer = true
+
+    // Crossfade finalization state. During a fade BOTH wrappers play; the fades
+    // run on coroutines that only settle volumes when their timers elapse. A
+    // user pause/stop in that window must SNAP the crossfade to its END state
+    // (incoming wrapper -> full volume + active, outgoing wrapper -> 0 + paused)
+    // rather than freezing both at a partial volume or leaving the outgoing
+    // track audible. These refs let pause()/stop() do that.
+    private var crossfadeFadeOutJob: Job? = null
+    private var crossfadeFadeInJob: Job? = null
+    private var crossfadeFadingOutPlayer: ExoPlayer? = null
+    private var crossfadeFadingInPlayer: ExoPlayer? = null
+    private var crossfadeTargetVolume: Float = 1f
+
+    // Snap an in-flight crossfade to its completed state. Safe to call when no
+    // crossfade is active (no-op). After this the active wrapper (`exoPlayer`)
+    // holds the new track at full volume; the outgoing wrapper is silenced and
+    // paused. Callers then apply pause()/stop() to the single active wrapper.
+    private fun finalizeCrossfade() {
+        if (!options.crossfade) return
+        crossfadeFadeOutJob?.cancel()
+        crossfadeFadeOutJob = null
+        crossfadeFadeInJob?.cancel()
+        crossfadeFadeInJob = null
+        crossfadeFadingOutPlayer?.let { p ->
+            // Only settle it if it's still the outgoing wrapper (a chained
+            // crossfade may have re-promoted it).
+            if (p !== exoPlayer) {
+                p.volume = 0f
+                p.pause()
+            }
+        }
+        crossfadeFadingInPlayer?.let { p ->
+            if (p === exoPlayer) p.volume = crossfadeTargetVolume
+        }
+        crossfadeFadingOutPlayer = null
+        crossfadeFadingInPlayer = null
+    }
 
     var exoPlayer: ExoPlayer
     var player: ForwardingPlayer
@@ -469,6 +507,11 @@ abstract class AudioPlayer internal constructor(
     }
 
     fun pause() {
+        // If a crossfade is mid-flight, complete it to its end state first
+        // (incoming track full volume + active, outgoing track silenced +
+        // paused) so a single pause reliably stops ALL audio without leaving a
+        // track playing or freezing volumes at a partial level.
+        finalizeCrossfade()
         exoPlayer.pause()
     }
 
@@ -480,6 +523,19 @@ abstract class AudioPlayer internal constructor(
     @CallSuper
     open fun stop() {
         playerState = AudioPlayerState.STOPPED
+        if (options.crossfade) {
+            crossfadeFadeOutJob?.cancel()
+            crossfadeFadeOutJob = null
+            crossfadeFadeInJob?.cancel()
+            crossfadeFadeInJob = null
+            crossfadeFadingOutPlayer = null
+            crossfadeFadingInPlayer = null
+            players().forEach { p ->
+                p.playWhenReady = false
+                p.stop()
+            }
+            return
+        }
         exoPlayer.playWhenReady = false
         exoPlayer.stop()
     }
@@ -587,7 +643,9 @@ abstract class AudioPlayer internal constructor(
             prevPlayer.setAudioAttributes(prevPlayer.audioAttributes, false)
             player.switchCrossFadePlayer()
 
-            scope.launch {
+            crossfadeFadingOutPlayer = prevPlayer
+            crossfadeTargetVolume = fadeToVolume
+            crossfadeFadeOutJob = scope.launch {
                 var fadeOutDuration = fadeDuration
                 val startFadeOutTime = System.currentTimeMillis()
                 val fadeFromVolume = prevPlayer.volume
@@ -615,7 +673,8 @@ abstract class AudioPlayer internal constructor(
             // active wrapper, racing with the new fade-in task and producing
             // chaotic volumes (audible as "doubled audio").
             val newPlayer = exoPlayer
-            scope.launch {
+            crossfadeFadingInPlayer = newPlayer
+            crossfadeFadeInJob = scope.launch {
                 newPlayer.volume = 0f
                 playerOperation()
                 newPlayer.setAudioAttributes(newPlayer.audioAttributes, options.handleAudioFocus)

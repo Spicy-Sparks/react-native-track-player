@@ -24,6 +24,37 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     // indicates if crossfade is enabled/wrapper2 is initialized
     var crossfade: Bool = false
 
+    // Crossfade finalization state. During a fade BOTH wrappers play; the fade
+    // Tasks only settle volumes when their timers elapse. A user pause/stop in
+    // that window must SNAP the crossfade to its END state (incoming wrapper ->
+    // full volume + active, outgoing wrapper -> 0 + paused) instead of leaving
+    // the outgoing track audible or freezing volumes at a partial level.
+    var crossfadeFadeOutTask: Task<Void, Error>? = nil
+    var crossfadeFadeInTask: Task<Void, Error>? = nil
+    var crossfadeFadingOutWrapper: AVPlayerWrapperProtocol? = nil
+    var crossfadeFadingInWrapper: AVPlayerWrapperProtocol? = nil
+    var crossfadeTargetVolume: Float = 1
+
+    // Snap an in-flight crossfade to its completed state. No-op when no
+    // crossfade is active. After this the active wrapper holds the new track at
+    // full volume; the outgoing wrapper is silenced and paused.
+    func finalizeCrossfade() {
+        if (!self.crossfade) { return }
+        crossfadeFadeOutTask?.cancel()
+        crossfadeFadeOutTask = nil
+        crossfadeFadeInTask?.cancel()
+        crossfadeFadeInTask = nil
+        if let outWrapper = crossfadeFadingOutWrapper, outWrapper !== self.wrapper {
+            outWrapper.volume = 0
+            outWrapper.pause()
+        }
+        if let inWrapper = crossfadeFadingInWrapper, inWrapper === self.wrapper {
+            inWrapper.volume = crossfadeTargetVolume
+        }
+        crossfadeFadingOutWrapper = nil
+        crossfadeFadingInWrapper = nil
+    }
+
     func players () -> [AVPlayerWrapperProtocol] {
         if (self.crossfade) {
             return [wrapper1, wrapper2!]
@@ -283,7 +314,14 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      Toggle playback status.
      */
     public func togglePlaying() {
-        wrapper.togglePlaying()
+        // Route through the class-level play()/pause() (not wrapper.togglePlaying())
+        // so a toggle from the lockscreen / headset / control center during a
+        // crossfade goes through finalizeCrossfade() and stops ALL audio.
+        if (wrapper.playWhenReady) {
+            pause()
+        } else {
+            play()
+        }
     }
 
     /**
@@ -297,6 +335,11 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      Pause playback
      */
     public func pause() {
+        // If a crossfade is mid-flight, complete it to its end state first
+        // (incoming track full volume + active, outgoing track silenced +
+        // paused) so a single pause reliably stops ALL audio without leaving a
+        // track playing or freezing volumes at a partial level.
+        finalizeCrossfade()
         wrapper.pause()
     }
 
@@ -305,7 +348,17 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
      */
     public func stop() {
         let wasActive = wrapper.playbackActive
-        wrapper.stop()
+        if (self.crossfade) {
+            crossfadeFadeOutTask?.cancel()
+            crossfadeFadeOutTask = nil
+            crossfadeFadeInTask?.cancel()
+            crossfadeFadeInTask = nil
+            crossfadeFadingOutWrapper = nil
+            crossfadeFadingInWrapper = nil
+            for w in players() { w.stop() }
+        } else {
+            wrapper.stop()
+        }
         if (wasActive) {
             event.playbackEnd.emit(data: .playerStopped)
         }
