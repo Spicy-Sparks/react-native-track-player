@@ -1,3 +1,10 @@
+# [4.1.40](https://github.com/Spicy-Sparks/react-native-track-player/compare/v4.1.39...v4.1.40) (2026-06-02)
+
+- **crossfade:** finalize in-flight fade on pause/stop (Android + iOS) — a pause/stop during a crossfade now snaps the fade to its end state (incoming wrapper full volume + active, outgoing wrapper silenced + paused) instead of stopping only the active wrapper or freezing volumes mid-fade. Fixes "two songs play, pause stops only one".
+- **crossfade (ios):** route togglePlaying() through class-level pause()/play() so lockscreen/headset/Control Center toggles during a crossfade stop all audio.
+- **crossfade (ios):** pause the outgoing wrapper when the fade-out completes (was left at ~0 volume but still playing = second active player).
+- **crossfade:** finalize in-flight fade on seek()/seekBy() (Android + iOS) so a mid-crossfade seek acts on a single coherent active wrapper.
+
 # [4.1.1](https://github.com/doublesymmetry/react-native-track-player/compare/v4.1.0...v4.1.1) (2024-03-26)
 
 - **RN:** Fixes an issue when using local assets in release builds
