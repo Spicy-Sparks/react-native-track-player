@@ -107,6 +107,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     @Volatile var isEnabled = false
     private val gains = FloatArray(BAND_COUNT)
 
+    // True when at least one EQ band deviates from 0 dB. A flat curve is a
+    // mathematical passthrough (unity biquads), so it must not count as an
+    // active effect — see queueInput bypass logic.
+    @Volatile private var hasNonFlatGains = false
+
     // Bass Boost
     @Volatile var isBassBoostEnabled = false
     @Volatile var bassBoostLevel = 0.5f   // 0..1
@@ -157,12 +162,18 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var limAttCoeff = 0.0
     private var limRelCoeff = 0.0
 
+    // Frames left in the smoothing tail after all effects turned off. While the
+    // tail runs the chain keeps processing so coefficients can ramp to unity
+    // (click-free); afterwards the processor hard-bypasses (bit-perfect copy).
+    private var bypassTailFrames = 0
+
     // ═══════════════════ EQ API ═══════════════════
 
     fun setGain(band: Int, gainDB: Float) {
         if (band !in 0 until BAND_COUNT) return
         gains[band] = gainDB.coerceIn(-12f, 12f)
         eqTgt[band] = peakingEQ(FREQUENCIES[band].toDouble(), gains[band].toDouble(), EQ_Q, sampleRate)
+        hasNonFlatGains = gains.any { it != 0f }
     }
 
     fun setAllGains(gainsDB: List<Float>) {
@@ -170,6 +181,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             gains[i] = gainsDB[i].coerceIn(-12f, 12f)
             eqTgt[i] = peakingEQ(FREQUENCIES[i].toDouble(), gains[i].toDouble(), EQ_Q, sampleRate)
         }
+        hasNonFlatGains = gains.any { it != 0f }
     }
 
     fun getAllGains(): FloatArray = gains.copyOf()
@@ -179,6 +191,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             gains[i] = 0f
             eqTgt[i] = UNITY.copyOf()
         }
+        hasNonFlatGains = false
     }
 
     // ═══════════════════ Bass Boost API ═══════════════════
@@ -206,6 +219,19 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     }
 
     // ═══════════════════ Pipeline ═══════════════════
+
+    // Zero all filter memory so the next processed buffer starts clean.
+    // Called when the smoothing tail ends after all effects turn off.
+    private fun resetFilterState() {
+        for (band in 0 until BAND_COUNT) for (ch in eqZ[band].indices) { eqZ[band][ch][0] = 0.0; eqZ[band][ch][1] = 0.0 }
+        for (ch in bbZ.indices) { bbZ[ch][0] = 0.0; bbZ[ch][1] = 0.0 }
+        for (ch in lnLoZ.indices) { lnLoZ[ch][0] = 0.0; lnLoZ[ch][1] = 0.0 }
+        for (ch in lnHiZ.indices) { lnHiZ[ch][0] = 0.0; lnHiZ[ch][1] = 0.0 }
+        for (s in apStateL.indices) { apStateL[s][0] = 0.0; apStateL[s][1] = 0.0 }
+        for (s in apStateR.indices) { apStateR[s][0] = 0.0; apStateR[s][1] = 0.0 }
+        for (ch in dcXprev.indices) { dcXprev[ch] = 0.0; dcYprev[ch] = 0.0 }
+        limGain = 1.0
+    }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
         if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT ||
@@ -260,6 +286,9 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             limAttCoeff = 1.0 - exp(-1.0 / (0.0005 * sampleRate))
             limRelCoeff = 1.0 - exp(-1.0 / (0.050 * sampleRate))
 
+            // Bypass tail
+            bypassTailFrames = 0
+
             return inputAudioFormat
         }
         return AudioProcessor.AudioFormat.NOT_SET
@@ -270,16 +299,34 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         val size = inputBuffer.remaining()
         val output = replaceOutputBuffer(size)
 
-        val anyActive = isEnabled || isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
+        // Only effects that actually modify the signal count as active. An
+        // enabled EQ with a flat curve is unity passthrough, so it must NOT
+        // pull the DC blocker and limiter into the chain — they would color
+        // pristine audio even though the user set no boost at all.
+        val effectsActive = (isEnabled && hasNonFlatGains) ||
+            isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
 
-        if (!anyActive) {
-            // Pass-through
-            when (inputAudioFormat.encoding) {
-                C.ENCODING_PCM_16BIT -> while (inputBuffer.hasRemaining()) output.putShort(inputBuffer.short)
-                C.ENCODING_PCM_FLOAT -> while (inputBuffer.hasRemaining()) output.putFloat(inputBuffer.float)
+        if (effectsActive) {
+            // Arm the smoothing tail so that when effects turn off we keep
+            // processing briefly (coefficients ramp to unity, limiter
+            // releases) instead of bypassing with an audible click.
+            bypassTailFrames = (sampleRate * 0.1).toInt() // ~100 ms
+        } else {
+            val bytesPerSample = if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) 2 else 4
+            val tailExpired = bypassTailFrames <= 0
+            if (!tailExpired) {
+                bypassTailFrames -= size / (bytesPerSample * nCh)
+                if (bypassTailFrames <= 0) resetFilterState()
             }
-            output.flip()
-            return
+            if (tailExpired) {
+                // Fully neutral: bit-perfect pass-through
+                when (inputAudioFormat.encoding) {
+                    C.ENCODING_PCM_16BIT -> while (inputBuffer.hasRemaining()) output.putShort(inputBuffer.short)
+                    C.ENCODING_PCM_FLOAT -> while (inputBuffer.hasRemaining()) output.putFloat(inputBuffer.float)
+                }
+                output.flip()
+                return
+            }
         }
 
         // Smooth all coefficients toward targets

@@ -45,6 +45,11 @@ public class EqualizerAudioTap: AudioTap {
     private var _gains: [Float] = Array(repeating: 0, count: bandCount)
     private var needsEQUpdate: Bool = true
 
+    /// True when at least one EQ band deviates from 0 dB. A flat curve is a
+    /// mathematical passthrough (unity biquads), so it must not count as an
+    /// active effect — see `process` bypass logic. Updated under paramLock.
+    private var hasNonFlatGains: Bool = false
+
     // MARK: - Bass Boost (always-positive low shelf)
 
     public var isBassBoostEnabled: Bool = false
@@ -121,6 +126,11 @@ public class EqualizerAudioTap: AudioTap {
     // Coefficient smoothing alpha (computed from sample rate)
     private var smoothAlpha: Double = 0.004
 
+    // Frames left in the smoothing tail after all effects turned off. While the
+    // tail runs the chain keeps processing so coefficients can ramp to unity
+    // (click-free); afterwards the tap hard-bypasses (bit-perfect passthrough).
+    private var bypassTailFrames: Int = 0
+
     // Tap lifecycle tracking
     private var activeTapCount: Int = 0
 
@@ -135,6 +145,7 @@ public class EqualizerAudioTap: AudioTap {
         guard band >= 0, band < Self.bandCount else { return }
         paramLock.lock()
         _gains[band] = max(-12, min(12, gainDB))
+        hasNonFlatGains = _gains.contains { $0 != 0 }
         needsEQUpdate = true
         paramLock.unlock()
     }
@@ -144,6 +155,7 @@ public class EqualizerAudioTap: AudioTap {
         guard gains.count == Self.bandCount else { return }
         paramLock.lock()
         for i in 0..<Self.bandCount { _gains[i] = max(-12, min(12, gains[i])) }
+        hasNonFlatGains = _gains.contains { $0 != 0 }
         needsEQUpdate = true
         paramLock.unlock()
     }
@@ -165,6 +177,7 @@ public class EqualizerAudioTap: AudioTap {
     public func resetGains() {
         paramLock.lock()
         _gains = Array(repeating: 0, count: Self.bandCount)
+        hasNonFlatGains = false
         needsEQUpdate = true
         paramLock.unlock()
     }
@@ -255,9 +268,18 @@ public class EqualizerAudioTap: AudioTap {
         limGain = 1.0
         limAttCoeff = 1.0 - exp(-1.0 / (0.0005 * sampleRate))  // 0.5 ms attack
         limRelCoeff = 1.0 - exp(-1.0 / (0.050  * sampleRate))   // 50 ms release
+
+        // ── Bypass tail ──
+        bypassTailFrames = 0
     }
 
     public override func unprepare() {
+        resetFilterState()
+    }
+
+    /// Zero all filter memory so the next processed buffer starts clean.
+    /// Called on unprepare and when the smoothing tail ends after bypass.
+    private func resetFilterState() {
         for b in 0..<eqZ.count {
             for c in 0..<eqZ[b].count { eqZ[b][c] = [0, 0] }
         }
@@ -275,8 +297,29 @@ public class EqualizerAudioTap: AudioTap {
     public override func process(numberOfFrames: Int, buffer: UnsafeMutableAudioBufferListPointer) {
         guard numberOfFrames > 0 else { return }
 
-        let anyActive = isEnabled || isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled || balance != 0
-        guard anyActive else { return }
+        // Only effects that actually modify the signal count as active. An
+        // enabled EQ with a flat curve is unity passthrough, so it must NOT
+        // pull the DC blocker and limiter into the chain — they would color
+        // pristine audio for every user who never touched the equalizer
+        // (the always-on limiter audibly compressed loud masters, heard as
+        // distortion on full-range outputs like AirPods).
+        let effectsActive = (isEnabled && hasNonFlatGains)
+            || isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
+            || balance != 0
+
+        if effectsActive {
+            // Arm the smoothing tail so that when effects turn off we keep
+            // processing briefly (coefficients ramp to unity, limiter
+            // releases) instead of bypassing with an audible click.
+            bypassTailFrames = Int(sampleRate * 0.1) // ~100 ms
+        } else {
+            if bypassTailFrames <= 0 { return } // fully neutral: bit-perfect passthrough
+            bypassTailFrames -= numberOfFrames
+            if bypassTailFrames <= 0 {
+                resetFilterState() // next activation starts from clean state
+                return
+            }
+        }
 
         let nCh = min(buffer.count, channelCount)
 
