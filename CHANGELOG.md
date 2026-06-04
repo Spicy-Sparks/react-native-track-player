@@ -1,3 +1,8 @@
+# [4.1.41](https://github.com/Spicy-Sparks/react-native-track-player/compare/v4.1.40...v4.1.41) (2026-06-04)
+
+- **equalizer:** bypass the DC blocker and true-peak limiter when no effect actually modifies the signal (Android + iOS). The limiter (threshold −1 dBFS) used to run on every buffer whenever the EQ flag was on — and on iOS the native flag defaulted to `true` — so loud-mastered tracks were audibly compressed/distorted even with a flat EQ curve, most noticeably on full-range outputs (AirPods/headphones). A flat curve is now a bit-perfect passthrough; the limiter only engages when EQ gains, bass boost, loudness or virtualizer are really active.
+- **equalizer (ios):** a short (~100 ms) smoothing tail keeps the chain processing after effects turn off so coefficients ramp to unity click-free before hard bypass; filter state is reset so the next activation starts clean. Same logic on Android.
+
 # [4.1.40](https://github.com/Spicy-Sparks/react-native-track-player/compare/v4.1.39...v4.1.40) (2026-06-02)
 
 - **crossfade:** finalize in-flight fade on pause/stop (Android + iOS) — a pause/stop during a crossfade now snaps the fade to its end state (incoming wrapper full volume + active, outgoing wrapper silenced + paused) instead of stopping only the active wrapper or freezing volumes mid-fade. Fixes "two songs play, pause stops only one".
