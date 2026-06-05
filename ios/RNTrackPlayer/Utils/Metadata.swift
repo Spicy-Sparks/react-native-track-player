@@ -43,8 +43,10 @@ struct Metadata {
         player.nowPlayingInfoController.set(keyValues: ret)
         
         if let artworkURL = MediaURL(object: metadata["artwork"]) {
-            currentImageTask = URLSession.shared.dataTask(with: artworkURL.value, completionHandler: { [weak player] (data, _, error) in
-                if let data = data, let image = UIImage(data: data), error == nil {
+            currentImageTask = URLSession.shared.dataTask(with: artworkURL.value, completionHandler: { [weak player] (data, _, _) in
+                // URLSession can't handle file:// → read local thumbs directly from disk
+                let data = data ?? (artworkURL.isLocal ? try? Data(contentsOf: artworkURL.value) : nil)
+                if let data = data, let image = UIImage(data: data) {
                     let artwork = MPMediaItemArtwork(boundsSize: image.size, requestHandler: { (size) -> UIImage in
                         return image
                     })
