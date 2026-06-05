@@ -45,7 +45,9 @@ class CoilBitmapLoader @Inject constructor(
         val bitmap: Bitmap? = try {
             val parsedUri = uri.toString()
             if (parsedUri.startsWith("file://")) {
-                getEmbeddedBitmap(parsedUri.substring(7))
+                // uri.path drops the scheme and any query params; image thumbnails
+                // decode directly, audio files fall back to embedded artwork
+                BitmapFactory.decodeFile(uri.path) ?: getEmbeddedBitmap(uri.path)
             } else {
                 var imgrequest = ImageRequest.Builder(context)
                     .data(uri)
