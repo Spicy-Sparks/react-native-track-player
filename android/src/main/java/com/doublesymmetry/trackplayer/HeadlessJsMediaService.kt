@@ -44,7 +44,16 @@ public abstract class HeadlessJsMediaService : MediaLibraryService(), HeadlessJs
     private var initialized = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        super.onStartCommand(intent, flags, startId)
+        try {
+            super.onStartCommand(intent, flags, startId)
+        } catch (e: IllegalStateException) {
+            // media3 MediaLibraryService throws "session is already released" when the
+            // service is restarted after its MediaSession was released (post onDestroy).
+            // The service is effectively dead — don't start a task on it, just no-op.
+            return START_NOT_STICKY
+        } catch (e: IllegalArgumentException) {
+            return START_NOT_STICKY
+        }
         val taskConfig = getTaskConfig(intent)
         return if (!initialized && taskConfig != null) {
             initialized = true
@@ -63,7 +72,14 @@ public abstract class HeadlessJsMediaService : MediaLibraryService(), HeadlessJs
     protected open fun getTaskConfig(intent: Intent?): HeadlessJsTaskConfig? = null
 
     override fun onBind(intent: Intent?): IBinder? {
-        return super.onBind(intent)
+        return try {
+            super.onBind(intent)
+        } catch (e: IllegalStateException) {
+            // See onStartCommand: the MediaSession may already be released on a reused service.
+            null
+        } catch (e: IllegalArgumentException) {
+            null
+        }
     }
 
     override fun onCreate() {

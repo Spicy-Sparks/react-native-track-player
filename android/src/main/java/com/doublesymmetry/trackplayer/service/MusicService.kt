@@ -1162,7 +1162,34 @@ class MusicService : HeadlessJsMediaService() {
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         // https://github.com/androidx/media/issues/843#issuecomment-1860555950
-        super.onUpdateNotification(session, true)
+        try {
+            super.onUpdateNotification(session, true)
+        } catch (e: IllegalStateException) {
+            // On Android 12+ media3 may try to promote the notification to a foreground
+            // service while the app is backgrounded/restricted, throwing
+            // ForegroundServiceStartNotAllowedException (a subclass of IllegalStateException).
+            // Swallow it instead of crashing; the notification simply isn't promoted to FGS.
+            Timber.tag("APM").e(e, "onUpdateNotification: foreground start not allowed")
+        }
+    }
+
+    // Guards against releasing the MediaSession more than once. androidx.media3 throws
+    // IllegalArgumentException("session is already released") on a double release. This
+    // happened because onTaskRemoved() releases the session and then calls onDestroy(),
+    // which released it again (and the system may also invoke onDestroy() on its own).
+    private var isMediaSessionReleased = false
+
+    @MainThread
+    private fun releaseMediaSession() {
+        if (isMediaSessionReleased || !::mediaSession.isInitialized) return
+        isMediaSessionReleased = true
+        try {
+            mediaSession.release()
+        } catch (e: IllegalStateException) {
+            // Already released elsewhere — safe to ignore.
+        } catch (e: IllegalArgumentException) {
+            // "session is already released" — safe to ignore.
+        }
     }
 
     @MainThread
@@ -1172,7 +1199,7 @@ class MusicService : HeadlessJsMediaService() {
             .tag("APM")
             .d("onTaskRemoved: ${::player.isInitialized}, $appKilledPlaybackBehavior")
         if (!::player.isInitialized) {
-            mediaSession.release()
+            releaseMediaSession()
             return
         }
 
@@ -1180,7 +1207,7 @@ class MusicService : HeadlessJsMediaService() {
             AppKilledPlaybackBehavior.PAUSE_PLAYBACK -> player.pause()
             AppKilledPlaybackBehavior.STOP_PLAYBACK_AND_REMOVE_NOTIFICATION -> {
                 Timber.tag("APM").d("onTaskRemoved: Killing service")
-                mediaSession.release()
+                releaseMediaSession()
                 player.clear()
                 player.stop()
                 // HACK: the service first stops, then starts, then call onTaskRemove. Why system
@@ -1265,7 +1292,7 @@ class MusicService : HeadlessJsMediaService() {
 
         // FORK PATCH
         // -> Attempt to fix https://github.com/doublesymmetry/react-native-track-player/issues/2485
-        mediaSession.release()
+        releaseMediaSession()
 
         instance = null
         progressUpdateJob?.cancel()
