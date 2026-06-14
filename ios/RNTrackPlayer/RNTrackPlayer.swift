@@ -113,8 +113,23 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
             let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue)
         else { return }
-        if reason == .newDeviceAvailable {
+        switch reason {
+        case .newDeviceAvailable:
+            // A device connected (e.g. CarPlay/Bluetooth). Open a brief window during
+            // which an iOS-issued RemotePlay is tagged `autoResume`, so playback can
+            // resume automatically on reconnect.
             routeChangeWindowEndAt = Date().addingTimeInterval(RNTrackPlayer.routeChangeWindowSeconds)
+        case .oldDeviceUnavailable:
+            // The active output device went away (CarPlay/Bluetooth/headphones
+            // disconnected, e.g. the car was switched off). iOS does not post an
+            // interruption for this, so without handling it playback keeps running on
+            // the built-in speaker. Per Apple's guidance, pause. Emitted as a permanent
+            // duck so JS pauses but does NOT auto-resume on interruption-end; the
+            // reconnect resume is preserved via the separate newDeviceAvailable ->
+            // RemotePlay(autoResume) path above.
+            emit(event: EventType.RemoteDuck, body: ["paused": true, "permanent": true])
+        default:
+            break
         }
     }
 
