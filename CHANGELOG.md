@@ -1,3 +1,7 @@
+# [4.1.45](https://github.com/Spicy-Sparks/react-native-track-player/compare/v4.1.44...v4.1.45) (2026-06-14)
+
+- **ios:** pause playback when the active audio output disconnects (CarPlay / Bluetooth / headphones). For an output going away iOS posts an `AVAudioSession` route change with reason `.oldDeviceUnavailable` — not an interruption — so playback used to keep running on the built-in speaker (often muted when the phone is silenced), draining the battery and skipping through the queued tracks. It now pauses, mirroring Apple's guidance and the Android `AUDIOFOCUS_LOSS` behavior. Emitted as a permanent duck so JS pauses without auto-resuming on interruption-end. Auto-resume on reconnect is preserved — it flows through the separate `.newDeviceAvailable` → `RemotePlay(autoResume)` window, which is unchanged.
+
 # [4.1.41](https://github.com/Spicy-Sparks/react-native-track-player/compare/v4.1.40...v4.1.41) (2026-06-04)
 
 - **equalizer:** bypass the DC blocker and true-peak limiter when no effect actually modifies the signal (Android + iOS). The limiter (threshold −1 dBFS) used to run on every buffer whenever the EQ flag was on — and on iOS the native flag defaulted to `true` — so loud-mastered tracks were audibly compressed/distorted even with a flat EQ curve, most noticeably on full-range outputs (AirPods/headphones). A flat curve is now a bit-perfect passthrough; the limiter only engages when EQ gains, bass boost, loudness or virtualizer are really active.
