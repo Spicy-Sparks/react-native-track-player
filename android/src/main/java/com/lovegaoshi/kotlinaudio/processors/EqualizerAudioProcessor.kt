@@ -18,7 +18,7 @@ import kotlin.math.*
  *  - Stereo virtualizer (mid-side + cross-channel all-pass)
  *  - Per-block coefficient smoothing (click-free parameter changes)
  *  - DC blocking filter (removes sub-sonic drift)
- *  - Envelope-following true-peak limiter
+ *  - Transparent look-ahead true-peak safety limiter (always on)
  *  - Denormal flush (prevents FPU slowdown on ARM)
  */
 @UnstableApi
@@ -49,8 +49,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // ── Processing constants ──
         private const val SMOOTH_ALPHA = 0.008
-        private const val DC_R = 0.9995         // ~3.5 Hz cutoff at 44.1 kHz
-        private const val LIM_THRESHOLD = 0.89  // ~ -1 dBFS
+        private const val DC_R = 0.9995          // ~3.5 Hz cutoff at 44.1 kHz
+        private const val SAFETY_CEILING = 0.794 // ≈ -2 dBFS ceiling (head-room for AAC inter-sample overshoot)
         private const val DENORM_THRESH = 1e-15
 
         private val UNITY = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0)
@@ -157,10 +157,18 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var dcXprev = DoubleArray(2)
     private var dcYprev = DoubleArray(2)
 
-    // Limiter
-    private var limGain = 1.0
-    private var limAttCoeff = 0.0
-    private var limRelCoeff = 0.0
+    // Always-on transparent true-peak safety limiter. Caps output peaks below
+    // full scale so the downstream Bluetooth/AAC encoder (e.g. AirPods) cannot
+    // inter-sample clip on hot masters. Runs on EVERY block — even in passthrough
+    // — but stays transparent below the ceiling (gain == 1.0). The look-ahead
+    // lets the gain ramp down before a peak reaches the output, avoiding the bass
+    // distortion a zero-latency feedback limiter produces.
+    private var safetyLookahead = 0
+    private var safetyDelay = Array(2) { DoubleArray(0) } // [channel][lookahead] circular delay line
+    private var safetyPos = 0
+    private var safetyGain = 1.0
+    private var safetyAttCoeff = 0.0
+    private var safetyRelCoeff = 0.0
 
     // Frames left in the smoothing tail after all effects turned off. While the
     // tail runs the chain keeps processing so coefficients can ramp to unity
@@ -230,7 +238,6 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         for (s in apStateL.indices) { apStateL[s][0] = 0.0; apStateL[s][1] = 0.0 }
         for (s in apStateR.indices) { apStateR[s][0] = 0.0; apStateR[s][1] = 0.0 }
         for (ch in dcXprev.indices) { dcXprev[ch] = 0.0; dcYprev[ch] = 0.0 }
-        limGain = 1.0
     }
 
     override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
@@ -281,10 +288,14 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             dcXprev = DoubleArray(nCh)
             dcYprev = DoubleArray(nCh)
 
-            // Limiter
-            limGain = 1.0
-            limAttCoeff = 1.0 - exp(-1.0 / (0.0005 * sampleRate))
-            limRelCoeff = 1.0 - exp(-1.0 / (0.050 * sampleRate))
+            // Transparent true-peak safety limiter
+            safetyLookahead = max(32, (sampleRate * 0.0015).toInt()) // ~1.5 ms look-ahead
+            safetyDelay = Array(nCh) { DoubleArray(safetyLookahead) }
+            safetyPos = 0
+            safetyGain = 1.0
+            // Attack reaches the target within ~one look-ahead window.
+            safetyAttCoeff = 1.0 - exp(-3.0 / safetyLookahead.toDouble())
+            safetyRelCoeff = 1.0 - exp(-1.0 / (0.100 * sampleRate)) // 100 ms release
 
             // Bypass tail
             bypassTailFrames = 0
@@ -301,52 +312,50 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // Only effects that actually modify the signal count as active. An
         // enabled EQ with a flat curve is unity passthrough, so it must NOT
-        // pull the DC blocker and limiter into the chain — they would color
-        // pristine audio even though the user set no boost at all.
+        // pull the EQ chain / DC blocker in — they would color pristine audio
+        // even though the user set no boost at all. NOTE: the transparent safety
+        // limiter runs regardless (see applySafetyLimiter) to protect the
+        // Bluetooth/AAC path from inter-sample clipping.
         val effectsActive = (isEnabled && hasNonFlatGains) ||
             isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
 
+        // Run the colouring chain when effects are active, plus a short tail
+        // afterwards so coefficients can ramp to unity (click-free). The safety
+        // limiter below is independent of this gate.
+        var runChain = effectsActive
         if (effectsActive) {
-            // Arm the smoothing tail so that when effects turn off we keep
-            // processing briefly (coefficients ramp to unity, limiter
-            // releases) instead of bypassing with an audible click.
             bypassTailFrames = (sampleRate * 0.1).toInt() // ~100 ms
-        } else {
+        } else if (bypassTailFrames > 0) {
+            runChain = true
             val bytesPerSample = if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) 2 else 4
-            val tailExpired = bypassTailFrames <= 0
-            if (!tailExpired) {
-                bypassTailFrames -= size / (bytesPerSample * nCh)
-                if (bypassTailFrames <= 0) resetFilterState()
-            }
-            if (tailExpired) {
-                // Fully neutral: bit-perfect pass-through
-                when (inputAudioFormat.encoding) {
-                    C.ENCODING_PCM_16BIT -> while (inputBuffer.hasRemaining()) output.putShort(inputBuffer.short)
-                    C.ENCODING_PCM_FLOAT -> while (inputBuffer.hasRemaining()) output.putFloat(inputBuffer.float)
-                }
-                output.flip()
-                return
+            bypassTailFrames -= size / (bytesPerSample * nCh)
+            if (bypassTailFrames <= 0) {
+                bypassTailFrames = 0
+                runChain = false
+                resetFilterState()
             }
         }
 
-        // Smooth all coefficients toward targets
-        if (isEnabled) smoothCoeffs2D(eqCur, eqTgt)
-        if (isBassBoostEnabled) smoothCoeffs(bbCur, bbTgt)
-        if (isLoudnessEnabled) {
-            smoothCoeffs(lnLoCur, lnLoTgt)
-            smoothCoeffs(lnHiCur, lnHiTgt)
+        // Smooth all coefficients toward targets (only while the chain runs)
+        if (runChain) {
+            if (isEnabled) smoothCoeffs2D(eqCur, eqTgt)
+            if (isBassBoostEnabled) smoothCoeffs(bbCur, bbTgt)
+            if (isLoudnessEnabled) {
+                smoothCoeffs(lnLoCur, lnLoTgt)
+                smoothCoeffs(lnHiCur, lnHiTgt)
+            }
         }
 
         when (inputAudioFormat.encoding) {
-            C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size)
-            C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size)
+            C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size, runChain)
+            C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size, runChain)
         }
         output.flip()
     }
 
     // ═══════════════ Processing: Float32 path ═══════════════
 
-    private fun processFloat32(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int) {
+    private fun processFloat32(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean) {
         val frameCount = size / (4 * nCh)
 
         // Read all samples into a working buffer [channel][frame]
@@ -357,60 +366,58 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
 
-        // 1. EQ bands
-        if (isEnabled) {
-            for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
-                for (band in 0 until BAND_COUNT) {
-                    biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
+        if (runEffects) {
+            // 1. EQ bands
+            if (isEnabled) {
+                for (ch in 0 until nCh) {
+                    val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
+                    for (band in 0 until BAND_COUNT) {
+                        biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
+                    }
                 }
             }
-        }
 
-        // 2. Bass boost
-        if (isBassBoostEnabled) {
+            // 2. Bass boost
+            if (isBassBoostEnabled) {
+                for (ch in 0 until nCh) {
+                    val chIdx = ch.coerceAtMost(bbZ.size - 1)
+                    biquadBlock(buf[ch], frameCount, bbCur, bbZ[chIdx])
+                }
+            }
+
+            // 3. Loudness (low shelf + high shelf)
+            if (isLoudnessEnabled) {
+                for (ch in 0 until nCh) {
+                    val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
+                    biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
+                    biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
+                }
+            }
+
+            // 4. Virtualizer (stereo only)
+            if (isVirtualizerEnabled && nCh >= 2) {
+                applyVirtualizer(buf[0], buf[1], frameCount)
+            }
+
+            // 5. DC blocker
             for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(bbZ.size - 1)
-                biquadBlock(buf[ch], frameCount, bbCur, bbZ[chIdx])
+                val chIdx = ch.coerceAtMost(dcXprev.size - 1)
+                applyDCBlock(buf[ch], frameCount, chIdx)
             }
         }
 
-        // 3. Loudness (low shelf + high shelf)
-        if (isLoudnessEnabled) {
-            for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
-                biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
-                biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
-            }
-        }
-
-        // 4. Virtualizer (stereo only)
-        if (isVirtualizerEnabled && nCh >= 2) {
-            applyVirtualizer(buf[0], buf[1], frameCount)
-        }
-
-        // 5. DC blocker
-        for (ch in 0 until nCh) {
-            val chIdx = ch.coerceAtMost(dcXprev.size - 1)
-            applyDCBlock(buf[ch], frameCount, chIdx)
-        }
-
-        // 6. True-peak limiter + write output
+        // 6. Transparent true-peak safety limiter (always) + write output
+        applySafetyLimiter(buf, nCh, frameCount)
         for (frame in 0 until frameCount) {
-            var peak = 0.0
-            for (ch in 0 until nCh) peak = max(peak, abs(buf[ch][frame]))
-            val tgt = if (peak > LIM_THRESHOLD) LIM_THRESHOLD / peak else 1.0
-            limGain += (tgt - limGain) * if (tgt < limGain) limAttCoeff else limRelCoeff
-            val g = limGain
             for (ch in 0 until nCh) {
-                output.putFloat((buf[ch][frame] * g).toFloat())
+                output.putFloat(buf[ch][frame].toFloat())
             }
         }
     }
 
     // ═══════════════ Processing: Int16 path ═══════════════
 
-    private fun processInt16(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int) {
+    private fun processInt16(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean) {
         val frameCount = size / (2 * nCh)
 
         val buf = Array(nCh) { DoubleArray(frameCount) }
@@ -420,55 +427,88 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
 
-        // 1. EQ bands
-        if (isEnabled) {
-            for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
-                for (band in 0 until BAND_COUNT) {
-                    biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
+        if (runEffects) {
+            // 1. EQ bands
+            if (isEnabled) {
+                for (ch in 0 until nCh) {
+                    val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
+                    for (band in 0 until BAND_COUNT) {
+                        biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
+                    }
                 }
             }
-        }
 
-        // 2. Bass boost
-        if (isBassBoostEnabled) {
+            // 2. Bass boost
+            if (isBassBoostEnabled) {
+                for (ch in 0 until nCh) {
+                    val chIdx = ch.coerceAtMost(bbZ.size - 1)
+                    biquadBlock(buf[ch], frameCount, bbCur, bbZ[chIdx])
+                }
+            }
+
+            // 3. Loudness
+            if (isLoudnessEnabled) {
+                for (ch in 0 until nCh) {
+                    val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
+                    biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
+                    biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
+                }
+            }
+
+            // 4. Virtualizer (stereo only)
+            if (isVirtualizerEnabled && nCh >= 2) {
+                applyVirtualizer(buf[0], buf[1], frameCount)
+            }
+
+            // 5. DC blocker
             for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(bbZ.size - 1)
-                biquadBlock(buf[ch], frameCount, bbCur, bbZ[chIdx])
+                val chIdx = ch.coerceAtMost(dcXprev.size - 1)
+                applyDCBlock(buf[ch], frameCount, chIdx)
             }
         }
 
-        // 3. Loudness
-        if (isLoudnessEnabled) {
-            for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
-                biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
-                biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
-            }
-        }
-
-        // 4. Virtualizer (stereo only)
-        if (isVirtualizerEnabled && nCh >= 2) {
-            applyVirtualizer(buf[0], buf[1], frameCount)
-        }
-
-        // 5. DC blocker
-        for (ch in 0 until nCh) {
-            val chIdx = ch.coerceAtMost(dcXprev.size - 1)
-            applyDCBlock(buf[ch], frameCount, chIdx)
-        }
-
-        // 6. True-peak limiter + write output
+        // 6. Transparent true-peak safety limiter (always) + write output
+        applySafetyLimiter(buf, nCh, frameCount)
         for (frame in 0 until frameCount) {
+            for (ch in 0 until nCh) {
+                output.putShort((buf[ch][frame] * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort())
+            }
+        }
+    }
+
+    // ═══════════════ Safety limiter ═══════════════
+
+    /**
+     * Transparent look-ahead peak limiter. One shared gain across channels
+     * preserves the stereo image; below the ceiling the gain stays at 1.0 so it
+     * does not colour the signal. The look-ahead delay lets the gain ramp down
+     * before a peak reaches the output, taming loud transients without the bass
+     * distortion a zero-latency feedback limiter adds. Runs on every block to
+     * guarantee head-room for the downstream Bluetooth/AAC encoder.
+     */
+    private fun applySafetyLimiter(buf: Array<DoubleArray>, nCh: Int, frameCount: Int) {
+        if (safetyLookahead <= 0 || nCh <= 0 || safetyDelay.size < nCh) return
+        val ceil = SAFETY_CEILING
+        val attC = safetyAttCoeff; val relC = safetyRelCoeff
+        var pos = safetyPos
+        var g = safetyGain
+        for (frame in 0 until frameCount) {
+            // Future peak across channels (the sample about to enter the delay).
             var peak = 0.0
             for (ch in 0 until nCh) peak = max(peak, abs(buf[ch][frame]))
-            val tgt = if (peak > LIM_THRESHOLD) LIM_THRESHOLD / peak else 1.0
-            limGain += (tgt - limGain) * if (tgt < limGain) limAttCoeff else limRelCoeff
-            val g = limGain
+            val tgt = if (peak > ceil) ceil / peak else 1.0
+            // Fast (attack) when reducing gain, slow (release) when recovering.
+            g += (tgt - g) * if (tgt < g) attC else relC
             for (ch in 0 until nCh) {
-                output.putShort((buf[ch][frame] * g * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort())
+                val delayed = safetyDelay[ch][pos]      // output: input from `lookahead` frames ago
+                safetyDelay[ch][pos] = buf[ch][frame]   // store current input
+                buf[ch][frame] = delayed * g
             }
+            pos++
+            if (pos >= safetyLookahead) pos = 0
         }
+        safetyPos = pos
+        safetyGain = g
     }
 
     // ═══════════════ Virtualizer ═══════════════

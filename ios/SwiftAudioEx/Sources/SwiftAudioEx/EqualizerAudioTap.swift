@@ -117,11 +117,20 @@ public class EqualizerAudioTap: AudioTap {
     private var dcXprev: [Double] = []     // per channel
     private var dcYprev: [Double] = []
 
-    // Envelope-following peak limiter
-    private static let limThreshold: Double = 0.89  // ~ -1 dBFS
-    private var limGain: Double = 1.0
-    private var limAttCoeff: Double = 0    // computed from sample rate
-    private var limRelCoeff: Double = 0
+    // Always-on transparent true-peak safety limiter.
+    // Caps output peaks below full scale so the downstream Bluetooth/AAC encoder
+    // (e.g. AirPods) cannot inter-sample clip on hot masters. It runs on EVERY
+    // block — even when no EQ effect is active — but stays transparent below the
+    // ceiling (gain == 1.0), so it never colours normal audio. The look-ahead
+    // lets the gain ramp down BEFORE a peak reaches the output, avoiding the bass
+    // distortion a zero-latency feedback limiter produces.
+    private static let safetyCeiling: Double = 0.794   // ≈ -2 dBFS ceiling (head-room for AAC inter-sample overshoot)
+    private var safetyLookahead: Int = 0
+    private var safetyDelay: [[Double]] = []           // [channel][lookahead] circular delay line
+    private var safetyPos: Int = 0
+    private var safetyGain: Double = 1.0
+    private var safetyAttCoeff: Double = 0              // computed from look-ahead length
+    private var safetyRelCoeff: Double = 0              // computed from sample rate
 
     // Coefficient smoothing alpha (computed from sample rate)
     private var smoothAlpha: Double = 0.004
@@ -216,6 +225,7 @@ public class EqualizerAudioTap: AudioTap {
             bbZ = []; lnLoZ = []; lnHiZ = []
             apStateL = []; apStateR = []; apCoeffsL = []; apCoeffsR = []
             dcXprev = []; dcYprev = []
+            safetyDelay = []
             activeTapCount = 0
         }
     }
@@ -264,10 +274,15 @@ public class EqualizerAudioTap: AudioTap {
         dcXprev = Array(repeating: 0, count: ch)
         dcYprev = Array(repeating: 0, count: ch)
 
-        // ── Limiter ──
-        limGain = 1.0
-        limAttCoeff = 1.0 - exp(-1.0 / (0.0005 * sampleRate))  // 0.5 ms attack
-        limRelCoeff = 1.0 - exp(-1.0 / (0.050  * sampleRate))   // 50 ms release
+        // ── Transparent true-peak safety limiter ──
+        safetyLookahead = max(32, Int(sampleRate * 0.0015))     // ~1.5 ms look-ahead
+        safetyDelay = Array(repeating: Array(repeating: 0, count: safetyLookahead), count: ch)
+        safetyPos = 0
+        safetyGain = 1.0
+        // Attack reaches the target within ~one look-ahead window so a peak is
+        // fully tamed by the time it exits the delay line.
+        safetyAttCoeff = 1.0 - exp(-3.0 / Double(safetyLookahead))
+        safetyRelCoeff = 1.0 - exp(-1.0 / (0.100 * sampleRate))  // 100 ms release
 
         // ── Bypass tail ──
         bypassTailFrames = 0
@@ -289,7 +304,6 @@ public class EqualizerAudioTap: AudioTap {
         for s in 0..<apStateL.count { apStateL[s] = [0, 0] }
         for s in 0..<apStateR.count { apStateR[s] = [0, 0] }
         for c in 0..<dcXprev.count { dcXprev[c] = 0; dcYprev[c] = 0 }
-        limGain = 1.0
     }
 
     // ══════════════════════ Processing ═══════════════════════════
@@ -297,31 +311,40 @@ public class EqualizerAudioTap: AudioTap {
     public override func process(numberOfFrames: Int, buffer: UnsafeMutableAudioBufferListPointer) {
         guard numberOfFrames > 0 else { return }
 
+        let nCh = min(buffer.count, channelCount)
+
         // Only effects that actually modify the signal count as active. An
         // enabled EQ with a flat curve is unity passthrough, so it must NOT
-        // pull the DC blocker and limiter into the chain — they would color
-        // pristine audio for every user who never touched the equalizer
-        // (the always-on limiter audibly compressed loud masters, heard as
-        // distortion on full-range outputs like AirPods).
+        // pull the EQ chain / DC blocker in — they would colour pristine audio
+        // for every user who never touched the equalizer. NOTE: the transparent
+        // safety limiter at the end runs regardless (see applySafetyLimiter) to
+        // protect the Bluetooth/AAC path from inter-sample clipping.
         let effectsActive = (isEnabled && hasNonFlatGains)
             || isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
             || balance != 0
 
+        // Run the colouring chain when effects are active, plus a short tail
+        // afterwards so coefficients can ramp to unity (click-free). The safety
+        // limiter below is independent of this gate.
+        var runChain = effectsActive
         if effectsActive {
-            // Arm the smoothing tail so that when effects turn off we keep
-            // processing briefly (coefficients ramp to unity, limiter
-            // releases) instead of bypassing with an audible click.
             bypassTailFrames = Int(sampleRate * 0.1) // ~100 ms
-        } else {
-            if bypassTailFrames <= 0 { return } // fully neutral: bit-perfect passthrough
+        } else if bypassTailFrames > 0 {
+            runChain = true
             bypassTailFrames -= numberOfFrames
             if bypassTailFrames <= 0 {
+                bypassTailFrames = 0
+                runChain = false
                 resetFilterState() // next activation starts from clean state
-                return
             }
         }
 
-        let nCh = min(buffer.count, channelCount)
+        // Passthrough: skip the colouring chain but STILL apply the safety
+        // limiter so hot masters can't inter-sample clip over Bluetooth/AAC.
+        if !runChain {
+            applySafetyLimiter(numberOfFrames: numberOfFrames, buffer: buffer, nCh: nCh)
+            return
+        }
 
         // ── 1. Absorb pending parameter changes (briefly hold lock) ──
         paramLock.lock()
@@ -450,33 +473,49 @@ public class EqualizerAudioTap: AudioTap {
             }
         }
 
-        // ── 9. True-peak limiter (linked stereo, transparent) ──
-        // Tracks signal peaks and applies smooth gain reduction only when needed.
-        // Does NOT color the audio below the threshold (gain stays 1.0).
-        let thresh = Self.limThreshold
-        let attC = limAttCoeff, relC = limRelCoeff
+        // ── 9. Transparent true-peak safety limiter (also runs on passthrough) ──
+        applySafetyLimiter(numberOfFrames: numberOfFrames, buffer: buffer, nCh: nCh)
+    }
 
-        if nCh >= 2 {
-            guard let lD = buffer[0].mData, let rD = buffer[1].mData else { return }
-            let L = lD.assumingMemoryBound(to: Float.self)
-            let R = rD.assumingMemoryBound(to: Float.self)
-            for i in 0..<numberOfFrames {
-                let peak = max(abs(Double(L[i])), abs(Double(R[i])))
-                let tgt  = peak > thresh ? thresh / peak : 1.0
-                limGain += (tgt - limGain) * (tgt < limGain ? attC : relC)
-                L[i] = Float(Double(L[i]) * limGain)
-                R[i] = Float(Double(R[i]) * limGain)
-            }
-        } else if nCh == 1 {
-            guard let data = buffer[0].mData else { return }
-            let S = data.assumingMemoryBound(to: Float.self)
-            for i in 0..<numberOfFrames {
-                let peak = abs(Double(S[i]))
-                let tgt  = peak > thresh ? thresh / peak : 1.0
-                limGain += (tgt - limGain) * (tgt < limGain ? attC : relC)
-                S[i] = Float(Double(S[i]) * limGain)
-            }
+    /// Transparent look-ahead peak limiter. Linked across channels (one shared
+    /// gain preserves the stereo image). Below the ceiling the gain stays at 1.0
+    /// so it does not colour the signal; the look-ahead delay lets the gain ramp
+    /// down before a peak reaches the output, taming loud transients without the
+    /// harmonic distortion a zero-latency feedback limiter adds to bass. Runs on
+    /// every block (effects on or off) to guarantee head-room for the downstream
+    /// Bluetooth/AAC encoder.
+    private func applySafetyLimiter(numberOfFrames: Int, buffer: UnsafeMutableAudioBufferListPointer, nCh: Int) {
+        guard safetyLookahead > 0, nCh > 0, safetyDelay.count >= nCh else { return }
+        let ceil = Self.safetyCeiling
+        let attC = safetyAttCoeff, relC = safetyRelCoeff
+
+        var ptrs: [UnsafeMutablePointer<Float>] = []
+        ptrs.reserveCapacity(nCh)
+        for ch in 0..<nCh {
+            guard let data = buffer[ch].mData else { return }
+            ptrs.append(data.assumingMemoryBound(to: Float.self))
         }
+
+        var pos = safetyPos
+        var g = safetyGain
+        for i in 0..<numberOfFrames {
+            // Future peak across channels (the sample about to enter the delay).
+            var peak = 0.0
+            for ch in 0..<nCh { peak = max(peak, abs(Double(ptrs[ch][i]))) }
+            let tgt = peak > ceil ? ceil / peak : 1.0
+            // Fast (attack) when reducing gain, slow (release) when recovering.
+            g += (tgt - g) * (tgt < g ? attC : relC)
+
+            for ch in 0..<nCh {
+                let delayed = safetyDelay[ch][pos]          // output: input from `lookahead` frames ago
+                safetyDelay[ch][pos] = Double(ptrs[ch][i])  // store current input
+                ptrs[ch][i] = Float(delayed * g)
+            }
+            pos += 1
+            if pos >= safetyLookahead { pos = 0 }
+        }
+        safetyPos = pos
+        safetyGain = g
     }
 
     // ═══════════════ Internal: Biquad Processing ════════════════
