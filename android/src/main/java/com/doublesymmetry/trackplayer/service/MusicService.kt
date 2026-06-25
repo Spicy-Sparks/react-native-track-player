@@ -392,13 +392,25 @@ class MusicService : HeadlessJsMediaService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Timber.tag("APM").d("onStartCommand: ${intent?.action}, ${intent?.`package`}")
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            // HACK: this is not supposed to be here. I definitely screwed up. but Why?
-            onMediaKeyEvent(intent)
-        }
-        // HACK: Why is onPlay triggering onStartCommand??
+
+        // Media notification action buttons (media3 DefaultActionFactory) AND external /
+        // Bluetooth media buttons reach the service as ACTION_MEDIA_BUTTON intents carrying
+        // a KeyEvent. Handle them on EVERY onStartCommand and on ALL SDK levels. Previously
+        // onMediaKeyEvent ran only when SDK < TIRAMISU, and media3's own dispatch
+        // (super.onStartCommand) ran only once via the write-once `commandStarted` latch —
+        // so on Android 13+ every notification button after the first service start was
+        // silently dropped (next/prev/play/pause dead from the notification, while
+        // hardware/BT keys still worked through onMediaButtonEvent).
+        val isMediaButton = intent?.action == Intent.ACTION_MEDIA_BUTTON
+        val mediaKeyConsumed = if (isMediaButton) onMediaKeyEvent(intent) == true else false
+
         if (!commandStarted) {
             commandStarted = true
+            super.onStartCommand(intent, flags, startId)
+        } else if (isMediaButton && !mediaKeyConsumed) {
+            // Keycodes onMediaKeyEvent intentionally leaves unconsumed (e.g.
+            // KEYCODE_MEDIA_PLAY_PAUSE / HEADSETHOOK) must still reach media3 so it can
+            // apply its play/pause toggle.
             super.onStartCommand(intent, flags, startId)
         }
         return START_STICKY
