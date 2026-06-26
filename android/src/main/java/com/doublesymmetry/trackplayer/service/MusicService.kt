@@ -1345,10 +1345,16 @@ class MusicService : HeadlessJsMediaService() {
 
         if (keyEvent?.action == KeyEvent.ACTION_DOWN) {
             return when (keyEvent.keyCode) {
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    emit(MusicEvents.BUTTON_PLAY_PAUSE)
-                    true
-                }
+                // Do NOT consume single-button media keys (play/pause + wired headset hook).
+                // Returning null delegates to media3's super.onMediaButtonEvent, which applies
+                // its built-in single/double/triple-tap -> playPause/seekToNext/seekToPrevious.
+                // Those route back to JS via the APMForwardingPlayer overrides. Consuming them
+                // here (return true) bypassed media3 and broke double-tap-to-skip on any
+                // earbud/AVRCP device that sends PLAY_PAUSE instead of NEXT/PREVIOUS.
+                // (Mirrors the old MediaSessionCompat behavior, which let the framework
+                // translate raw headset clicks into onSkipToNext/onSkipToPrevious.)
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                KeyEvent.KEYCODE_HEADSETHOOK -> null
                 KeyEvent.KEYCODE_MEDIA_STOP -> {
                     emit(MusicEvents.BUTTON_STOP)
                     true
