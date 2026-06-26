@@ -282,17 +282,7 @@ class MusicService : HeadlessJsMediaService() {
         Timber.plant(Timber.DebugTree())
         Timber.tag("APM").d("RNTP musicservice created.")
         fakePlayer = ExoPlayer.Builder(this).build()
-        val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            // Add the Uri data so apps can identify that it was a notification click
-            data = "trackplayer://notification.click".toUri()
-            action = Intent.ACTION_VIEW
-        }
-        mediaSession = MediaLibrarySession.Builder(this, fakePlayer, APMMediaSessionCallback() )
-            .setBitmapLoader(CacheBitmapLoader(CoilBitmapLoader(this)))
-            // https://github.com/androidx/media/issues/1218
-            .setSessionActivity(PendingIntent.getActivity(this, 0, openAppIntent, getPendingIntentFlags()))
-            .build()
+        mediaSession = buildMediaSession(fakePlayer)
         registerAudioDeviceCallback()
         super.onCreate()
     }
@@ -467,6 +457,11 @@ class MusicService : HeadlessJsMediaService() {
             emit(MusicEvents.PLAYBACK_NOT_PLAYABLE_TRACK_ACTIVE, bundle)
         }
         fakePlayer.release()
+        // A cold-start onTaskRemoved can release the (built-once) MediaSession before we
+        // reach here, while the process keeps living. Rebuild it if so — otherwise media3
+        // is left holding a released session and can never refresh the notification
+        // (metadata + play/pause state) even though playback itself works.
+        ensureMediaSession()
         mediaSession.player = player.player
         observeEvents()
     }
@@ -1204,6 +1199,35 @@ class MusicService : HeadlessJsMediaService() {
         }
     }
 
+    private fun buildMediaSession(forPlayer: Player): MediaLibrarySession {
+        val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            // Add the Uri data so apps can identify that it was a notification click
+            data = "trackplayer://notification.click".toUri()
+            action = Intent.ACTION_VIEW
+        }
+        return MediaLibrarySession.Builder(this, forPlayer, APMMediaSessionCallback())
+            .setBitmapLoader(CacheBitmapLoader(CoilBitmapLoader(this)))
+            // https://github.com/androidx/media/issues/1218
+            .setSessionActivity(PendingIntent.getActivity(this, 0, openAppIntent, getPendingIntentFlags()))
+            .build()
+    }
+
+    // The MediaSession is built once in onCreate(). A spurious onTaskRemoved (e.g. an
+    // aggressive OEM relaunching a stale task during a cold start, before setupPlayer())
+    // releases it while the process keeps living, permanently orphaning it: media3 then
+    // holds a released session and silently drops every notification metadata / playback
+    // state update, even though the ExoPlayer set up afterwards still plays audio and
+    // handles button presses. Rebuild the session whenever it is needed but has been
+    // released so media3 always has a live session to drive the notification.
+    @MainThread
+    private fun ensureMediaSession() {
+        if (::mediaSession.isInitialized && !isMediaSessionReleased) return
+        val forPlayer: Player = if (::player.isInitialized) player.player else fakePlayer
+        mediaSession = buildMediaSession(forPlayer)
+        isMediaSessionReleased = false
+    }
+
     @MainThread
     override fun onTaskRemoved(rootIntent: Intent?) {
         onUnbind(rootIntent)
@@ -1274,6 +1298,7 @@ class MusicService : HeadlessJsMediaService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession {
         Timber.tag("APM").d("onGetSession: ${controllerInfo.packageName}")
+        ensureMediaSession()
         return mediaSession
     }
 
