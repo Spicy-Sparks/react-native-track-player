@@ -1186,6 +1186,14 @@ class MusicService : HeadlessJsMediaService() {
     // which released it again (and the system may also invoke onDestroy() on its own).
     private var isMediaSessionReleased = false
 
+    // Set once the service is being deliberately torn down (STOP_PLAYBACK_AND_REMOVE_NOTIFICATION
+    // path or onDestroy). While shutting down we must NOT rebuild the MediaSession: a system
+    // MediaController (SystemUI / Assistant / Bluetooth) reconnecting mid-teardown calls
+    // onGetSession(), and rebuilding there resurrects a zombie session on the fakePlayer in a
+    // dying service — the controllers keep re-poking it, pinning the CPU (Samsung "Excessive CPU").
+    @Volatile
+    private var isShuttingDown = false
+
     @MainThread
     private fun releaseMediaSession() {
         if (isMediaSessionReleased || !::mediaSession.isInitialized) return
@@ -1222,6 +1230,11 @@ class MusicService : HeadlessJsMediaService() {
     // released so media3 always has a live session to drive the notification.
     @MainThread
     private fun ensureMediaSession() {
+        // Never resurrect the session while tearing the service down — that is the zombie-rebuild
+        // churn (session released by onTaskRemoved, then rebuilt from a reconnecting controller's
+        // onGetSession, spinning the CPU). The cold-start recovery this method exists for only runs
+        // while the service is alive (setupPlayer / a live controller), where isShuttingDown is false.
+        if (isShuttingDown) return
         if (::mediaSession.isInitialized && !isMediaSessionReleased) return
         val forPlayer: Player = if (::player.isInitialized) player.player else fakePlayer
         mediaSession = buildMediaSession(forPlayer)
@@ -1243,6 +1256,9 @@ class MusicService : HeadlessJsMediaService() {
             AppKilledPlaybackBehavior.PAUSE_PLAYBACK -> player.pause()
             AppKilledPlaybackBehavior.STOP_PLAYBACK_AND_REMOVE_NOTIFICATION -> {
                 Timber.tag("APM").d("onTaskRemoved: Killing service")
+                // Mark shutdown BEFORE releasing so a controller reconnecting mid-teardown
+                // (onGetSession) can't rebuild a zombie session and pin the CPU.
+                isShuttingDown = true
                 releaseMediaSession()
                 player.clear()
                 player.stop()
@@ -1320,6 +1336,8 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     override fun onDestroy() {
         Timber.tag("APM").d("RNTP service is destroyed.")
+        // Prevent any late onGetSession() from rebuilding a zombie session during/after destroy.
+        isShuttingDown = true
         unregisterAudioDeviceCallback()
         if (::player.isInitialized) {
             // moved down ->

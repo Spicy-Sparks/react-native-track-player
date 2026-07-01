@@ -1,3 +1,15 @@
+## 4.1.50
+
+### Bug Fixes
+
+* **android:** stop the MediaSession zombie-rebuild that pinned the CPU after task removal. When
+  `appKilledPlaybackBehavior = StopPlaybackAndRemoveNotification` (or on onDestroy), a system
+  MediaController reconnecting mid-teardown called `onGetSession()`, which rebuilt a released
+  session on the fakePlayer in a dying service; controllers kept re-poking it, spinning the CPU
+  (reported by Samsung AQA as "Excessive CPU", ticket P260630-07089). Added an `isShuttingDown`
+  guard so `ensureMediaSession()` never resurrects the session during deliberate teardown, while
+  keeping the 4.1.49 cold-start notification-recovery intact.
+
 # [4.1.47](https://github.com/Spicy-Sparks/react-native-track-player/compare/v4.1.46...v4.1.47) (2026-06-19)
 
 - **android:** fix headphone/earbud media buttons not skipping (and inconsistent double-tap-to-skip) on the single multifunction button. `MusicService.onMediaKeyEvent` used to consume `KEYCODE_MEDIA_PLAY_PAUSE` (returning `true`), which bypassed media3's built-in single/double/triple-tap → playPause/seekToNext/seekToPrevious detection — so any earbud/AVRCP device that sends `PLAY_PAUSE` (instead of dedicated `MEDIA_NEXT`/`MEDIA_PREVIOUS`) could not skip by double-tapping. `KEYCODE_MEDIA_PLAY_PAUSE` and `KEYCODE_HEADSETHOOK` are now passed through to `super.onMediaButtonEvent` so media3 applies the standard multi-tap mapping; the resulting play/next/previous still route back to JS via the forwarding player. Dedicated NEXT/PREVIOUS keys remain handled directly. iOS is unaffected (separate `MPRemoteCommandCenter` path).
