@@ -40,6 +40,7 @@ import com.lovegaoshi.kotlinaudio.player.components.MediaFactory
 import com.lovegaoshi.kotlinaudio.player.components.setupBuffer
 import com.lovegaoshi.kotlinaudio.processors.BalanceAudioProcessor
 import com.lovegaoshi.kotlinaudio.processors.EqualizerAudioProcessor
+import com.lovegaoshi.kotlinaudio.processors.GainAudioProcessor
 import com.lovegaoshi.kotlinaudio.processors.FFTEmitter
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
@@ -112,11 +113,13 @@ abstract class AudioPlayer internal constructor(
     var fftEmitter: (DoubleArray) -> Unit = { v -> Timber.tag("APMFFT").d("FFT emitted $v") }
     private val balanceProcessor = BalanceAudioProcessor()
     private val equalizerProcessor = EqualizerAudioProcessor()
+    private val gainProcessor = GainAudioProcessor()
     // Separate processor instances for the second ExoPlayer (crossfade).
     // Both players render audio simultaneously during crossfade, so sharing
     // a single processor causes BufferOverflowException.
     private val balanceProcessor2 = BalanceAudioProcessor()
     private val equalizerProcessor2 = EqualizerAudioProcessor()
+    private val gainProcessor2 = GainAudioProcessor()
 
     var alwaysPauseOnInterruption: Boolean
         get() = focusManager.alwaysPauseOnInterruption
@@ -247,7 +250,7 @@ abstract class AudioPlayer internal constructor(
                 .build()
     }
 
-    private fun initExoPlayer(name: String, eqProcessor: EqualizerAudioProcessor = equalizerProcessor, balProcessor: BalanceAudioProcessor = balanceProcessor): ExoPlayer {
+    private fun initExoPlayer(name: String, eqProcessor: EqualizerAudioProcessor = equalizerProcessor, balProcessor: BalanceAudioProcessor = balanceProcessor, gainProc: GainAudioProcessor = gainProcessor): ExoPlayer {
         // HACK: horrible memleak, but I cant think of how to track exoplayers
         val nameHolder = arrayOf("")
         val renderer = if (options.useFFTProcessor > 0) APMRenderersFactory(
@@ -261,8 +264,8 @@ abstract class AudioPlayer internal constructor(
                     }
                 }
 
-        }, arrayOf(eqProcessor, balProcessor)) else APMRenderersFactory(
-            context, 0, null, arrayOf(eqProcessor, balProcessor)
+        }, arrayOf(eqProcessor, balProcessor, gainProc)) else APMRenderersFactory(
+            context, 0, null, arrayOf(eqProcessor, balProcessor, gainProc)
         )
         renderer.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         val mPlayer = ExoPlayer
@@ -297,9 +300,9 @@ abstract class AudioPlayer internal constructor(
             cache = Cache.initCache(context, options.cacheSize)
         }
         playerEventHolder.updateAudioPlayerState(AudioPlayerState.IDLE)
-        exoPlayer1 = initExoPlayer("APM-Player1", equalizerProcessor, balanceProcessor)
+        exoPlayer1 = initExoPlayer("APM-Player1", equalizerProcessor, balanceProcessor, gainProcessor)
         if (options.crossfade) {
-            exoPlayer2 = initExoPlayer("APM-Player2", equalizerProcessor2, balanceProcessor2)
+            exoPlayer2 = initExoPlayer("APM-Player2", equalizerProcessor2, balanceProcessor2, gainProcessor2)
         }
         exoPlayer = exoPlayer1
         player = if (options.nativeExample) ExampleForwardingPlayer(exoPlayer1, exoPlayer2) else APMForwardingPlayer(exoPlayer1, exoPlayer2)
@@ -322,6 +325,7 @@ abstract class AudioPlayer internal constructor(
      * @param item The [AudioItem] to replace the current one.
      */
     open fun load(item: AudioItem) {
+        setNormalizationGain(item.options?.normalizationGain ?: 1f)
         players().forEach { p -> p.addMediaItem(audioItem2MediaItem(item)) }
         exoPlayer.prepare()
     }
@@ -430,6 +434,16 @@ abstract class AudioPlayer internal constructor(
     }
 
     fun getBalance(): Float = balanceProcessor.getBalance()
+
+    // Per-track loudness normalization gain. Set on both players' processors
+    // (like balance) so whichever wrapper is active applies the current track's
+    // gain. 1.0 = unity.
+    fun setNormalizationGain(gain: Float) {
+        gainProcessor.setGain(gain)
+        if (options.crossfade) gainProcessor2.setGain(gain)
+    }
+
+    fun getNormalizationGain(): Float = gainProcessor.getGain()
 
     /**
      * Get preset names for iOS compatibility (custom presets mapped to Android system presets)

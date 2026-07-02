@@ -113,6 +113,7 @@ class QueuedAudioPlayer(
             onNotPlayableTrackActive?.invoke(currentIndex, item)
             return
         }
+        setNormalizationGain(item.options?.normalizationGain ?: 1f)
         if (queue.isEmpty()) {
             add(item)
         } else {

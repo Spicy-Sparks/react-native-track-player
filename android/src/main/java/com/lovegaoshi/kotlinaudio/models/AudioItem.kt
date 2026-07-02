@@ -49,7 +49,9 @@ interface AudioItem {
 data class AudioItemOptions(
     val headers: HashMap<String, String>? = null,
     val userAgent: String? = null,
-    val resourceId: Int? = null
+    val resourceId: Int? = null,
+    // Per-track loudness normalization gain (linear, 1.0 = unity).
+    val normalizationGain: Float = 1f
 )
 
 enum class MediaType(val value: String) {

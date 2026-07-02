@@ -25,6 +25,8 @@ class Track
     var headers: HashMap<String, String>? = null
     val queueId: Long
     var notPlayable: Boolean = false
+    // Per-track loudness normalization gain (linear, 1.0 = unity).
+    var normalizationGain: Float = 1f
 
     override fun setMetadata(context: Context, bundle: Bundle?, ratingType: Int) {
         super.setMetadata(context, bundle, ratingType)
@@ -34,7 +36,7 @@ class Track
 
     fun toAudioItem(): TrackAudioItem {
         return TrackAudioItem(this, type, uri.toString(), artist, title, album, artwork.toString(), duration,
-                AudioItemOptions(headers, userAgent, resourceId), mediaId, notPlayable)
+                AudioItemOptions(headers, userAgent, resourceId, normalizationGain), mediaId, notPlayable)
     }
 
     init {
@@ -63,6 +65,7 @@ class Track
             }
         }
         notPlayable = bundle.getBoolean("notPlayable", false)
+        normalizationGain = bundle.getDouble("normalizationGain", 1.0).toFloat()
         setMetadata(context, bundle, ratingType)
         queueId = System.currentTimeMillis()
         originalItem = bundle
