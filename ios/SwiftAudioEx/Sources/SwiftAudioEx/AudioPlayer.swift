@@ -299,7 +299,9 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
             }
             
             enableRemoteCommands(forItem: item)
-            
+
+            wrapper.normalizationGain = (item as? NormalizationGainProviding)?.getNormalizationGain() ?? 1.0
+
             wrapper.load(
                 from: item.getSourceUrl(),
                 type: item.getSourceType(),

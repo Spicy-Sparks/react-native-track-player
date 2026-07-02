@@ -48,6 +48,13 @@ public protocol AssetOptionsProviding {
     func getAssetOptions() -> [String: Any]
 }
 
+/// Make your `AudioItem`-subclass conform to this protocol to apply a per-track
+/// output gain (e.g. loudness normalization). Returned value is a linear factor
+/// (1.0 = unity, < 1 attenuates).
+public protocol NormalizationGainProviding {
+    func getNormalizationGain() -> Float
+}
+
 public class DefaultAudioItem: AudioItem, Identifiable {
 
     public var audioUrl: String

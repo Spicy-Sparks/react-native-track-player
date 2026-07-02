@@ -18,6 +18,13 @@ export interface Track extends TrackMetadataBase {
    * The track stays in the queue but playback is blocked.
    */
   notPlayable?: boolean;
+  /**
+   * Per-track loudness normalization gain as a linear factor (1.0 = unity,
+   * < 1 attenuates, > 1 boosts). Applied by the player as an output gain so all
+   * tracks play at a consistent level and hot masters don't clip over the
+   * Bluetooth/AAC path. On iOS boosts above 1.0 are clamped by the system.
+   */
+  normalizationGain?: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

@@ -30,6 +30,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         if (!self.crossfade) {
             return
         }
+        self.crossfadeWrapper.normalizationGain = (item as? NormalizationGainProviding)?.getNormalizationGain() ?? 1.0
         self.crossfadeWrapper.load(
             from: item.getSourceUrl(),
             type: item.getSourceType(),

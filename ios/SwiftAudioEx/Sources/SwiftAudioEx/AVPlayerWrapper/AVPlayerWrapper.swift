@@ -147,9 +147,25 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         }
     }
     
+    // Logical volume set by the app and the crossfade fades. The value actually
+    // sent to AVPlayer is this times `normalizationGain`, so per-track loudness
+    // normalization composes underneath user volume and crossfade without either
+    // side needing to know about it.
+    private var logicalVolume: Float = 1.0
+
+    // Per-track loudness normalization gain (1.0 = unity, < 1 attenuates). For
+    // HLS this is the only clipping-safe output lever, since the equalizer
+    // processing tap never runs on adaptive streams.
+    var normalizationGain: Float = 1.0 {
+        didSet { avPlayer.volume = logicalVolume * normalizationGain }
+    }
+
     var volume: Float {
-        get { avPlayer.volume }
-        set { avPlayer.volume = newValue }
+        get { logicalVolume }
+        set {
+            logicalVolume = newValue
+            avPlayer.volume = newValue * normalizationGain
+        }
     }
     
     var isMuted: Bool {

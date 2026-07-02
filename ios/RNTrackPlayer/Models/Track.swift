@@ -10,7 +10,7 @@ import Foundation
 import MediaPlayer
 import AVFoundation
 
-class Track: AudioItem, TimePitching, AssetOptionsProviding {
+class Track: AudioItem, TimePitching, AssetOptionsProviding, NormalizationGainProviding {
     let url: MediaURL
 
     @objc var title: String?
@@ -31,6 +31,11 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
 
     /// When true, the track won't load or play when it becomes current.
     var notPlayable: Bool = false
+
+    /// Per-track loudness normalization gain (linear, 1.0 = unity). Applied as an
+    /// output gain by the player so all tracks play at a consistent level and hot
+    /// masters don't clip over the Bluetooth/AAC path.
+    var normalizationGain: Float = 1.0
 
     private var originalObject: [String: Any] = [:]
 
@@ -62,6 +67,9 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
         self.duration = dictionary["duration"] as? Double
         self.artworkURL = MediaURL(object: dictionary["artwork"])
         self.isLiveStream = dictionary["isLiveStream"] as? Bool
+        if let normalizationGain = dictionary["normalizationGain"] as? NSNumber {
+            self.normalizationGain = normalizationGain.floatValue
+        }
         if let notPlayable = dictionary["notPlayable"] as? Bool {
             self.notPlayable = notPlayable
         }
@@ -146,6 +154,10 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding {
             }
         }
         return options
+    }
+
+    func getNormalizationGain() -> Float {
+        return normalizationGain
     }
 
 }
