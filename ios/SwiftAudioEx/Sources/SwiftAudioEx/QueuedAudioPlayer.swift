@@ -53,11 +53,50 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     public func switchExoPlayer(
         fadeDuration: Int = 2500,
         fadeInterval: Int = 20,
-        fadeToVolume: Float = 1
+        fadeToVolume: Float = 1,
+        waitUntil: Double = 0
     ) {
         if (!self.crossfade || self.crossfadeItem == nil) {
             return
         }
+        // Scheduled swap (gapless): waitUntil is an absolute playback position
+        // in ms. Defer the swap until playback reaches it so the transition
+        // lands exactly at the track boundary — mirrors the Android
+        // delay(waitUntil - currentPosition) path. waitUntil <= 0 is the
+        // crossfade case: swap immediately and fade over fadeDuration.
+        if waitUntil > 0 {
+            Task { [weak self] in
+                guard let self = self else { return }
+                let remainingMs = waitUntil - self.currentTime * 1000
+                if remainingMs > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(remainingMs * 1_000_000))
+                }
+                // A manual skip or new load during the wait may have cleared the
+                // pending crossfade item; re-check before performing the swap.
+                if (!self.crossfade || self.crossfadeItem == nil) { return }
+                self.performExoPlayerSwap(
+                    fadeDuration: fadeDuration,
+                    fadeInterval: fadeInterval,
+                    fadeToVolume: fadeToVolume
+                )
+            }
+            return
+        }
+        performExoPlayerSwap(
+            fadeDuration: fadeDuration,
+            fadeInterval: fadeInterval,
+            fadeToVolume: fadeToVolume
+        )
+    }
+
+    // The actual wrapper swap + fade. Split out of switchExoPlayer so a gapless
+    // (waitUntil) swap can defer it to the track boundary while the immediate
+    // crossfade path calls it synchronously.
+    private func performExoPlayerSwap(
+        fadeDuration: Int,
+        fadeInterval: Int,
+        fadeToVolume: Float
+    ) {
         if (self.currentAVPlayer) {
             self.crossfadeWrapper = self.wrapper1
             self.wrapper = self.wrapper2!

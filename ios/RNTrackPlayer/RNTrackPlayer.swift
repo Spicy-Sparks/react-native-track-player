@@ -604,7 +604,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     @objc(switchExoPlayer:fadeInterval:fadeToVolume:waitUntil:resolver:rejecter:)
     public func switchExoPlayer(fadeDuration: Double, fadeInterval: Double, fadeToVolume: Double, waitUntil: NSNumber, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        player.switchExoPlayer(fadeDuration: Int(fadeDuration), fadeInterval: Int(fadeInterval), fadeToVolume: Float(fadeToVolume))
+        player.switchExoPlayer(fadeDuration: Int(fadeDuration), fadeInterval: Int(fadeInterval), fadeToVolume: Float(fadeToVolume), waitUntil: waitUntil.doubleValue)
         resolve(NSNull())
     }
 
