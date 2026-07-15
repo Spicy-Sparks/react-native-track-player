@@ -68,19 +68,12 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             Task { [weak self] in
                 guard let self = self else { return }
                 let remainingMs = waitUntil - self.currentTime * 1000
-                NSLog("[gapless] swap scheduled: pos=%.3fs waitUntil=%.0fms remaining=%.0fms", self.currentTime, waitUntil, remainingMs)
                 if remainingMs > 0 {
                     try? await Task.sleep(nanoseconds: UInt64(remainingMs * 1_000_000))
                 }
                 // A manual skip or new load during the wait may have cleared the
                 // pending crossfade item; re-check before performing the swap.
-                if (!self.crossfade || self.crossfadeItem == nil) {
-                    NSLog("[gapless] swap CANCELLED (crossfade cleared during wait) at pos=%.3fs", self.currentTime)
-                    return
-                }
-                // pos should be ~= waitUntil/1000 here; the delta is the boundary
-                // timing error (how many ms early/late the swap fires).
-                NSLog("[gapless] swap firing: pos=%.3fs target=%.3fs delta=%.0fms", self.currentTime, waitUntil / 1000, self.currentTime * 1000 - waitUntil)
+                if (!self.crossfade || self.crossfadeItem == nil) { return }
                 self.performExoPlayerSwap(
                     fadeDuration: fadeDuration,
                     fadeInterval: fadeInterval,
