@@ -1209,7 +1209,10 @@ class MusicService : HeadlessJsMediaService() {
 
     private fun buildMediaSession(forPlayer: Player): MediaLibrarySession {
         val openAppIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            // addFlags (not `flags =`) so the launcher intent's own
+            // FLAG_ACTIVITY_NEW_TASK is preserved — overwriting it made the
+            // notification-body tap unreliable on Android 15 / OEM (86cagqyc9).
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             // Add the Uri data so apps can identify that it was a notification click
             data = "trackplayer://notification.click".toUri()
             action = Intent.ACTION_VIEW

@@ -985,6 +985,16 @@ abstract class AudioPlayer internal constructor(
             playerEventHolder.updateOnPlayerActionTriggeredExternally(MediaSessionCallback.PAUSE)
         }
 
+        // media3 dispatches the notification / lock-screen pause button as
+        // setPlayWhenReady(false), NOT pause(); without this override it fell
+        // through to the real ExoPlayer and never emitted PAUSE, so the WebView
+        // audio kept playing while skip (seekToNext) worked (86capydre).
+        override fun setPlayWhenReady(playWhenReady: Boolean) {
+            playerEventHolder.updateOnPlayerActionTriggeredExternally(
+                if (playWhenReady) MediaSessionCallback.PLAY else MediaSessionCallback.PAUSE
+            )
+        }
+
         override fun seekToNext() {
             playerEventHolder.updateOnPlayerActionTriggeredExternally(MediaSessionCallback.NEXT)
         }
