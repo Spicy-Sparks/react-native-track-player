@@ -91,6 +91,9 @@ fun audioItem2MediaItem(audioItem: AudioItem, context: Context? = null): MediaIt
             MediaMetadata.Builder()
             .setTitle(audioItem.title)
             .setArtist(audioItem.artist)
+            // Carry the album through to media3 so AVRCP car displays / Android Auto
+            // show the album title instead of a blank ALBUM key (86caryf4k).
+            .setAlbumTitle(audioItem.albumTitle)
             // Mark placeholder tracks as not playable so Android Auto shows them correctly in queue
             .setIsPlayable(true)
             .setIsBrowsable(false)
