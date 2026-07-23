@@ -47,6 +47,7 @@ import com.doublesymmetry.trackplayer.model.TrackAudioItem
 import com.doublesymmetry.trackplayer.module.MusicEvents
 import com.doublesymmetry.trackplayer.module.MusicEvents.Companion.METADATA_PAYLOAD_KEY
 import com.doublesymmetry.trackplayer.R as TrackPlayerR
+import com.doublesymmetry.trackplayer.utils.AppForegroundTracker
 import com.doublesymmetry.trackplayer.utils.BundleUtils
 import com.doublesymmetry.trackplayer.utils.BundleUtils.setRating
 import com.doublesymmetry.trackplayer.utils.CoilBitmapLoader
@@ -1168,11 +1169,25 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        // https://github.com/androidx/media/issues/843#issuecomment-1860555950
+        // We force foreground promotion (androidx/media issue #843 workaround —
+        // https://github.com/androidx/media/issues/843#issuecomment-1860555950) but ONLY
+        // while the app is actually in the foreground. Forcing it while backgrounded is
+        // what causes the ForegroundServiceStartNotAllowedException crash: media3 loads the
+        // notification's album art asynchronously (DefaultMediaNotificationProvider's
+        // OnBitmapLoadedFutureCallback) and, once the bitmap arrives, calls
+        // Context.startForegroundService() from the background. On a cache miss that runs on
+        // a deferred main-looper callback that ESCAPES the try/catch below — and media3 1.8.0
+        // neither guards that path nor routes it to onForegroundServiceStartNotAllowedException()
+        // (that listener only fires from the MediaButtonReceiver start path). Passing false
+        // while backgrounded makes media3 keep the notification without re-promoting to FGS,
+        // so the illegal background start never happens. (A narrow race remains if the app is
+        // foregrounded at this call but backgrounds before an async art load completes; the
+        // try/catch still covers the synchronous cache-hit path.)
+        val required = AppForegroundTracker.foregrounded
         try {
-            super.onUpdateNotification(session, true)
+            super.onUpdateNotification(session, required)
         } catch (e: IllegalStateException) {
-            // On Android 12+ media3 may try to promote the notification to a foreground
+            // On Android 12+ media3 may still try to promote the notification to a foreground
             // service while the app is backgrounded/restricted, throwing
             // ForegroundServiceStartNotAllowedException (a subclass of IllegalStateException).
             // Swallow it instead of crashing; the notification simply isn't promoted to FGS.
