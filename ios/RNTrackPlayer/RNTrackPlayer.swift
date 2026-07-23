@@ -333,10 +333,18 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         }
 
         player.remoteCommandController.handleTogglePlayPauseCommand = { [weak self] _ in
-            if self?.player.playerState == .paused {
-                self?.emitRemotePlay()
-            } else {
+            // Decide play-vs-pause from `playWhenReady` (the app's playback intent),
+            // NOT the KVO-derived `playerState`. `playWhenReady` is the exact signal
+            // that drives MPNowPlayingInfoPropertyPlaybackRate, so the headset/lock-
+            // screen toggle always matches the state iOS is presenting. `playerState`
+            // can transiently report `.paused` (or a non-`.playing` value) mid-buffer
+            // or during a route change while the app is really playing, which made a
+            // pause press fall into the `emitRemotePlay()` branch — starting music
+            // instead of pausing it.
+            if self?.player.playWhenReady == true {
                 self?.emit(event: EventType.RemotePause)
+            } else {
+                self?.emitRemotePlay()
             }
 
             return MPRemoteCommandHandlerStatus.success

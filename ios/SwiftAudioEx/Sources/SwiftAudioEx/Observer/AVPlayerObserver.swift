@@ -77,9 +77,12 @@ class AVPlayerObserver: NSObject {
         guard let player = player, isObserving else {
             return
         }
+        // Clear the flag *before* removing the observers so a re-entrant or
+        // concurrent call bails out at the guard above instead of removing an
+        // observer that is no longer registered (which throws NSRangeException).
+        isObserving = false
         player.removeObserver(self, forKeyPath: AVPlayerKeyPath.status, context: &AVPlayerObserver.context)
         player.removeObserver(self, forKeyPath: AVPlayerKeyPath.timeControlStatus, context: &AVPlayerObserver.context)
-        isObserving = false
     }
 
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
