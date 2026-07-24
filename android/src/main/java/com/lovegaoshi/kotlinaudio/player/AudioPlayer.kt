@@ -179,15 +179,24 @@ abstract class AudioPlayer internal constructor(
             else exoPlayer.bufferedPosition
         }
 
+    // The logical (app-requested) volume, kept separate from the ExoPlayer output so
+    // ducking can be applied and removed without decaying the base. Previously `volume`
+    // read back exoPlayer.volume (already multiplied) and both setters re-multiplied, so
+    // each audio-focus duck→restore cycle left the output at the ducked level and
+    // compounded (1 → 0.2 → 0.04 …) — playback got permanently quieter after every
+    // notification/transient-focus-loss.
+    private var logicalVolume = 1f
+
     private var volumeMultiplier = 1f
         set(value) {
             field = value
-            volume = volume
+            exoPlayer.volume = logicalVolume * value
         }
 
     var volume: Float
-        get() = exoPlayer.volume
+        get() = logicalVolume
         set(value) {
+            logicalVolume = value
             exoPlayer.volume = value * volumeMultiplier
         }
 
