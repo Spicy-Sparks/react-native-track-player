@@ -78,15 +78,19 @@ class AVPlayerItemObserver: NSObject {
         guard let observingItem = observingItem, isObserving else {
             return
         }
-        
+
+        // Clear the flag *before* removing the observers so a re-entrant/concurrent
+        // stopObservingCurrentItem() (deinit / startObserving / stopObservingAVPlayerItem)
+        // bails out at the guard above instead of double-removing an already-unregistered
+        // KVO observer (NSRangeException crash). Mirrors the AVPlayerObserver fix in 4.1.58.
+        isObserving = false
         observingItem.removeObserver(self, forKeyPath: AVPlayerItemKeyPath.duration, context: &AVPlayerItemObserver.context)
         observingItem.removeObserver(self, forKeyPath: AVPlayerItemKeyPath.loadedTimeRanges, context: &AVPlayerItemObserver.context)
         observingItem.removeObserver(self, forKeyPath: AVPlayerItemKeyPath.playbackLikelyToKeepUp, context: &AVPlayerItemObserver.context)
-        
+
         // Remove all metadata outputs from the item.
         observingItem.removeAllMetadataOutputs()
-        
-        isObserving = false
+
         self.observingItem = nil
         self.currentMetadataOutput = nil
     }
