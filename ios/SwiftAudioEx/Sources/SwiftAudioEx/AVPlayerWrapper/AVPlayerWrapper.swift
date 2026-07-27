@@ -427,6 +427,12 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         // disabled since we're not making use of video playback
         avPlayer.allowsExternalPlayback = false;
 
+        // A fresh AVPlayer starts at volume 1.0, so a recreate would otherwise
+        // drop both the app's volume and the current track's loudness
+        // normalization — the track would resume at full scale, noticeably
+        // louder than the normalized ones around it.
+        avPlayer.volume = logicalVolume * normalizationGain
+
         playerObserver.player = avPlayer
         playerObserver.startObserving()
 
