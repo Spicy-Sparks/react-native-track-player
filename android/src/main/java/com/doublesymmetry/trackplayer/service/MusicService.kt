@@ -1169,21 +1169,39 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        // We force foreground promotion (androidx/media issue #843 workaround —
-        // https://github.com/androidx/media/issues/843#issuecomment-1860555950) but ONLY
-        // while the app is actually in the foreground. Forcing it while backgrounded is
-        // what causes the ForegroundServiceStartNotAllowedException crash: media3 loads the
-        // notification's album art asynchronously (DefaultMediaNotificationProvider's
-        // OnBitmapLoadedFutureCallback) and, once the bitmap arrives, calls
-        // Context.startForegroundService() from the background. On a cache miss that runs on
-        // a deferred main-looper callback that ESCAPES the try/catch below — and media3 1.8.0
-        // neither guards that path nor routes it to onForegroundServiceStartNotAllowedException()
-        // (that listener only fires from the MediaButtonReceiver start path). Passing false
-        // while backgrounded makes media3 keep the notification without re-promoting to FGS,
-        // so the illegal background start never happens. (A narrow race remains if the app is
-        // foregrounded at this call but backgrounds before an async art load completes; the
-        // try/catch still covers the synchronous cache-hit path.)
-        val required = AppForegroundTracker.foregrounded
+        // Foreground-service promotion policy. Three cases, because the illegal
+        // operation on Android 12+ is *starting* a foreground service from the
+        // background — not keeping (or updating) one that is already running:
+        //
+        //  1. App foregrounded → force promotion. This is the androidx/media #843
+        //     workaround (https://github.com/androidx/media/issues/843#issuecomment-1860555950):
+        //     media3 sometimes fails to promote and the service gets killed.
+        //  2. App backgrounded and we ALREADY are a foreground service → follow media3's
+        //     own signal. While it is playing that signal is `true`, so the service stays
+        //     foreground for the whole background session; when playback pauses media3
+        //     passes `false` and we demote as usual. Calling startForeground() on a service
+        //     that is already foreground is an update, not a background start, so this
+        //     cannot throw ForegroundServiceStartNotAllowedException.
+        //  3. App backgrounded and NOT a foreground service → never promote. This is the
+        //     illegal start that crashed (bump 4.1.57): media3 loads the notification's
+        //     album art asynchronously (DefaultMediaNotificationProvider's
+        //     OnBitmapLoadedFutureCallback) and, once the bitmap arrives, calls
+        //     Context.startForegroundService() from the background on a deferred
+        //     main-looper callback that ESCAPES the try/catch below — media3 1.8.0 neither
+        //     guards that path nor routes it to onForegroundServiceStartNotAllowedException()
+        //     (that listener only fires from the MediaButtonReceiver start path).
+        //
+        // Case 2 is what 4.1.57 got wrong by passing a flat `foregrounded`: it demoted a
+        // healthy, *playing* foreground service ~30s into every background session. The
+        // process then fell to the cached bucket (oom_score_adj 700) and Android froze it,
+        // so JS stopped running — media-button skips queued up and were delivered in a
+        // burst minutes later, the queue never auto-advanced, and JS timers never fired.
+        // Measured on a Pixel 6a: FGS held at +3s/+10s, gone by +30s while still PLAYING.
+        val required = if (AppForegroundTracker.foregrounded) {
+            true
+        } else {
+            isForegroundService() && startInForegroundRequired
+        }
         try {
             super.onUpdateNotification(session, required)
         } catch (e: IllegalStateException) {
