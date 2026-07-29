@@ -61,7 +61,6 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
 import java.util.concurrent.TimeUnit
-import kotlin.system.exitProcess
 import androidx.core.net.toUri
 
 @OptIn(UnstableApi::class)
@@ -1311,7 +1310,19 @@ class MusicService : HeadlessJsMediaService() {
                 onDestroy()
                 // https://github.com/androidx/media/issues/27#issuecomment-1456042326
                 stopSelf()
-                exitProcess(0)
+                // Kill the process outright instead of exitProcess(0)/System.exit(0).
+                // System.exit() tears the ART runtime down, and that teardown blocks in
+                // ThreadList::WaitForOtherNonDaemonThreadsToExit until EVERY non-daemon
+                // thread has ended. Any library thread that never ends (image/HTTP pools,
+                // billing, an app's own executor) leaves the process alive with no main
+                // thread — a zombie that still owns the package's broadcast receivers, so
+                // every later broadcast delivered to it ANRs. eSound 5.0.20 Play dumps show
+                // exactly that: no main thread, tid=1 parked in
+                // WaitForOtherNonDaemonThreadsToExit, and repeated ANRs on the widget's
+                // APPWIDGET_UPDATE. killProcess() cannot block: the process is gone at once.
+                // Trade-off: shutdown hooks do not run — nothing here relies on them, and
+                // the process is being destroyed on purpose anyway.
+                android.os.Process.killProcess(android.os.Process.myPid())
             }
             else -> {}
         }
