@@ -895,9 +895,26 @@ class MusicService : HeadlessJsMediaService() {
         player.replaceItem(index, track.toAudioItem())
     }
 
+    /**
+     * Merge metadata into the CURRENT track instead of replacing it.
+     *
+     * The old signature took a Track the module had just built out of the metadata bundle
+     * (title/artist/artwork) and handed it to replaceItem. That bundle carries no `url`, so
+     * the queue item lost its source: the player kept going for a few seconds on what was
+     * already buffered, then stopped with nothing to reload — and since artwork/title
+     * refreshes happen all the time (async cover load, now-playing refresh), it hit at
+     * random and looked like "playback dies in the background". Traced on eSound 5.0.21
+     * with a Track logged as `mediaId=null url=null` appearing in the queue milliseconds
+     * before a fatal `Source error`.
+     *
+     * `Track.setMetadata` merges, so the uri, headers and flags of the live item survive.
+     */
     @MainThread
-    fun updateNowPlayingMetadata(track: Track) {
-        updateMetadataForTrack(player.currentIndex, track)
+    fun updateNowPlayingMetadata(context: Context, metadata: Bundle) {
+        val index = player.currentIndex
+        val current = tracks.getOrNull(index) ?: return
+        current.setMetadata(context, metadata, 0)
+        updateMetadataForTrack(index, current)
     }
 
     @MainThread

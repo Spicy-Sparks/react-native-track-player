@@ -1,6 +1,7 @@
 import { Event } from '../../constants';
 
 import type { PlaybackState } from '../PlaybackState';
+import type { Track } from '../Track';
 import type { PlaybackActiveTrackChangedEvent } from './PlaybackActiveTrackChangedEvent';
 import type { PlaybackErrorEvent } from './PlaybackErrorEvent';
 import type { PlaybackMetadataReceivedEvent } from './PlaybackMetadataReceivedEvent';
@@ -70,7 +71,9 @@ export type EventPayloadByEvent = {
   [Event.connectorConnected]: ControllerConnectedEvent;
   [Event.connectorDisconnected]: ControllerDisconnectedEvent;
   [Event.fftUpdate]: FFTUpdateEvent;
-  [Event.PlaybackNotPlayableTrackActive]: never;
+  /** The native player reached a queue item flagged `notPlayable` — it did not play it
+   *  and hands it back so the app can resolve a source for it. */
+  [Event.PlaybackNotPlayableTrackActive]: { index: number; track?: Track };
 };
 
 // eslint-disable-next-line

@@ -9,6 +9,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.lovegaoshi.kotlinaudio.models.*
 import com.doublesymmetry.trackplayer.model.TrackAudioItem
+import timber.log.Timber
 import java.util.*
 import kotlin.math.max
 import kotlin.math.min
@@ -96,6 +97,36 @@ class QueuedAudioPlayer(
 
     val previousItem: AudioItem?
         get() = items.getOrNull(currentIndex - 1)
+
+    /**
+     * ExoPlayer advanced by itself onto an item the JS side has not resolved a source for
+     * yet. Stop before it prepares that empty URI — preparing it fails with
+     * `FileNotFoundException: null` → `Source error` and leaves the player (and the media
+     * session the system shows) stuck in ERROR — and ask the JS side to resolve it, which
+     * answers with a load() of the real source so playback continues.
+     *
+     * This only bites with the app backgrounded: in the foreground the JS side normally
+     * fills the url in before the transition happens, which is why it looks fine on screen
+     * and dies with the screen off.
+     */
+    override fun onAutoTransitionToNotPlayableItem(): Boolean {
+        val item = currentItem
+        if (item !is TrackAudioItem || !item.notPlayable) return false
+        Timber.tag("APMQueue").d("autoTransition on unresolved item: index=%d queue=%d", currentIndex, queue.size)
+        exoPlayer.playWhenReady = false
+        exoPlayer.stop()
+        onNotPlayableTrackActive?.invoke(currentIndex, item)
+        return true
+    }
+
+    override fun onPlaybackErrorOnNotPlayableItem(): Boolean {
+        val item = currentItem
+        if (item !is TrackAudioItem || !item.notPlayable) return false
+        Timber.tag("APMQueue").d("playbackError on unresolved item: index=%d queue=%d", currentIndex, queue.size)
+        exoPlayer.playWhenReady = false
+        onNotPlayableTrackActive?.invoke(currentIndex, item)
+        return true
+    }
 
     override fun load(item: AudioItem, playWhenReady: Boolean) {
         // Check if item is notPlayable

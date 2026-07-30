@@ -536,8 +536,9 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         }
 
         Arguments.toBundle(map)?.let {
-            val track = bundleToTrack(it)
-            musicService.updateNowPlayingMetadata(track)
+            // Merge into the live track — building a new one from a metadata-only bundle
+            // would drop its audio url (see MusicService.updateNowPlayingMetadata).
+            musicService.updateNowPlayingMetadata(context, it)
 
             // Update heart state based on rating (for notification icon)
             try {

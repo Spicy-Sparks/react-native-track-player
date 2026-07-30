@@ -31,7 +31,9 @@ class Track
     override fun setMetadata(context: Context, bundle: Bundle?, ratingType: Int) {
         super.setMetadata(context, bundle, ratingType)
         if (originalItem != null && originalItem != bundle) originalItem!!.putAll(bundle)
-        bundle?.getBoolean("notPlayable", false)?.let { notPlayable = it }
+        // Only when the caller actually said something about it: a metadata-only bundle
+        // (title/artwork) must not silently mark an unresolved placeholder as playable.
+        if (bundle?.containsKey("notPlayable") == true) notPlayable = bundle.getBoolean("notPlayable", false)
     }
 
     fun toAudioItem(): TrackAudioItem {

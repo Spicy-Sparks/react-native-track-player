@@ -763,6 +763,25 @@ abstract class AudioPlayer internal constructor(
         }
     }
 
+    /**
+     * Hooks for the queue-aware subclass to intercept ExoPlayer reaching an item the
+     * JS side has not resolved a source for yet (a `notPlayable` placeholder).
+     *
+     * The queue can legitimately hold such placeholders: the JS side seeds upcoming
+     * items with an empty url and fills them in as it resolves them. `load()`/`play()`
+     * already refuse to play one, but ExoPlayer's OWN automatic advance at the end of a
+     * track does not go through those paths — it just prepares the next MediaItem, whose
+     * empty URI ends in `FileNotFoundException: null` → `Source error`, and the session
+     * is left dead until something reloads it by hand.
+     *
+     * Returning true means the subclass has taken over (it stops playback and asks the
+     * JS side to resolve the item), so the default event handling must not run.
+     */
+    protected open fun onAutoTransitionToNotPlayableItem(): Boolean = false
+
+    /** Same, as a safety net once the failed prepare has already surfaced as an error. */
+    protected open fun onPlaybackErrorOnNotPlayableItem(): Boolean = false
+
     inner class PlayerListener : Listener {
 
         /**
@@ -830,9 +849,15 @@ abstract class AudioPlayer internal constructor(
          */
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             when (reason) {
-                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> playerEventHolder.updateAudioItemTransition(
-                    AudioItemTransitionReason.AUTO(oldPosition)
-                )
+                Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> {
+                    // ExoPlayer advanced on its own. If it landed on a placeholder whose
+                    // source the JS side has not resolved yet, hand it back instead of
+                    // letting it prepare an empty URI (see onAutoTransitionToNotPlayableItem).
+                    if (onAutoTransitionToNotPlayableItem()) return
+                    playerEventHolder.updateAudioItemTransition(
+                        AudioItemTransitionReason.AUTO(oldPosition)
+                    )
+                }
                 Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> playerEventHolder.updateAudioItemTransition(
                     AudioItemTransitionReason.QUEUE_CHANGED(oldPosition)
                 )
@@ -913,6 +938,10 @@ abstract class AudioPlayer internal constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // A failed prepare of an unresolved placeholder is not a real playback
+            // failure: ask the JS side to resolve it rather than parking the player
+            // (and the whole media session) in ERROR with no way back.
+            if (onPlaybackErrorOnNotPlayableItem()) return
             val _playbackError = PlaybackError(
                 error.errorCodeName
                     .replace("ERROR_CODE_", "")
