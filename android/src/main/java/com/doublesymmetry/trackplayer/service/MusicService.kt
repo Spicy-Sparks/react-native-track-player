@@ -979,17 +979,22 @@ class MusicService : HeadlessJsMediaService() {
         emit(MusicEvents.PLAYBACK_QUEUE_ENDED, bundle)
     }
 
-    @Suppress("DEPRECATION")
-    fun isForegroundService(): Boolean {
-        val manager = baseContext.getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-            if (MusicService::class.java.name == service.service.className) {
-                return service.foreground
-            }
-        }
-        Timber.e("isForegroundService found no matching service")
-        return false
-    }
+    /**
+     * Whether this service is currently running as a foreground service.
+     *
+     * Backed by media3's own bookkeeping ([MediaSessionService.isPlaybackOngoing] returns
+     * `MediaNotificationManager.isStartedInForeground`), which is authoritative here: media3 is
+     * the only code that ever promotes or demotes this service — the flag is set right after its
+     * `Service.startForeground()` and cleared in its `stopForeground()`.
+     *
+     * It deliberately does NOT ask ActivityManager. The previous implementation scanned
+     * `ActivityManager.getRunningServices()`, a synchronous binder call into system_server (it
+     * takes the AMS lock) issued from the main thread on every notification update — i.e. on
+     * every play/pause, track change and metadata change. On slow devices, or whenever
+     * system_server is under contention, that call is exactly the kind of main-thread block that
+     * produces an ANR. This reads a boolean field in our own process instead.
+     */
+    fun isForegroundService(): Boolean = isPlaybackOngoing()
 
     @MainThread
     private fun observeEvents() {
