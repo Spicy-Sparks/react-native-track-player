@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
+import android.os.Debug
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -278,14 +279,48 @@ class MusicService : HeadlessJsMediaService() {
 
     @ExperimentalCoroutinesApi
     override fun onCreate() {
-        instance = this
-        Timber.plant(Timber.DebugTree())
-        Timber.tag("APM").d("RNTP musicservice created.")
-        fakePlayer = ExoPlayer.Builder(this).build()
-        mediaSession = buildMediaSession(fakePlayer)
-        registerAudioDeviceCallback()
-        super.onCreate()
+        try {
+            instance = this
+            Timber.plant(Timber.DebugTree())
+            Timber.tag("APM").d("RNTP musicservice created.")
+            fakePlayer = ExoPlayer.Builder(this).build()
+            mediaSession = buildMediaSession(fakePlayer)
+            registerAudioDeviceCallback()
+            super.onCreate()
+        } catch (e: SecurityException) {
+            // Rethrow unchanged in kind — this is still fatal — but carry the binder census,
+            // which is the whole diagnosis and is otherwise unobtainable. See binderCensus().
+            throw SecurityException(binderCensus(), e)
+        }
     }
+
+    /**
+     * Describes the process' binder object population, for attaching to a [SecurityException]
+     * that escapes [onCreate].
+     *
+     * A SecurityException here is almost never a permission problem of ours. Once the process'
+     * binder-proxy map passes its ceiling, AOSP's `BinderProxy.ProxyMap.set()` calls
+     * `dumpProxyInterfaceCounts()` -> `getSortedInterfaceCounts()` ->
+     * `ActivityManager.getService().enableAppFreezer(false)` — and an ordinary app is not
+     * allowed to call enableAppFreezer, so that diagnostic throws. It lands on whichever
+     * binder read happened to trip the threshold; creating the MediaSession is a burst of
+     * fresh proxies (PendingIntent, MediaSessionManager.createSession, MediaSessionCompat),
+     * which is why it keeps landing here. On API <= 35 the same condition surfaced honestly,
+     * as BinderProxyMapSizeException("... BinderProxy leak?").
+     *
+     * So the crash reports name this service while the real fault is a binder-proxy leak
+     * somewhere in the process — and AOSP's own histogram is exactly what threw, so nothing
+     * about it reaches the report. These counters are cheap in-process reads (no binder call)
+     * and Play vitals shows this message verbatim, which is how we find out (a) that the
+     * diagnosis is right and (b) what the ceiling actually is on the OEM builds that hit it —
+     * AOSP's CRASH_AT_SIZE is 25000, but a vendor build may differ.
+     */
+    private fun binderCensus(): String =
+        "SecurityException creating MusicService — binder-proxy ceiling, not a permission. " +
+            "proxies=${Debug.getBinderProxyObjectCount()} " +
+            "local=${Debug.getBinderLocalObjectCount()} " +
+            "deathRecipients=${Debug.getBinderDeathObjectCount()} " +
+            "(AOSP CRASH_AT_SIZE=25000)"
 
     /**
      * Use [appKilledPlaybackBehavior] instead.
