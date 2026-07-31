@@ -18,8 +18,15 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.pm.ServiceInfo
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.media3.session.DefaultMediaNotificationProvider
+import com.doublesymmetry.trackplayer.R
 import androidx.media.utils.MediaConstants
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -72,6 +79,17 @@ class MusicService : HeadlessJsMediaService() {
         var instance: MusicService? = null
             private set
         const val EMPTY_NOTIFICATION_ID = 1
+
+        // ActivityManager kills a service started with startForegroundService() if it has not
+        // called startForeground() within 5s (ActiveServices.SERVICE_START_FOREGROUND_TIMEOUT).
+        // Kept slightly under that so an expired start is never honoured after the fact.
+        private const val FOREGROUND_START_DEADLINE_MS = 4_500L
+
+        // When media3 has not promoted by itself this long after a deferred start, we post the
+        // placeholder ourselves. Comfortably inside the 5s deadline, late enough that media3 wins
+        // the race whenever it actually has content to show.
+        private const val FOREGROUND_PROMOTE_FALLBACK_MS = 3_000L
+
         const val STATE_KEY = "state"
         const val ERROR_KEY  = "error"
         const val EVENT_KEY = "event"
@@ -370,6 +388,78 @@ class MusicService : HeadlessJsMediaService() {
     private var compactCapabilities: List<Capability> = emptyList()
     private var commandStarted = false
 
+    // elapsedRealtime of the last onStartCommand that the system delivered through
+    // Context.startForegroundService() — i.e. a start it will kill us for if no matching
+    // Service.startForeground() follows within FOREGROUND_START_DEADLINE_MS. Read (and
+    // consumed) by onUpdateNotification; 0 means no start is pending.
+    private var pendingForegroundStartAt = 0L
+
+    /**
+     * Whether the system is currently waiting for the Service.startForeground() that must follow
+     * a Context.startForegroundService(). The timestamp self-expires so a start that never
+     * reached onUpdateNotification cannot leak into a later, unrelated promotion decision.
+     */
+    private fun hasPendingForegroundStart(): Boolean =
+        pendingForegroundStartAt != 0L &&
+            SystemClock.elapsedRealtime() - pendingForegroundStartAt < FOREGROUND_START_DEADLINE_MS
+
+    private val foregroundWatchdogHandler by lazy { Handler(Looper.getMainLooper()) }
+
+    /**
+     * Last-resort half of the deferred foreground start. Case 3a in onUpdateNotification only
+     * helps when media3 actually asks us to update the notification; on a cold start with nothing
+     * loaded yet it never does — it has no session content to render — so nobody calls
+     * startForeground() and ActivityManager kills the process with
+     * "Context.startForegroundService() did not then call Service.startForeground()".
+     * (Reproduced on a Pixel 6a, Android 16: force-stop, then a MEDIA_BUTTON start → am_anr.)
+     *
+     * So we satisfy the contract ourselves with a placeholder, and let media3 take it from there.
+     * It reuses media3's OWN notification id and channel — the constants are public API — so the
+     * real notification REPLACES this one instead of appearing next to it. If media3 has already
+     * promoted by the time this runs, it does nothing.
+     */
+    private val promoteForPendingStart = Runnable {
+        if (isForegroundService()) return@Runnable
+        try {
+            val channelId = DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID
+            ensureNotificationChannel(channelId)
+            val placeholder = NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+                .setContentTitle(getString(R.string.playback_channel_name))
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+                .setOngoing(true)
+                .build()
+            ServiceCompat.startForeground(
+                this,
+                DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
+                placeholder,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+            Timber.tag("APM").d("promoteForPendingStart: honoured the deferred foreground start")
+        } catch (e: Exception) {
+            // Same reasoning as the catch in onUpdateNotification: on Android 12+ a promotion the
+            // system no longer considers allowed throws, and crashing here would be strictly worse
+            // than the ANR we are trying to avoid.
+            Timber.tag("APM").e(e, "promoteForPendingStart: could not promote")
+        }
+    }
+
+    private fun ensureNotificationChannel(channelId: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(channelId) != null) return
+        // media3 creates this channel itself, but not necessarily before we need it on a cold
+        // start. Creating an existing channel is a no-op, so this never fights media3.
+        manager.createNotificationChannel(
+            NotificationChannel(
+                channelId,
+                getString(R.string.playback_channel_name),
+                NotificationManager.IMPORTANCE_LOW
+            )
+        )
+    }
+
     // Marks the brief window after a new audio output device (Bluetooth/wired/USB) becomes
     // available, during which the OS may auto-issue a play command. RemotePlay fired inside
     // this window is tagged with `autoResume: true` so JS can ignore it if the user had paused.
@@ -427,6 +517,28 @@ class MusicService : HeadlessJsMediaService() {
         // silently dropped (next/prev/play/pause dead from the notification, while
         // hardware/BT keys still worked through onMediaButtonEvent).
         val isMediaButton = intent?.action == Intent.ACTION_MEDIA_BUTTON
+
+        // A media button (Bluetooth, wired remote, notification button, Android Auto) that
+        // arrives while the app is backgrounded reached us through media3's MediaButtonReceiver,
+        // which starts this service with ContextCompat.startForegroundService(). That call opens
+        // the system's 5s startForeground() deadline, so record it here — onUpdateNotification
+        // must honour it (see case 3b there). Recorded before the key is dispatched: whether
+        // onMediaKeyEvent consumes the key or not has no bearing on the system's deadline.
+        //
+        // isForegroundService() excludes the case that does NOT open a deadline: a service that
+        // is already foreground satisfies the contract by definition. Without that guard a
+        // background pause from a headset would raise the flag too, and case 3a would hold the
+        // promotion for one update against media3's wish to demote — harmless, but a behaviour
+        // change this fix has no business making.
+        if (isMediaButton && !AppForegroundTracker.foregrounded && !isForegroundService()) {
+            pendingForegroundStartAt = SystemClock.elapsedRealtime()
+            // Arm the fallback. If media3 promotes on its own first (case 3a) the runnable is
+            // cancelled there; if it never asks — the cold-start case — this is what keeps the
+            // system from killing us.
+            foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+            foregroundWatchdogHandler.postDelayed(promoteForPendingStart, FOREGROUND_PROMOTE_FALLBACK_MS)
+        }
+
         val mediaKeyConsumed = if (isMediaButton) onMediaKeyEvent(intent) == true else false
 
         if (!commandStarted) {
@@ -1238,7 +1350,17 @@ class MusicService : HeadlessJsMediaService() {
         //     passes `false` and we demote as usual. Calling startForeground() on a service
         //     that is already foreground is an update, not a background start, so this
         //     cannot throw ForegroundServiceStartNotAllowedException.
-        //  3. App backgrounded and NOT a foreground service → never promote. This is the
+        //  3a. App backgrounded, NOT a foreground service, but the system is WAITING for a
+        //     startForeground() it already asked for → promote. media3's MediaButtonReceiver
+        //     starts this service with ContextCompat.startForegroundService() when a media
+        //     button arrives in the background; from that moment the promotion is not a
+        //     background start at all, it is the second half of one the system initiated, and
+        //     ActivityManager kills us after 5s if it never comes ("Context.startForegroundService()
+        //     did not then call Service.startForeground()"). The old policy could not see this
+        //     case: `foregrounded` is false and isForegroundService() is still false, because
+        //     playback has not begun — the button *was* the request to begin it — so it fell into
+        //     case 3 and silently starved the start. That is the residual ANR on every version.
+        //  3b. App backgrounded and NOT a foreground service → never promote. This is the
         //     illegal start that crashed (bump 4.1.57): media3 loads the notification's
         //     album art asynchronously (DefaultMediaNotificationProvider's
         //     OnBitmapLoadedFutureCallback) and, once the bitmap arrives, calls
@@ -1253,11 +1375,24 @@ class MusicService : HeadlessJsMediaService() {
         // so JS stopped running — media-button skips queued up and were delivered in a
         // burst minutes later, the queue never auto-advanced, and JS timers never fired.
         // Measured on a Pixel 6a: FGS held at +3s/+10s, gone by +30s while still PLAYING.
+        //
+        // Note the shape of the expression below: every branch can only turn `required` from
+        // false to TRUE. Nothing here can demote a service that media3 wants foreground — that
+        // is what 4.1.57 got wrong, and the freeze it caused must not come back.
+        val pendingForegroundStart = hasPendingForegroundStart()
         val required = if (AppForegroundTracker.foregrounded) {
+            true
+        } else if (pendingForegroundStart) {
             true
         } else {
             isForegroundService() && startInForegroundRequired
         }
+        // Honoured exactly once, whatever super does with it below: if the promotion succeeds the
+        // deadline is satisfied and the flag is stale; if it throws, retrying on a later
+        // notification update would be a genuine background start, which is the illegal one.
+        if (pendingForegroundStart) pendingForegroundStartAt = 0L
+        // media3 is handling the promotion itself, so the placeholder is not needed.
+        if (required) foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
         try {
             super.onUpdateNotification(session, required)
         } catch (e: IllegalStateException) {
@@ -1442,6 +1577,9 @@ class MusicService : HeadlessJsMediaService() {
         Timber.tag("APM").d("RNTP service is destroyed.")
         // Prevent any late onGetSession() from rebuilding a zombie session during/after destroy.
         isShuttingDown = true
+        // A pending placeholder promotion must not fire against a dying service.
+        foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        pendingForegroundStartAt = 0L
         unregisterAudioDeviceCallback()
         if (::player.isInitialized) {
             // moved down ->
