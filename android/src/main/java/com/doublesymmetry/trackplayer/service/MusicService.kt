@@ -1277,6 +1277,15 @@ class MusicService : HeadlessJsMediaService() {
             event.playWhenReadyChange.collect {
                 Bundle().apply {
                     putBoolean("playWhenReady", it.playWhenReady)
+                    // Why the pause happened, which is the difference between "the item
+                    // finished" and "a call took audio focus". media3 tells us
+                    // (PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) and AudioPlayer
+                    // already computes it, but it stopped here: the JS side only ever saw a
+                    // bare `playWhenReady:false` and had to guess the end of a track from how
+                    // close the last known position was to the reported duration. That guess
+                    // is wrong whenever a stream ends short of its declared length, and the
+                    // queue died with the track finished. Pass the reason through.
+                    putBoolean("pausedBecauseReachedEnd", it.pausedBecauseReachedEnd)
                     emit(MusicEvents.PLAYBACK_PLAY_WHEN_READY_CHANGED, this)
                 }
             }
