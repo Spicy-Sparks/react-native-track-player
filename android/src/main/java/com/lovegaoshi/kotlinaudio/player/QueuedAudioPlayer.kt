@@ -47,6 +47,16 @@ class QueuedAudioPlayer(
                 RepeatMode.ONE -> players().forEach { p -> p.repeatMode = Player.REPEAT_MODE_ONE }
                 RepeatMode.OFF -> players().forEach { p -> p.repeatMode = Player.REPEAT_MODE_OFF }
             }
+            // `pauseAtEndOfMediaItems` is on for every other mode (see
+            // AudioPlayer.initExoPlayer) so ExoPlayer never advances by itself into a
+            // queue item whose URL the JS side hasn't resolved yet. REPEAT_MODE_ONE
+            // never advances — it replays the item already loaded — so the guard buys
+            // nothing there and breaks the loop instead: media3 pauses at the end of
+            // EVERY repetition, wraps the position back to the start and hands JS a
+            // bare `playWhenReady:false`. That reads as "something paused us", not
+            // "the item ended", so the track played through once and then sat paused
+            // at position 0 waiting for a manual tap. Let repeat-one loop natively.
+            players().forEach { p -> p.pauseAtEndOfMediaItems = value != RepeatMode.ONE }
         }
 
     val currentIndex
