@@ -40,6 +40,13 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         label: "AVPlayerWrapper.stateQueue",
         attributes: .concurrent
     )
+    /// Delivers state changes to the delegate, off `stateQueue`.
+    /// The delegate reaches back into the player and takes the queue's lock, so
+    /// notifying it while holding `stateQueue` lets a thread that owns that lock
+    /// deadlock against a plain `state` read.
+    fileprivate let stateNotificationQueue = DispatchQueue(
+        label: "AVPlayerWrapper.stateNotificationQueue"
+    )
     private var cachedDuration: TimeInterval = 0.0
 
     public init() {
@@ -73,7 +80,13 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                 let currentState = self._state
                 if (currentState != newValue) {
                     self._state = newValue
-                    self.delegate?.AVWrapper(didChangeState: newValue)
+                    // Hand the notification off: the barrier must not run
+                    // delegate code, or a state read taken under the queue's
+                    // lock deadlocks against it. Serial, so changes still
+                    // arrive in the order they happened.
+                    self.stateNotificationQueue.async { [weak self] in
+                        self?.delegate?.AVWrapper(didChangeState: newValue)
+                    }
                 }
             }
         }
