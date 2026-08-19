@@ -159,7 +159,15 @@ class MusicService : HeadlessJsMediaService() {
         MediaConstants.DESCRIPTION_EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
     private var sessionCommands: SessionCommands? = null
     private var playerCommands: Player.Commands? = null
+    // The session's media button preferences: every button the app declares,
+    // each carrying the slots it may take. A button whose capability is not in
+    // `notificationCapabilities` is marked overflow-only, which keeps it out of
+    // the compact notification while Android Auto — which renders every action —
+    // still shows it. One list, because the platform session the car reads is
+    // built from the session-wide one; a per-controller layout never reaches it.
     private var customLayout: List<CommandButton> = listOf()
+    private var customActionButtons: List<CommandButton> = listOf()
+    private var sessionCapabilities: List<Capability> = emptyList()
     private var lastWake: Long = 0
     private var shuffleState: Boolean = false
     private var heartState: Boolean = false
@@ -713,7 +721,7 @@ class MusicService : HeadlessJsMediaService() {
                 else -> { }
             }
         }
-        val customButtons = customActionsList?.map {
+        customActionButtons = customActionsList?.map {
                 v -> CustomButton(
             displayName = v,
             sessionCommand = v,
@@ -724,29 +732,10 @@ class MusicService : HeadlessJsMediaService() {
                 TrackPlayerR.drawable.ifl_24px
             )
         ).commandButton
-        }?.toMutableList() ?: mutableListOf()
+        } ?: listOf()
 
-        // Add heart button if SetRating capability is present
-        if (notificationCapabilities.contains(Capability.SET_RATING)) {
-            val heartIcon = if (heartState) TrackPlayerR.drawable.heart_24px else TrackPlayerR.drawable.hearte_24px
-            customButtons.add(0, CustomButton(
-                displayName = "Heart",
-                sessionCommand = "heart",
-                iconRes = heartIcon
-            ).commandButton)
-        }
-
-        // Add shuffle button if capability is present
-        if (notificationCapabilities.contains(Capability.SHUFFLE)) {
-            val shuffleIcon = if (shuffleState) TrackPlayerR.drawable.shuffle_on_24px else TrackPlayerR.drawable.shuffle_24px
-            customButtons.add(0, CustomButton(
-                displayName = "Shuffle",
-                sessionCommand = "shuffle",
-                iconRes = shuffleIcon
-            ).commandButton)
-        }
-
-        customLayout = customButtons
+        sessionCapabilities = capabilities
+        customLayout = buildCustomButtons()
 
         val sessionCommandsBuilder = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
         customLayout.forEach {
@@ -757,15 +746,68 @@ class MusicService : HeadlessJsMediaService() {
         sessionCommands = sessionCommandsBuilder.build()
         playerCommands = playerCommandsBuilder.build()
 
+        applyMediaButtons()
+
         // Use safe call to avoid race condition
         mediaSession.mediaNotificationControllerInfo?.let { controllerInfo ->
             // https://github.com/androidx/media/blob/c35a9d62baec57118ea898e271ac66819399649b/demos/session_service/src/main/java/androidx/media3/demo/session/DemoMediaLibrarySessionCallback.kt#L107
-            mediaSession.setCustomLayout(controllerInfo, customLayout)
             sessionCommands?.let { sc ->
                 playerCommands?.let { pc ->
                     mediaSession.setAvailableCommands(controllerInfo, sc, pc)
                 }
             }
+        }
+    }
+
+    // Every declared button, with the slots it may take. `capabilities` decides
+    // whether a button exists at all; `notificationCapabilities` only decides
+    // whether it may take a notification slot — a button missing from it is
+    // overflow-only, so the notification stays plain transport while the car
+    // still gets the button.
+    @MainThread
+    private fun buildCustomButtons(): List<CommandButton> {
+        val buttons = customActionButtons.toMutableList()
+
+        // Add heart button if SetRating capability is present
+        if (sessionCapabilities.contains(Capability.SET_RATING)) {
+            val heartIcon = if (heartState) TrackPlayerR.drawable.heart_24px else TrackPlayerR.drawable.hearte_24px
+            buttons.add(0, CustomButton(
+                displayName = "Heart",
+                sessionCommand = "heart",
+                iconRes = heartIcon,
+                slots = slotsFor(Capability.SET_RATING)
+            ).commandButton)
+        }
+
+        // Add shuffle button if capability is present
+        if (sessionCapabilities.contains(Capability.SHUFFLE)) {
+            val shuffleIcon = if (shuffleState) TrackPlayerR.drawable.shuffle_on_24px else TrackPlayerR.drawable.shuffle_24px
+            buttons.add(0, CustomButton(
+                displayName = "Shuffle",
+                sessionCommand = "shuffle",
+                iconRes = shuffleIcon,
+                slots = slotsFor(Capability.SHUFFLE)
+            ).commandButton)
+        }
+
+        return buttons
+    }
+
+    private fun slotsFor(capability: Capability): IntArray =
+        if (notificationCapabilities.contains(capability)) intArrayOf()
+        else intArrayOf(CommandButton.SLOT_OVERFLOW)
+
+    // Android Auto connects as a LEGACY controller (controllerVersion 0), so its
+    // buttons come from the platform session's PlaybackState custom actions,
+    // which media3 builds from the SESSION-WIDE preferences — a per-controller
+    // layout never reaches it.
+    @MainThread
+    private fun applyMediaButtons() {
+        if (!::mediaSession.isInitialized) return
+        try {
+            mediaSession.setMediaButtonPreferences(customLayout)
+        } catch (e: Exception) {
+            // Ignore errors in button update - the layout is non-critical
         }
     }
 
@@ -939,34 +981,8 @@ class MusicService : HeadlessJsMediaService() {
         if (!::mediaSession.isInitialized) return
 
         try {
-            val customButtons = mutableListOf<CommandButton>()
-
-            // Add heart button if SetRating capability is present
-            if (notificationCapabilities.contains(Capability.SET_RATING)) {
-                val heartIcon = if (heartState) TrackPlayerR.drawable.heart_24px else TrackPlayerR.drawable.hearte_24px
-                customButtons.add(CustomButton(
-                    displayName = "Heart",
-                    sessionCommand = "heart",
-                    iconRes = heartIcon
-                ).commandButton)
-            }
-
-            // Add shuffle button if capability is present
-            if (notificationCapabilities.contains(Capability.SHUFFLE)) {
-                val shuffleIcon = if (shuffleState) TrackPlayerR.drawable.shuffle_on_24px else TrackPlayerR.drawable.shuffle_24px
-                customButtons.add(0, CustomButton(
-                    displayName = "Shuffle",
-                    sessionCommand = "shuffle",
-                    iconRes = shuffleIcon
-                ).commandButton)
-            }
-
-            customLayout = customButtons
-
-            // Use safe call to avoid race condition where mediaNotificationControllerInfo becomes null
-            mediaSession.mediaNotificationControllerInfo?.let { controllerInfo ->
-                mediaSession.setCustomLayout(controllerInfo, customLayout)
-            }
+            customLayout = buildCustomButtons()
+            applyMediaButtons()
         } catch (e: Exception) {
             // Ignore errors in custom layout update - notification is non-critical
         }
@@ -1729,7 +1745,7 @@ class MusicService : HeadlessJsMediaService() {
                 isAutoCompanionController
             ) {
                 MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                    .setCustomLayout(customLayout)
+                    .setMediaButtonPreferences(customLayout)
                     .setAvailableSessionCommands(sessionCommands ?: MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS)
                     .setAvailablePlayerCommands(playerCommands ?: MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS)
                     .build()
