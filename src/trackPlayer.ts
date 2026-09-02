@@ -20,6 +20,7 @@ import type {
   UpdateOptions,
   AndroidAutoBrowseTree,
   MediaItem,
+  MusicHapticsStatus,
 } from './interfaces';
 import resolveAssetSource from './resolveAssetSource';
 
@@ -946,6 +947,57 @@ export async function setLoudnessLevel(level: number): Promise<void> {
  */
 export async function setVirtualizerLevel(level: number): Promise<void> {
   return TrackPlayer.setVirtualizerLevel(level);
+}
+
+// MARK: - Music Haptics
+
+/**
+ * Read the state of iOS 18's Music Haptics accessibility feature. Everywhere
+ * else this resolves to `{ supported: false, active: false }`.
+ *
+ * When it is active, give every track you play an `isrc`: that is what lets the
+ * system find and play the haptic track that belongs to the recording.
+ * Subscribe to `Event.MusicHapticsActiveChanged` to follow the setting.
+ */
+export async function getMusicHapticsStatus(): Promise<MusicHapticsStatus> {
+  const status = (await TrackPlayer.getMusicHapticsStatus()) as
+    | Partial<MusicHapticsStatus>
+    | undefined;
+  return {
+    supported: status?.supported ?? false,
+    active: status?.active ?? false,
+  };
+}
+
+/**
+ * Publish (or clear) the recording code of the track playing right now, without
+ * touching any other Now Playing field.
+ *
+ * Use it when the code is only known after playback has already started — for a
+ * catalog where the ISRC needs a lookup of its own — so Music Haptics can pick
+ * the song up mid-play. Pass `undefined` to clear it.
+ *
+ * @param isrc International Standard Recording Code of the recording.
+ */
+export async function setNowPlayingRecordingCode(
+  isrc?: string
+): Promise<void> {
+  return TrackPlayer.setNowPlayingRecordingCode(isrc);
+}
+
+/**
+ * Whether the system has a haptic track for the given recording. Only some of
+ * the catalog has one, so this answers whether a given song will actually
+ * buzz — useful for showing the Music Haptics indicator on a now-playing
+ * screen. Always false off iOS 18+.
+ *
+ * @param isrc International Standard Recording Code of the recording.
+ */
+export async function isMusicHapticTrackAvailable(
+  isrc: string
+): Promise<boolean> {
+  if (!isrc) return false;
+  return TrackPlayer.isMusicHapticTrackAvailable(isrc);
 }
 
 /**

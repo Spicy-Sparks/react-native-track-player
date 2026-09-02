@@ -80,6 +80,11 @@ export interface Spec extends TurboModule {
   getEqualizerPresetNames(): Promise<string[]>;
   resetEqualizer(): Promise<void>;
 
+  // Music Haptics (iOS 18+)
+  getMusicHapticsStatus(): Promise<UnsafeObject>;
+  isMusicHapticTrackAvailable(isrc: string): Promise<boolean>;
+  setNowPlayingRecordingCode(isrc?: string): Promise<void>;
+
   // Audio Effects
   setBassBoostEnabled(enabled: boolean): Promise<void>;
   setLoudnessEnabled(enabled: boolean): Promise<void>;

@@ -39,6 +39,16 @@ struct Metadata {
         if let isLiveStream = metadata["isLiveStream"] as? Bool {
             ret.append(NowPlayingInfoProperty.isLiveStream(isLiveStream))
         }
+
+        // Only when the caller mentions the code at all: these updates are
+        // partial (a lock-screen repaint may carry title + artwork and nothing
+        // else), and clearing an ISRC nobody talked about would cut the haptics
+        // off mid-song.
+        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *), let isrc = metadata["isrc"] {
+            ret.append(
+                MusicHapticsProperty(internationalStandardRecordingCode: isrc as? String)
+            )
+        }
         
         player.nowPlayingInfoController.set(keyValues: ret)
         

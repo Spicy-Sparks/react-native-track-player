@@ -439,6 +439,7 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
             MediaItemProperty.albumTitle(item.getAlbumTitle()),
             MediaItemProperty.duration(item.getDuration()),
         ])
+        loadMusicHapticsValues(forItem: item)
         loadArtwork(forItem: item)
     }
 
@@ -475,6 +476,16 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     private func setNowPlayingCurrentTime(seconds: Double) {
         nowPlayingInfoController.set(
             keyValue: NowPlayingInfoProperty.elapsedPlaybackTime(seconds)
+        )
+    }
+
+    /// Hands the current recording's ISRC to Music Haptics, or clears the one
+    /// left by the previous track when this item doesn't know its own.
+    private func loadMusicHapticsValues(forItem item: AudioItem) {
+        guard #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) else { return }
+        let code = (item as? MusicHapticsIdentifying)?.getInternationalStandardRecordingCode()
+        nowPlayingInfoController.set(
+            keyValue: MusicHapticsProperty(internationalStandardRecordingCode: code)
         )
     }
 

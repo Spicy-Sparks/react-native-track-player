@@ -17,6 +17,9 @@ Pod::Spec.new do |s|
   s.exclude_files = [ 'ios/Example', 'ios/SwiftAudioEx/Package.swift' ]
 
   s.swift_version = "5.5"
+  # Music Haptics (iOS 18+) lives in MediaAccessibility; weak-linked so the
+  # framework stays optional on the iOS 13 deployment target.
+  s.weak_frameworks = "MediaAccessibility"
   
   install_modules_dependencies(s)
 end

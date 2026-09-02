@@ -258,6 +258,18 @@ RCT_EXPORT_MODULE()
     [trackPlayer getEqualizerEnabled:resolve rejecter:reject];
 }
 
+- (void)getMusicHapticsStatus:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer getMusicHapticsStatus:resolve rejecter:reject];
+}
+
+- (void)setNowPlayingRecordingCode:(NSString * _Nullable)isrc resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer setNowPlayingRecordingCode:isrc resolver:resolve rejecter:reject];
+}
+
+- (void)isMusicHapticTrackAvailable:(nonnull NSString *)isrc resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer isMusicHapticTrackAvailable:isrc resolver:resolve rejecter:reject];
+}
+
 - (void)setEqualizerBand:(double)band gain:(double)gain resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
     [trackPlayer setEqualizerBand:(NSInteger)band gain:(float)gain resolver:resolve rejecter:reject];
 }

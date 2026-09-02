@@ -1,6 +1,13 @@
 export enum Event {
   PlayerError = 'player-error',
 
+  /**
+   * (iOS 18+ only) Fired when the user turns Music Haptics on or off in
+   * Settings > Accessibility > Music Haptics, with the new
+   * `{ supported, active }` status as the payload.
+   **/
+  MusicHapticsActiveChanged = 'music-haptics-active-changed',
+
   /** Fired when the state of the player changes. */
   PlaybackState = 'playback-state',
   /** Fired when a playback error occurs. */

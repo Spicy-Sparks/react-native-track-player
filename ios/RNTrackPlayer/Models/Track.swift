@@ -10,7 +10,7 @@ import Foundation
 import MediaPlayer
 import AVFoundation
 
-class Track: AudioItem, TimePitching, AssetOptionsProviding, NormalizationGainProviding {
+class Track: AudioItem, TimePitching, AssetOptionsProviding, NormalizationGainProviding, MusicHapticsIdentifying {
     let url: MediaURL
 
     @objc var title: String?
@@ -28,6 +28,11 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding, NormalizationGainPr
 
     var album: String?
     var artwork: MPMediaItemArtwork?
+
+    /// International Standard Recording Code of this recording. Handed to the
+    /// Now Playing info so iOS 18's Music Haptics can find the haptic track that
+    /// goes with it; tracks we can't identify simply don't get haptics.
+    var isrc: String?
 
     /// When true, the track won't load or play when it becomes current.
     var notPlayable: Bool = false
@@ -67,6 +72,12 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding, NormalizationGainPr
         self.duration = dictionary["duration"] as? Double
         self.artworkURL = MediaURL(object: dictionary["artwork"])
         self.isLiveStream = dictionary["isLiveStream"] as? Bool
+        // Absent key keeps the current value, explicit NSNull clears it: metadata
+        // updates arrive piecemeal, and a partial update must not silently drop
+        // the code (nor keep a stale one once the caller says there is none).
+        if let isrc = dictionary["isrc"] {
+            self.isrc = isrc as? String
+        }
         if let normalizationGain = dictionary["normalizationGain"] as? NSNumber {
             self.normalizationGain = normalizationGain.floatValue
         }
@@ -97,6 +108,10 @@ class Track: AudioItem, TimePitching, AssetOptionsProviding, NormalizationGainPr
     
     func getDuration() -> Double? {
         return duration
+    }
+
+    func getInternationalStandardRecordingCode() -> String? {
+        return isrc
     }
 
     func getSourceType() -> SourceType {

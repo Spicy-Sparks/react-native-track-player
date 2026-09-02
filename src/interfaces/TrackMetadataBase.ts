@@ -26,4 +26,11 @@ export interface TrackMetadataBase {
    * live
    **/
   isLiveStream?: boolean;
+  /**
+   * (iOS 18+ only) International Standard Recording Code of the recording.
+   * Published in the Now Playing info, where Music Haptics uses it to look up
+   * the haptic track that belongs to this song; without it a track simply
+   * plays without haptics. Pass `null` to clear a code set earlier.
+   */
+  isrc?: string | null;
 }

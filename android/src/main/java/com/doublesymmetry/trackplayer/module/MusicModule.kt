@@ -912,6 +912,24 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         }
     }
 
+    // Music Haptics is an iOS 18 accessibility feature; Android has no equivalent
+    // system-supplied haptic track, so the status is simply "not supported here".
+    override fun getMusicHapticsStatus(callback: Promise) = launchInScope {
+        val status = Arguments.createMap().apply {
+            putBoolean("supported", false)
+            putBoolean("active", false)
+        }
+        callback.resolve(status)
+    }
+
+    override fun isMusicHapticTrackAvailable(isrc: String, callback: Promise) = launchInScope {
+        callback.resolve(false)
+    }
+
+    override fun setNowPlayingRecordingCode(isrc: String?, callback: Promise) = launchInScope {
+        callback.resolve(null)
+    }
+
     override fun getLastConnectedPackage(callback: Promise) = launchInScope {
         if (verifyServiceBoundOrReject(callback)) return@launchInScope
         callback.resolve(musicService.lastConnectedPackage)

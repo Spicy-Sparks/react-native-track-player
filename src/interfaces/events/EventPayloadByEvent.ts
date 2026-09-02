@@ -2,6 +2,7 @@ import { Event } from '../../constants';
 
 import type { PlaybackState } from '../PlaybackState';
 import type { Track } from '../Track';
+import type { MusicHapticsStatus } from '../MusicHapticsStatus';
 import type { PlaybackActiveTrackChangedEvent } from './PlaybackActiveTrackChangedEvent';
 import type { PlaybackErrorEvent } from './PlaybackErrorEvent';
 import type { PlaybackMetadataReceivedEvent } from './PlaybackMetadataReceivedEvent';
@@ -74,6 +75,7 @@ export type EventPayloadByEvent = {
   /** The native player reached a queue item flagged `notPlayable` — it did not play it
    *  and hands it back so the app can resolve a source for it. */
   [Event.PlaybackNotPlayableTrackActive]: { index: number; track?: Track };
+  [Event.MusicHapticsActiveChanged]: MusicHapticsStatus;
 };
 
 // eslint-disable-next-line

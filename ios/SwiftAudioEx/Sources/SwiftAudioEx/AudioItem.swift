@@ -55,6 +55,16 @@ public protocol NormalizationGainProviding {
     func getNormalizationGain() -> Float
 }
 
+/**
+ Music Haptics (iOS 18+) plays a system-supplied haptic track alongside the
+ audio. It finds that track by the recording's International Standard Recording
+ Code, which it reads from the Now Playing info — so an item that knows its ISRC
+ is what opts a track into the feature.
+ */
+public protocol MusicHapticsIdentifying {
+    func getInternationalStandardRecordingCode() -> String?
+}
+
 public class DefaultAudioItem: AudioItem, Identifiable {
 
     public var audioUrl: String

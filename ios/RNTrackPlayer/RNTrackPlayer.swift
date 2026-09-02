@@ -8,6 +8,7 @@
 
 import Foundation
 import MediaPlayer
+import MediaAccessibility
 import React
 
 @objc public protocol RNTPDelegate {
@@ -79,6 +80,14 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             name: AVAudioSession.routeChangeNotification,
             object: nil
         )
+        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleMusicHapticsActiveStatusChange),
+                name: MAMusicHapticsManager.activeStatusDidChangeNotification,
+                object: nil
+            )
+        }
         player.playWhenReady = false;
         player.event.receiveChapterMetadata.addListener(self, handleAudioPlayerChapterMetadataReceived)
         player.event.receiveTimedMetadata.addListener(self, handleAudioPlayerTimedMetadataReceived)
@@ -98,6 +107,13 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
+        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: MAMusicHapticsManager.activeStatusDidChangeNotification,
+                object: nil
+            )
+        }
         reset(resolve: { _ in }, reject: { _, _, _  in })
 
         RNTrackPlayer.sharedAVPlayer = nil
@@ -105,6 +121,22 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
     private func emit(event: EventType, body: Any? = nil) {
         delegate?.sendEvent(name: event.rawValue, body: body)
+    }
+
+    @objc private func handleMusicHapticsActiveStatusChange() {
+        emit(event: EventType.MusicHapticsActiveChanged, body: musicHapticsStatus())
+    }
+
+    /// Whether this OS knows about Music Haptics at all, and whether the user
+    /// has it switched on right now (Settings > Accessibility > Music Haptics).
+    private func musicHapticsStatus() -> [String: Any] {
+        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
+            return [
+                "supported": true,
+                "active": MAMusicHapticsManager.shared.isActive
+            ]
+        }
+        return ["supported": false, "active": false]
     }
 
     @objc private func handleAudioRouteChange(_ notification: Notification) {
@@ -1072,6 +1104,49 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         forEachEqualizerTap { $0.isEnabled = enabled }
 
         resolve(NSNull())
+    }
+
+    // MARK: - Music Haptics
+
+    @objc(getMusicHapticsStatus:rejecter:)
+    public func getMusicHapticsStatus(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        resolve(musicHapticsStatus())
+    }
+
+    @objc(setNowPlayingRecordingCode:resolver:rejecter:)
+    public func setNowPlayingRecordingCode(
+        isrc: String?,
+        resolve: RCTPromiseResolveBlock,
+        reject: RCTPromiseRejectBlock
+    ) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+
+        // Also onto the queue item, not just the Now Playing dictionary: the
+        // player rewrites that dictionary from the current item whenever it
+        // reloads its metadata, and a code only written to the dictionary would
+        // be wiped by the next such reload.
+        (player.currentItem as? Track)?.isrc = isrc
+        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
+            player.nowPlayingInfoController.set(
+                keyValue: MusicHapticsProperty(internationalStandardRecordingCode: isrc)
+            )
+        }
+        resolve(NSNull())
+    }
+
+    @objc(isMusicHapticTrackAvailable:resolver:rejecter:)
+    public func isMusicHapticTrackAvailable(
+        isrc: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) else {
+            resolve(false)
+            return
+        }
+        MAMusicHapticsManager.shared.checkHapticTrackAvailabilityForMedia(matchingCode: isrc) { available in
+            resolve(available)
+        }
     }
 
     @objc(getEqualizerEnabled:rejecter:)
