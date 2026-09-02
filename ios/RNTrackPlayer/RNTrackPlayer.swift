@@ -127,10 +127,19 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         emit(event: EventType.MusicHapticsActiveChanged, body: musicHapticsStatus())
     }
 
-    /// Whether this OS knows about Music Haptics at all, and whether the user
-    /// has it switched on right now (Settings > Accessibility > Music Haptics).
+    /// The app's own opt-in. iOS reports the user's setting to anybody who asks,
+    /// but an app that hasn't declared the key gets no haptics out of it — so
+    /// without this an app would go looking up recording codes for a feature
+    /// that can never fire.
+    private static let appSupportsMusicHaptics: Bool = {
+        return (Bundle.main.object(forInfoDictionaryKey: "MusicHapticsSupported") as? Bool) ?? false
+    }()
+
+    /// Whether Music Haptics can happen here at all — a new enough OS, and an app
+    /// that asked for it — and whether the user has it switched on right now
+    /// (Settings > Accessibility > Music Haptics).
     private func musicHapticsStatus() -> [String: Any] {
-        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
+        if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *), RNTrackPlayer.appSupportsMusicHaptics {
             return [
                 "supported": true,
                 "active": MAMusicHapticsManager.shared.isActive
