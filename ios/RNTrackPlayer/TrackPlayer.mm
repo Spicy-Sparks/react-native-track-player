@@ -262,7 +262,7 @@ RCT_EXPORT_MODULE()
     [trackPlayer getMusicHapticsStatus:resolve rejecter:reject];
 }
 
-- (void)setNowPlayingRecordingCode:(NSString * _Nullable)isrc resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+- (void)setNowPlayingRecordingCode:(nonnull NSString *)isrc resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
     [trackPlayer setNowPlayingRecordingCode:isrc resolver:resolve rejecter:reject];
 }
 

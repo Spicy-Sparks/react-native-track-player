@@ -982,7 +982,10 @@ export async function getMusicHapticsStatus(): Promise<MusicHapticsStatus> {
 export async function setNowPlayingRecordingCode(
   isrc?: string
 ): Promise<void> {
-  return TrackPlayer.setNowPlayingRecordingCode(isrc);
+  // The empty string is how "no code" crosses the bridge: the argument is typed
+  // non-optional there, and an absent one would arrive as something the native
+  // side cannot tell apart from a mistake.
+  return TrackPlayer.setNowPlayingRecordingCode(isrc ?? '');
 }
 
 /**

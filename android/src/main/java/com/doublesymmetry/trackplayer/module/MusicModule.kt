@@ -926,7 +926,7 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         callback.resolve(false)
     }
 
-    override fun setNowPlayingRecordingCode(isrc: String?, callback: Promise) = launchInScope {
+    override fun setNowPlayingRecordingCode(isrc: String, callback: Promise) = launchInScope {
         callback.resolve(null)
     }
 

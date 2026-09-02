@@ -1124,20 +1124,25 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
     @objc(setNowPlayingRecordingCode:resolver:rejecter:)
     public func setNowPlayingRecordingCode(
-        isrc: String?,
+        isrc: String,
         resolve: RCTPromiseResolveBlock,
         reject: RCTPromiseRejectBlock
     ) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
 
+        // Empty means "no code for what is playing now" rather than nil: the
+        // bridge types this argument as non-optional, so the empty string is how
+        // the JS side says to clear it.
+        let code = isrc.isEmpty ? nil : isrc
+
         // Also onto the queue item, not just the Now Playing dictionary: the
         // player rewrites that dictionary from the current item whenever it
         // reloads its metadata, and a code only written to the dictionary would
         // be wiped by the next such reload.
-        (player.currentItem as? Track)?.isrc = isrc
+        (player.currentItem as? Track)?.isrc = code
         if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
             player.nowPlayingInfoController.set(
-                keyValue: MusicHapticsProperty(internationalStandardRecordingCode: isrc)
+                keyValue: MusicHapticsProperty(internationalStandardRecordingCode: code)
             )
         }
         resolve(NSNull())
