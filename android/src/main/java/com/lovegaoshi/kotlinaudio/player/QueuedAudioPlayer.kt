@@ -160,8 +160,31 @@ class QueuedAudioPlayer(
         } else {
             val newMediaItem = parseAudioItem(item)
             val idx = currentIndex
-            // Sync the queue mirror so musicService.tracks / getQueue reflect
-            // the new item — otherwise JS reads stale indices after load().
+            // Same track, freshly re-resolved URL (a signed stream link renewed after
+            // a reconnect) must not be told apart from a genuinely different track at
+            // this index — both call load() with the queue non-empty. mediaId is the
+            // stable content identity (see createMinimalTrackFromQueueItem — it's
+            // `${itemType}-${item.id}`, never derived from the URL), so it survives a
+            // re-resolution unchanged and is the right thing to compare, not the URL.
+            //
+            // Losing this distinction cost the resume position. The original code
+            // unconditionally reset the ACTIVE wrapper to this item's default start
+            // (TIME_UNSET, i.e. 0) right here, trusting the caller's own
+            // seekTo(resumePosition) — issued moments later — to correct it before
+            // playback actually starts. That trust wasn't safe: replaceMediaItem() can
+            // itself drop the current position when the underlying source genuinely
+            // changes (a fresh signed URL is, from the engine's perspective, a new
+            // source even for the same song), so by the time the caller's seek lands
+            // there may be nothing left to correct TO. Measured on a Pixel 6a: a track
+            // that lost its connection at 170s came back playing from ~0, not 170s.
+            //
+            // Fix at the source instead of downstream: capture the wrapper's own
+            // position before touching anything, and when this is the same track,
+            // reassert THAT position in the exact call this used to zero it — no
+            // second round trip for the caller's seek to race.
+            val previousMediaId = if (idx in queue.indices) queue[idx].mediaId else null
+            val isSameTrackRefreshed = previousMediaId != null && previousMediaId == newMediaItem.mediaId
+            val positionToRestoreMs = if (isSameTrackRefreshed) exoPlayer.currentPosition else C.TIME_UNSET
             if (idx in queue.indices) {
                 queue[idx] = newMediaItem
             }
@@ -171,7 +194,7 @@ class QueuedAudioPlayer(
                 // drag it out of any prebuffered position set by crossFadePrepare,
                 // causing the next crossFade-swap to land on the wrong content.
                 if (p === exoPlayer) {
-                    p.seekTo(idx, C.TIME_UNSET)
+                    p.seekTo(idx, positionToRestoreMs)
                 }
             }
             exoPlayer.prepare()
