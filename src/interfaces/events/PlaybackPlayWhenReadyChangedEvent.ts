@@ -14,4 +14,16 @@ export interface PlaybackPlayWhenReadyChangedEvent {
    * of a track has to be inferred from the position instead.
    */
   pausedBecauseReachedEnd?: boolean;
+  /**
+   * Whether this pause is the audio route going away — headphones unplugged,
+   * Bluetooth or Android Auto disconnected.
+   *
+   * Android only — it is media3's
+   * `PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY`, raised by the player's
+   * own `setHandleAudioBecomingNoisy` handling. Use it to keep a later audio-focus
+   * gain from resuming playback the user can no longer hear where they left it:
+   * the device they were listening on is gone, so a resume plays out loud on the
+   * phone speaker instead. Undefined on iOS and on older Android builds.
+   */
+  pausedBecauseBecameNoisy?: boolean;
 }

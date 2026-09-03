@@ -878,7 +878,15 @@ abstract class AudioPlayer internal constructor(
          */
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             val pausedBecauseReachedEnd = reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM
-            playerEventHolder.updatePlayWhenReadyChange(PlayWhenReadyChangeData(playWhenReady, pausedBecauseReachedEnd))
+            // The output device went away — headphones unplugged, Bluetooth or Android
+            // Auto disconnected — and media3 paused us for it (setHandleAudioBecomingNoisy).
+            // Worth telling JS apart from every other pause: the audio route the user was
+            // listening on no longer exists, so whatever resumes playback later must not,
+            // or the music comes back on the phone speaker.
+            val pausedBecauseBecameNoisy = reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+            playerEventHolder.updatePlayWhenReadyChange(
+                PlayWhenReadyChangeData(playWhenReady, pausedBecauseReachedEnd, pausedBecauseBecameNoisy)
+            )
         }
 
         /**

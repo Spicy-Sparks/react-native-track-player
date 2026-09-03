@@ -1302,6 +1302,9 @@ class MusicService : HeadlessJsMediaService() {
                     // is wrong whenever a stream ends short of its declared length, and the
                     // queue died with the track finished. Pass the reason through.
                     putBoolean("pausedBecauseReachedEnd", it.pausedBecauseReachedEnd)
+                    // And why else it paused: the audio route disappearing is the one
+                    // reason after which nothing should quietly resume.
+                    putBoolean("pausedBecauseBecameNoisy", it.pausedBecauseBecameNoisy)
                     emit(MusicEvents.PLAYBACK_PLAY_WHEN_READY_CHANGED, this)
                 }
             }
@@ -1699,17 +1702,36 @@ class MusicService : HeadlessJsMediaService() {
         private val rootItem = buildMediaItem(title = "root", mediaId = AA_ROOT_KEY, isPlayable = false)
         private val forYouItem = buildMediaItem(title = "For You", mediaId = AA_FOR_YOU_KEY, isPlayable = false)
 
-        // FORK PATCH: onDisconnected it's called only a long time after Android Auto disconnection, replaced with AutoConnectionDetector
-//        override fun onDisconnected(
-//            session: MediaSession,
-//            controller: MediaSession.ControllerInfo
-//        ) {
-//
-//            emit(MusicEvents.CONNECTOR_DISCONNECTED, Bundle().apply {
-//                putString("package", controller.packageName)
-//            })
-//            super.onDisconnected(session, controller)
-//        }
+        // FORK PATCH: onDisconnected fires only a long time after Android Auto actually
+        // disconnects, so AutoConnectionDetector — which watches CarConnection directly —
+        // is what drives the pause. This stays as a BACKSTOP for the case that detector
+        // cannot cover: its provider being unavailable, or the React context being torn
+        // down and rebuilt around the moment the car goes away. Late is still better than
+        // never, which is what the app shipped with while this was commented out — music
+        // kept playing on the phone speaker after every drive.
+        //
+        // Only auto controllers are reported. Every other controller — system UI, the
+        // app's own notification, a Wear companion — disconnects constantly in normal
+        // use, and forwarding those would have the JS side tear down the Android Auto
+        // session while the car is still connected. The JS handler ignores a second
+        // disconnect, so whichever of the two paths arrives first wins.
+        @OptIn(UnstableApi::class)
+        override fun onDisconnected(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ) {
+            val isAutomotiveController = session.isAutomotiveController(controller)
+            val isAutoCompanionController = session.isAutoCompanionController(controller)
+            if (isAutomotiveController || isAutoCompanionController) {
+                emit(MusicEvents.CONNECTOR_DISCONNECTED, Bundle().apply {
+                    putString("package", controller.packageName)
+                    putBoolean("isAutomotiveController", isAutomotiveController)
+                    putBoolean("isAutoCompanionController", isAutoCompanionController)
+                    putBoolean("isMediaNotificationController", false)
+                })
+            }
+            super.onDisconnected(session, controller)
+        }
         // Configure commands available to the controller in onConnect()
         @OptIn(UnstableApi::class)
         override fun onConnect(

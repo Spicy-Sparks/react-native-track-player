@@ -65,7 +65,7 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
 
     override fun initialize() {
         AppForegroundTracker.start()
-        AutoConnectionDetector(context).registerCarConnectionReceiver()
+        AutoConnectionDetector.install(context)
     }
 
     override fun onServiceConnected(name: ComponentName, service: IBinder) {

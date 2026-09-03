@@ -1,3 +1,24 @@
+## 4.1.73
+
+### Bug Fixes
+
+* **android:** keep watching the car connection when there is no Activity. `AutoConnectionDetector`
+  is the only thing that tells JS Android Auto went away (media3's `onDisconnected` fires far too
+  late), and it observed `CarConnection.type` against `currentActivity as? LifecycleOwner`, from a
+  throwaway instance built once in `MusicModule.initialize()`. With the service started headless by
+  a controller connect there is no Activity, so nothing registered and nothing retried; once an
+  Activity was destroyed, LiveData dropped the observer. The disconnect then never reached JS,
+  nothing paused, and playback carried on rerouted to the phone speaker after every drive. The
+  detector is now process-scoped and uses `observeForever`, with the React context refreshed on
+  each install.
+* **android:** re-enable `MediaLibrarySession.onDisconnected` as a late backstop for the above,
+  restricted to Android Auto / Automotive controllers so the constant connect-disconnect churn of
+  system UI and notification controllers cannot tear down a live car session.
+* **android:** report `pausedBecauseBecameNoisy` on `PlaybackPlayWhenReadyChanged` — media3's
+  `PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY`. The audio route disappearing is the one
+  pause after which an audio-focus gain must not resume playback, and JS had no way to tell it
+  apart from a call. Android counterpart of the iOS route-change handling added in 4.1.45.
+
 ## 4.1.50
 
 ### Bug Fixes
