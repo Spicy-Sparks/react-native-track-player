@@ -18,6 +18,11 @@
   `PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY`. The audio route disappearing is the one
   pause after which an audio-focus gain must not resume playback, and JS had no way to tell it
   apart from a call. Android counterpart of the iOS route-change handling added in 4.1.45.
+* **ios:** tag the route-change duck with `routeLost: true`. The permanent duck raised for
+  `.oldDeviceUnavailable` (4.1.45) was indistinguishable from the permanent duck of another app
+  or Siri taking the audio for good, and the two call for opposite things on reconnect: playback
+  the route interrupted may be resumed, playback somebody else took over may not. Same
+  distinction `pausedBecauseBecameNoisy` draws on Android.
 
 ## 4.1.50
 

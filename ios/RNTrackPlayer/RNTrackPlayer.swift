@@ -168,7 +168,14 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             // duck so JS pauses but does NOT auto-resume on interruption-end; the
             // reconnect resume is preserved via the separate newDeviceAvailable ->
             // RemotePlay(autoResume) path above.
-            emit(event: EventType.RemoteDuck, body: ["paused": true, "permanent": true])
+            //
+            // `routeLost` is what separates this from the other permanent duck —
+            // another app or Siri taking the audio for good. The two call for
+            // opposite things on reconnect: playback the route interrupted may
+            // resume, playback somebody else took over may not, and without the tag
+            // JS saw one event for both. Android's equivalent is
+            // `pausedBecauseBecameNoisy` on PlaybackPlayWhenReadyChanged.
+            emit(event: EventType.RemoteDuck, body: ["paused": true, "permanent": true, "routeLost": true])
         default:
             break
         }
