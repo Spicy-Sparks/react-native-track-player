@@ -1,3 +1,21 @@
+## 4.1.74
+
+### Bug Fixes
+
+* **android:** a reconnect resume no longer restarts the track from 0. `load()`
+  unconditionally reset the active wrapper to this item's default position
+  (`TIME_UNSET`) whenever the queue already held something at this index —
+  correct for a genuine skip to a new track, wrong for the other caller of the
+  same path: resuming after a network drop reloads the SAME track with a
+  freshly re-resolved URL, and that reset raced the caller's own
+  `seekTo(resumePosition)` with no guarantee the later call would win. `mediaId`
+  is the stable content identity (never derived from the URL), so it tells the
+  two cases apart; when it matches the item already at this index, the
+  wrapper's own current position is captured before touching anything and
+  reasserted in the same call that used to zero it. Measured on a Pixel 6a
+  (eSound): a track that lost its connection at 93s came back playing from ~0
+  before this fix, and from ~93s after it.
+
 ## 4.1.73
 
 ### Bug Fixes
