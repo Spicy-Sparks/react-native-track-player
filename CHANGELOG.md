@@ -1,3 +1,21 @@
+## 4.1.77
+
+### Bug Fixes
+
+* **ios:** il player non avanza piu' da solo a fine brano, come su Android.
+  Su Android `pauseAtEndOfMediaItems` e' acceso e ogni transizione appartiene al
+  JS, che risolve la sorgente del prossimo item e la ripassa con un `load()`; su
+  iOS `AVWrapperItemDidPlayToEndTime` faceva `queue.next()` per conto suo. La
+  finestra di coda nativa e' sincronizzata su entrambe le piattaforme, quindi il
+  player camminava avanti da solo — a volte su un item la cui sorgente non e'
+  ancora risolta, e sempre senza dirlo a core, che riconcilia un cambio di
+  traccia nativo solo per Android Auto: la canzone sbagliata sotto i metadata
+  giusti e una coda che non corrisponde piu' a cio' che suona. Ora si ferma
+  sull'item finito e la pausa porta con se' `pausedBecauseReachedEnd: true`, il
+  gemello di quello che media3 manda su Android — inviato SOLO quando e' vero,
+  cosi' nessun'altra pausa cambia significato. Repeat-one tiene il suo loop
+  nativo; il crossfade e' pilotato dal JS e non passa dalla fine dell'item.
+
 ## 4.1.76
 
 ### Bug Fixes
