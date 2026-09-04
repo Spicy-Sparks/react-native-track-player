@@ -1062,12 +1062,19 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
     func handlePlayWhenReadyChange(playWhenReady: Bool) {
         configureAudioSession();
-        emit(
-            event: EventType.PlaybackPlayWhenReadyChanged,
-            body: [
-                "playWhenReady": playWhenReady
-            ]
-        )
+        var body: [String: Any] = ["playWhenReady": playWhenReady]
+        // Why the player stopped, when it knows: it parked on the end of an item
+        // and is waiting for the JS side to move the queue. Android sends the
+        // same thing as `pausedBecauseReachedEnd` (media3 knows the reason);
+        // without it the JS side can only read the position and compare it to a
+        // duration that comes from the catalogue, which is wrong for every
+        // stream that ends short of its declared length. Sent ONLY when true —
+        // an absent field leaves the existing readings in charge, so no other
+        // pause changes meaning.
+        if (player.consumeReachedEndOfItem()) {
+            body["pausedBecauseReachedEnd"] = true
+        }
+        emit(event: EventType.PlaybackPlayWhenReadyChanged, body: body)
     }
 
     func handleNotPlayableTrackActive(item: AudioItem?, index: Int?) {

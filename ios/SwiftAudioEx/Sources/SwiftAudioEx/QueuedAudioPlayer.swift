@@ -15,7 +15,51 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
     let queue: QueueManager = QueueManager<AudioItem>()
     fileprivate var lastIndex: Int = -1
     fileprivate var lastItem: AudioItem? = nil
-    
+
+    /**
+     Stop at the end of an item instead of walking onto the next one by
+     yourself. The iOS twin of Android's `pauseAtEndOfMediaItems`
+     (`AudioPlayer.initExoPlayer`), and on for the same reason: every track
+     transition belongs to the JS side, which resolves the source for the next
+     item and hands it back with a `load()`.
+
+     Android has behaved this way since the flag went in; iOS never has, and the
+     asymmetry is what the JS side kept paying for. Its queue window is synced on
+     both platforms, so here the player would reach the end of a track and move
+     on by itself — sometimes onto an item whose source is not resolved yet, and
+     always without telling core, which reconciles a native active-track change
+     only for Android Auto. Core stayed pointed at the previous track while the
+     player was already on the next one: the wrong song under the right metadata,
+     a queue that no longer matches what is playing, and a transport that answers
+     for a track nobody is listening to.
+
+     Repeat-one never advances — it replays the item already loaded — so that
+     branch keeps its native loop and never comes through here.
+     */
+    public var pauseAtEndOfMediaItems: Bool = true
+
+    /**
+     The pause the player is about to emit is the end of an item, not something
+     that interrupted it. Read once and cleared, so it can only ever explain the
+     pause it was set for — the same distinction media3 draws on Android, where
+     the reason travels with the event instead of being guessed from the
+     position.
+     */
+    private var reachedEndOfItem: Bool = false
+
+    /** Read the end-of-item reason for the pause being emitted, and clear it. */
+    public func consumeReachedEndOfItem() -> Bool {
+        let value = reachedEndOfItem
+        reachedEndOfItem = false
+        return value
+    }
+
+    /** Park on the finished item and let the JS side move the queue. */
+    private func pauseAtEndOfItem() {
+        reachedEndOfItem = true
+        pause()
+    }
+
     func findOrInsert(item: AudioItem) -> Int {
         var itemIndex = queue.items.firstIndex(where: {$0.getSourceUrl() == item.getSourceUrl()})
         if (itemIndex == nil) {
@@ -333,8 +377,10 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
             // quick workaround for race condition - schedule a call after 2 frames
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.016 * 2) { [weak self] in self?.replay() }
         } else if (repeatMode == .queue) {
+            if (pauseAtEndOfMediaItems) { pauseAtEndOfItem(); return }
             _ = queue.next(wrap: true)
         } else if (currentIndex != items.count - 1) {
+            if (pauseAtEndOfMediaItems) { pauseAtEndOfItem(); return }
             _ = queue.next(wrap: false)
         } else {
             wrapper.state = .ended
