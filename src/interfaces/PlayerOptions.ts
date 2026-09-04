@@ -129,6 +129,25 @@ export interface PlayerOptions {
    */
   autoHandleInterruptions?: boolean;
   /**
+   * Stop at the end of an item instead of walking onto the next one, leaving
+   * every track transition to the JS side — which is how Android has always
+   * behaved (`pauseAtEndOfMediaItems`, always on there). iOS advanced its own
+   * queue instead: sometimes onto an item whose source was not resolved yet, and
+   * always without telling the JS side, which then held a queue that no longer
+   * matched what was playing.
+   *
+   * The pause that replaces the advance carries `pausedBecauseReachedEnd: true`
+   * on `playback-play-when-ready-changed`, so the end of an item is a fact
+   * rather than something read off the position.
+   *
+   * ios only, and off by default until it has been watched on a device: with it
+   * on, a JS side that misses the end of an item stops the queue where the old
+   * behaviour would have walked past the miss.
+   *
+   * Defaults to `false`.
+   */
+  pauseAtEndOfMediaItems?: boolean;
+  /**
    * enables crossfade. android only.
    * Defaults to `false`.
    */

@@ -261,6 +261,13 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
             self.shouldResumePlaybackAfterInterruptionEnds = autoHandleInterruptions
         }
 
+        // Park on the finished item and let the JS side move the queue, the way
+        // Android has always behaved. Opt-in on iOS: see
+        // QueuedAudioPlayer.pauseAtEndOfMediaItems for why the default stays off.
+        if let pauseAtEndOfMediaItems = config["pauseAtEndOfMediaItems"] as? Bool {
+            player.pauseAtEndOfMediaItems = pauseAtEndOfMediaItems
+        }
+
         // configure crossfade BEFORE attaching audio taps so wrapper2 exists when we set them
         if let crossfade = config["crossfade"] as? Bool, crossfade {
             player.crossfade = true

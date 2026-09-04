@@ -35,8 +35,16 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
      Repeat-one never advances — it replays the item already loaded — so that
      branch keeps its native loop and never comes through here.
+
+     OFF by default, unlike the Android side, and deliberately so: turning it on
+     makes every iOS transition depend on the JS side answering the end of an
+     item. That is what the JS side is written to do — and it now gets a positive
+     reason to do it with — but a miss stops the queue where the old behaviour
+     would have papered over it by walking on. Until that has been watched on a
+     device, the app asks for it explicitly (`setupPlayer({
+     pauseAtEndOfMediaItems: true })`) rather than getting it by upgrading.
      */
-    public var pauseAtEndOfMediaItems: Bool = true
+    public var pauseAtEndOfMediaItems: Bool = false
 
     /**
      The pause the player is about to emit is the end of an item, not something
