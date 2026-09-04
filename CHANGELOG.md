@@ -1,3 +1,17 @@
+## 4.1.78
+
+### Bug Fixes
+
+* **ios:** `pauseAtEndOfMediaItems` si chiede, non si eredita aggiornando. La
+  4.1.77 lo ha acceso di default su iOS; e' il comportamento giusto (lo stesso
+  di Android) ma sposta su iOS la responsabilita' della transizione sul JS, e se
+  il JS manca la fine di un item la coda si ferma invece di essere coperta
+  dall'avanzamento nativo. Finche' non e' stato guardato su un dispositivo, il
+  default torna `false` e l'app lo chiede esplicitamente con
+  `setupPlayer({ pauseAtEndOfMediaItems: true })`. Acceso, si comporta come la
+  4.1.77. Restano attivi `notPlayableTrackActive` (4.1.76) e
+  `pausedBecauseReachedEnd` quando la pausa e' davvero la fine di un item.
+
 ## 4.1.77
 
 ### Bug Fixes
