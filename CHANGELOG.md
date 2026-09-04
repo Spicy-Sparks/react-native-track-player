@@ -1,3 +1,25 @@
+## 4.1.76
+
+### Bug Fixes
+
+* **ios:** un item senza sorgente ferma la coda invece di avvisare il JS.
+  `notPlayableTrackActive` su iOS non veniva emesso da nessuna parte: c'erano
+  l'evento, l'helper `isTrackNotPlayable` e il listener, ma nessun punto che lo
+  alzasse (solo il percorso manuale `setTrackPlayable`). Quando la coda nativa
+  avanzava su un item che il JS non ha ancora risolto — `notPlayable`, url
+  vuoto — l'item finiva dritto in AVPlayer, che non ha nulla da caricare, e la
+  riproduzione moriva li' in silenzio: il JS ingoia apposta `playback-error` su
+  una traccia senza sorgente, perche' il recupero deve arrivare da questo
+  evento. Su Android l'evento e' alzato dai tre punti in cui un item non
+  risolto puo' diventare corrente e il JS risponde con un `load()` della
+  sorgente vera; qui bastava il punto in cui la coda cambia item corrente.
+  Morde solo con l'app in background — in primo piano la sorgente viene
+  risolta prima della transizione. Niente pause o stop, a differenza
+  dell'auto-transition Android: l'item appena finito ha gia' fermato il
+  wrapper, e lasciare intatto lo stato evita un `playWhenReady: false` spurio
+  che il JS leggerebbe come fine di un item, avanzando la coda in corsa con
+  l'evento stesso.
+
 ## 4.1.74
 
 ### Bug Fixes
