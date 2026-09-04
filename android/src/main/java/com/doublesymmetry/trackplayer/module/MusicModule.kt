@@ -21,7 +21,9 @@ import com.doublesymmetry.trackplayer.NativeTrackPlayerSpec
 import com.facebook.react.bridge.*
 import androidx.media3.common.Player
 import androidx.media3.session.MediaBrowser
+import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import com.doublesymmetry.trackplayer.utils.buildMediaItem
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
@@ -39,10 +41,27 @@ import com.lovegaoshi.kotlinaudio.models.AudioPlayerState
 @ReactModule(name = MusicModule.NAME)
 class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec(reactContext),
     ServiceConnection {
-    private lateinit var browser: MediaBrowser
     private var playerOptions: Bundle? = null
     private var isServiceBound = false
     private var playerSetUpPromise: Promise? = null
+
+    // Everything setupPlayer() attaches to the system, so a LATER setupPlayer() can detach it
+    // first. Each of these holds binder objects, and the process has a ceiling on those: once
+    // BinderProxy.ProxyMap passes its watermark, AOSP dumps its histogram, and from API 36 that
+    // dump calls enableAppFreezer() — which an ordinary app may not do, so it throws
+    // SecurityException on whatever binder read happened to trip it. See MusicService.onCreate:
+    // creating the MediaSession is a burst of fresh proxies, so that is where it lands, and the
+    // crash names a service that did nothing wrong.
+    //
+    // setupPlayer() runs more than once per process. It rejects while the service is bound, but
+    // onServiceDisconnected clears that flag, so every service death lets the app set up again —
+    // and before this, each pass added a receiver, a binding and a browser that nothing ever
+    // released. A long session with a few service deaths walked straight into the ceiling.
+    private var eventReceiver: MusicEvents? = null
+    // Distinct from isServiceBound, which is the CONNECTED state the callbacks report. This one
+    // is "we called bindService and owe an unbindService", which stays true across a disconnect.
+    private var bindingRegistered = false
+    private var browserFuture: ListenableFuture<MediaBrowser>? = null
     private val scope = MainScope()
     private lateinit var musicService: MusicService
     private val context = reactContext
@@ -89,6 +108,54 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         launchInScope {
             isServiceBound = false
         }
+    }
+
+    /**
+     * Detach everything [setupPlayer] attached. Called before a new setup and when the React
+     * context goes away, so the binder objects these hold are handed back instead of accumulating
+     * for the life of the process — see the fields' comment for what accumulating costs.
+     *
+     * Every step is guarded on its own: teardown runs on paths that are already going wrong (a
+     * dead service, a context being torn down), and a throw here would replace a recoverable
+     * state with a crash. Android also throws IllegalArgumentException for a receiver or a
+     * connection it does not consider registered, which is the state we want anyway.
+     */
+    private fun releaseBindings() {
+        eventReceiver?.let {
+            try {
+                context.unregisterReceiver(it)
+            } catch (e: IllegalArgumentException) {
+                Timber.tag("RNTP").d(e, "Event receiver was already unregistered")
+            }
+        }
+        eventReceiver = null
+
+        browserFuture?.let {
+            try {
+                MediaController.releaseFuture(it)
+            } catch (e: Exception) {
+                Timber.tag("RNTP").w(e, "Could not release the media browser")
+            }
+        }
+        browserFuture = null
+
+        if (bindingRegistered) {
+            try {
+                context.unbindService(this)
+            } catch (e: IllegalArgumentException) {
+                Timber.tag("RNTP").d(e, "Service connection was already unbound")
+            }
+            bindingRegistered = false
+        }
+    }
+
+    /**
+     * The React context is going away — with it the receiver's emit target, so nothing is served
+     * by keeping any of this attached.
+     */
+    override fun invalidate() {
+        releaseBindings()
+        super.invalidate()
     }
 
     /**
@@ -274,26 +341,39 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         playerSetUpPromise = promise
         playerOptions = bundledData
 
+        // A previous setup may still be attached: this method only refuses while the service is
+        // CONNECTED, and a service death clears that. Detach first, or every death leaks a
+        // receiver, a binding and a browser — and duplicate receivers also mean the JS side gets
+        // each event once per surviving registration.
+        releaseBindings()
+
+        val receiver = MusicEvents(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(
-                MusicEvents(context),
+                receiver,
                 IntentFilter(EVENT_INTENT), Context.RECEIVER_NOT_EXPORTED
             )
         } else {
             context.registerReceiver(
-                MusicEvents(context),
+                receiver,
                 IntentFilter(EVENT_INTENT)
             )
         }
+        eventReceiver = receiver
 
         val musicModule = this
         try {
             Intent(context, MusicService::class.java).also { intent ->
                 context.bindService(intent, musicModule, Context.BIND_AUTO_CREATE)
+                bindingRegistered = true
                 val sessionToken =
                     SessionToken(context, ComponentName(context, MusicService::class.java))
-                val browserFuture = MediaBrowser.Builder(context, sessionToken).buildAsync()
-                // browser = browserFuture.get()
+                // Nothing reads this browser — the connection itself is the point, it is what
+                // brings the media session up alongside the bound service. Keep the future so
+                // releaseBindings() can hand the connection back: a MediaBrowser left connected
+                // is the heaviest of the three leaks here, holding a controller's worth of
+                // binder objects for as long as the process lives.
+                browserFuture = MediaBrowser.Builder(context, sessionToken).buildAsync()
             }
         } catch (exception: Exception) {
             Timber.tag("RNTP").w(exception, "Could not initialize service")
