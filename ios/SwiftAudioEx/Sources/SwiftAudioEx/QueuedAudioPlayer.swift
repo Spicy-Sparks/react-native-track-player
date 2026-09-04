@@ -343,10 +343,42 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
 
     // MARK: - QueueManagerDelegate
 
+    /**
+     The queue moved onto a new current item.
+
+     An item the JS side has not resolved a source for yet carries `notPlayable`
+     and an empty URL, and it must NOT be handed to AVPlayer: loading an empty
+     URL puts the player in a failed state with nothing to recover from, and the
+     JS side never hears about it — `playback-error` on a source-less track is
+     deliberately swallowed there, because the recovery is supposed to arrive as
+     `notPlayableTrackActive`. On Android that event is raised from the three
+     places an unresolved item can become current (`load`, auto-transition,
+     playback error) and JS answers it with a `load()` of the real source. iOS
+     had the event, the helper and the listener, but nothing that ever emitted
+     it: the queue advanced onto the placeholder, loaded nothing, and playback
+     died silently there.
+
+     Which only bites with the app in the background — in the foreground the
+     source is normally resolved before the transition happens.
+
+     Nothing is paused or stopped here, unlike the Android auto-transition path:
+     ExoPlayer prepares the NEXT item while the current one still plays, so it
+     has running audio to stop, whereas here the item that just ended has already
+     stopped the wrapper. Leaving playback state untouched also keeps this from
+     emitting a spurious `playWhenReady: false`, which the JS side reads as the
+     end of an item and would answer with a queue advance of its own — racing the
+     one this event is asking for.
+     */
     func onCurrentItemChanged() {
         let lastPosition = currentTime;
         if let currentItem = currentItem {
-            super.load(item: currentItem)
+            if isTrackNotPlayable(currentItem) {
+                event.notPlayableTrackActive.emit(
+                    data: (item: currentItem, index: currentIndex == -1 ? nil : currentIndex)
+                )
+            } else {
+                super.load(item: currentItem)
+            }
         } else {
             super.clear()
         }
