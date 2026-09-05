@@ -1,3 +1,26 @@
+## 4.1.79
+
+### Bug Fixes
+
+* **android:** l'aggiornamento della copertina non uccide piu' l'app in
+  background. media3 carica l'artwork della notifica in modo asincrono e, quando
+  il bitmap arriva, chiama `Context.startForegroundService()` da un callback
+  differito sul main looper. Quella strada NON passa da `onUpdateNotification`,
+  quindi il try/catch che c'era non l'ha mai vista, e media3 1.8.0 non la
+  protegge ne' la instrada su `onForegroundServiceStartNotAllowedException`. Se
+  l'app era passata in background tra la richiesta dell'artwork e il suo arrivo,
+  la promozione e' illegale e il processo muore — per un aggiornamento di
+  copertina. Ora il provider della notifica e' avvolto da
+  `ForegroundSafeNotificationProvider`, che assorbe il rifiuto e lascia la
+  notifica non promossa: e' lo stato su cui il sistema ha appena insistito. E'
+  il caso 3b descritto da tempo nel commento di `onUpdateNotification`, che
+  finora era diagnosticato ma non chiuso.
+* **android:** `onServiceConnected` non fa piu' un cast duro del binder. Se il
+  pacchetto viene sostituito sotto un processo vivo il sistema puo' restituire
+  un proxy al servizio uscente, che non e' un `MusicBinder`: il cast lanciava
+  `ClassCastException` dentro la coroutine, dove niente la prendeva. Ora
+  `setupPlayer` fallisce in modo pulito e l'app puo' riprovare.
+
 ## 4.1.78
 
 ### Bug Fixes
