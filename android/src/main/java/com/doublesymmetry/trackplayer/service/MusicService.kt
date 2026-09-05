@@ -313,6 +313,14 @@ class MusicService : HeadlessJsMediaService() {
             mediaSession = buildMediaSession(fakePlayer)
             registerAudioDeviceCallback()
             super.onCreate()
+            // Same provider media3 would have built for itself (see
+            // MediaSessionService.getMediaNotificationManager), wrapped so the async artwork
+            // callback cannot kill the process — case 3b in onUpdateNotification below.
+            setMediaNotificationProvider(
+                ForegroundSafeNotificationProvider(
+                    DefaultMediaNotificationProvider.Builder(applicationContext).build()
+                )
+            )
         } catch (e: SecurityException) {
             // Rethrow unchanged in kind — this is still fatal — but carry the binder census,
             // which is the whole diagnosis and is otherwise unobtainable. See binderCensus().
@@ -1395,7 +1403,9 @@ class MusicService : HeadlessJsMediaService() {
         //     Context.startForegroundService() from the background on a deferred
         //     main-looper callback that ESCAPES the try/catch below — media3 1.8.0 neither
         //     guards that path nor routes it to onForegroundServiceStartNotAllowedException()
-        //     (that listener only fires from the MediaButtonReceiver start path).
+        //     (that listener only fires from the MediaButtonReceiver start path). Since the
+        //     policy below cannot reach that path at all, it is caught at its own source
+        //     instead, by ForegroundSafeNotificationProvider (installed in onCreate).
         //
         // Case 2 is what 4.1.57 got wrong by passing a flat `foregrounded`: it demoted a
         // healthy, *playing* foreground service ~30s into every background session. The

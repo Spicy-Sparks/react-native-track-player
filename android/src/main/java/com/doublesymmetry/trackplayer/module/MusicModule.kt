@@ -91,7 +91,23 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         launchInScope {
             // If a binder already exists, don't get a new one
             if (!::musicService.isInitialized) {
-                val binder: MusicService.MusicBinder = service as MusicService.MusicBinder
+                // Safe cast, not a hard one. The binder is only ours when it comes from a
+                // MusicService living in THIS process: if the package was replaced underneath a
+                // running process, the system can hand back a proxy to the outgoing one, which is
+                // a BinderProxy and not a MusicBinder. A hard cast turns that into a crash inside
+                // this coroutine, which nothing catches. Failing setupPlayer() instead leaves the
+                // app able to retry once the new service is up.
+                val binder = service as? MusicService.MusicBinder
+                if (binder == null) {
+                    Timber.tag("RNTP")
+                        .w("onServiceConnected: %s is not our MusicBinder, ignoring", service)
+                    playerSetUpPromise?.reject(
+                        "player_setup_failed",
+                        "The music service connection did not return this process' player."
+                    )
+                    playerSetUpPromise = null
+                    return@launchInScope
+                }
                 musicService = binder.service
                 musicService.setupPlayer(playerOptions)
                 playerSetUpPromise?.resolve(null)
