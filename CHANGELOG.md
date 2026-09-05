@@ -1,3 +1,24 @@
+## 4.1.80
+
+### Bug Fixes
+
+* **android:** il servizio ora onora la scadenza di startForeground() per QUALSIASI avvio, non
+  solo per i tasti multimediali. Il sistema apre la finestra di 5s a ogni
+  `Context.startForegroundService()`, e il tasto multimediale e' solo uno dei chiamanti: la usano
+  anche il `MediaNotificationManager` di media3, la connessione di un controller e il codice
+  dell'app ospite (un widget, un task headless). Il watchdog si armava soltanto su
+  `ACTION_MEDIA_BUTTON`, quindi per tutti gli altri non veniva chiamato `startForeground()` e il
+  sistema segnalava "Context.startForegroundService() did not then call Service.startForeground()"
+  — il singolo ANR piu' grosso dell'app maggiore che usa questo modulo: 3.709 utenti in 7 giorni,
+  col main thread fermo in `nativePollOnce`, non bloccato: mai sollecitato a promuovere.
+  Riprodotto e verificato su Pixel 6a (Android 17) con
+  `am start-foreground-service`: prima `startForegroundCount=0`, dopo promozione a +3,0s e
+  `startForegroundCount=1`.
+* **android:** il placeholder si ritira da solo. Esiste solo per soddisfare la scadenza del
+  sistema; se dopo 10s non e' partito nulla viene rimosso, invece di lasciare una notifica
+  perenne per un player che non suona. Tocca solo il placeholder che abbiamo messo noi
+  (`placeholderStanding`), mai una notifica di media3 — che ne mostra una anche a player fermo.
+
 ## 4.1.79
 
 ### Bug Fixes
