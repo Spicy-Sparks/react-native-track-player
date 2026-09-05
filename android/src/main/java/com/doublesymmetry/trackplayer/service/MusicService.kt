@@ -90,6 +90,12 @@ class MusicService : HeadlessJsMediaService() {
         // the race whenever it actually has content to show.
         private const val FOREGROUND_PROMOTE_FALLBACK_MS = 3_000L
 
+        // How long the placeholder may stand before we conclude nothing is coming. The placeholder
+        // exists only to satisfy the system's startForeground() deadline; if playback has not begun
+        // by now, media3 has nothing to render over it and holding it would leave the user an
+        // undismissable notification for a player that is not playing.
+        private const val PLACEHOLDER_MAX_AGE_MS = 10_000L
+
         const val STATE_KEY = "state"
         const val ERROR_KEY  = "error"
         const val EVENT_KEY = "event"
@@ -452,7 +458,13 @@ class MusicService : HeadlessJsMediaService() {
                 placeholder,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
             )
+            placeholderStanding = true
             Timber.tag("APM").d("promoteForPendingStart: honoured the deferred foreground start")
+            // The placeholder has done its one job the moment it is posted. Give media3 a window
+            // to replace it with the real notification; if playback never starts, take it down
+            // ourselves rather than leave an ongoing notification for a silent player.
+            foregroundWatchdogHandler.removeCallbacks(retirePlaceholder)
+            foregroundWatchdogHandler.postDelayed(retirePlaceholder, PLACEHOLDER_MAX_AGE_MS)
         } catch (e: Exception) {
             // Same reasoning as the catch in onUpdateNotification: on Android 12+ a promotion the
             // system no longer considers allowed throws, and crashing here would be strictly worse
@@ -460,6 +472,36 @@ class MusicService : HeadlessJsMediaService() {
             Timber.tag("APM").e(e, "promoteForPendingStart: could not promote")
         }
     }
+
+    /**
+     * Takes the placeholder down when nothing replaced it.
+     *
+     * Only ever runs after [promoteForPendingStart] posted one. If playback started in the
+     * meantime, media3 owns the notification and this must not touch it — that is what the
+     * isPlaybackOngoing() guard is for. Otherwise the start that forced the promotion led
+     * nowhere, and the service should stop being foreground instead of holding an ongoing
+     * notification the user cannot dismiss.
+     */
+    private val retirePlaceholder = Runnable {
+        if (!placeholderStanding || isPlaybackOngoing() || isShuttingDown) return@Runnable
+        try {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            placeholderStanding = false
+            Timber.tag("APM").d("retirePlaceholder: nothing began playing, placeholder removed")
+        } catch (e: Exception) {
+            Timber.tag("APM").e(e, "retirePlaceholder: could not demote")
+        }
+    }
+
+    /**
+     * True only while OUR placeholder is the notification on screen.
+     *
+     * Without it [retirePlaceholder] would be free to tear down a notification media3 posted —
+     * media3 shows one for an idle player too, so "not playing" is not enough to conclude the
+     * notification is ours. Cleared as soon as media3 renders its own over the top.
+     */
+    @Volatile
+    private var placeholderStanding = false
 
     private fun ensureNotificationChannel(channelId: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -546,7 +588,22 @@ class MusicService : HeadlessJsMediaService() {
         // background pause from a headset would raise the flag too, and case 3a would hold the
         // promotion for one update against media3's wish to demote — harmless, but a behaviour
         // change this fix has no business making.
-        if (isMediaButton && !AppForegroundTracker.foregrounded && !isForegroundService()) {
+        //
+        // NOT restricted to media buttons. The system opens the startForeground() deadline for
+        // ANY Context.startForegroundService(), and a media button is only one of the callers:
+        // media3's own MediaNotificationManager uses it, so does a controller connection, so does
+        // host app code (a widget, a headless task). Arming only on ACTION_MEDIA_BUTTON left every
+        // other caller unwatched — and when media3 then declined to promote (backgrounded, not yet
+        // foreground) nobody called startForeground() at all. That is this app's single largest
+        // ANR: "Context.startForegroundService() did not then call Service.startForeground()",
+        // 3.709 users in 7 days on the bigger of the two apps, with the main thread sitting idle
+        // in nativePollOnce — not blocked, just never asked to promote.
+        //
+        // Widening this is safe because the promotion it schedules is idempotent (it returns
+        // immediately if we are already foreground), reuses media3's own notification id and
+        // channel so a real notification replaces it, and now retires itself if nothing ever
+        // starts playing.
+        if (!AppForegroundTracker.foregrounded && !isForegroundService()) {
             pendingForegroundStartAt = SystemClock.elapsedRealtime()
             // Arm the fallback. If media3 promotes on its own first (case 3a) the runnable is
             // cancelled there; if it never asks — the cold-start case — this is what keeps the
@@ -1433,6 +1490,10 @@ class MusicService : HeadlessJsMediaService() {
         if (required) foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
         try {
             super.onUpdateNotification(session, required)
+            // media3 has rendered its own notification over ours, so the placeholder is gone and
+            // retirePlaceholder must not touch what replaced it.
+            placeholderStanding = false
+            foregroundWatchdogHandler.removeCallbacks(retirePlaceholder)
         } catch (e: IllegalStateException) {
             // On Android 12+ media3 may still try to promote the notification to a foreground
             // service while the app is backgrounded/restricted, throwing
@@ -1615,8 +1676,11 @@ class MusicService : HeadlessJsMediaService() {
         Timber.tag("APM").d("RNTP service is destroyed.")
         // Prevent any late onGetSession() from rebuilding a zombie session during/after destroy.
         isShuttingDown = true
-        // A pending placeholder promotion must not fire against a dying service.
+        // A pending placeholder promotion must not fire against a dying service, and neither must
+        // its retirement — the teardown below drops the foreground state anyway.
         foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        foregroundWatchdogHandler.removeCallbacks(retirePlaceholder)
+        placeholderStanding = false
         pendingForegroundStartAt = 0L
         unregisterAudioDeviceCallback()
         if (::player.isInitialized) {
