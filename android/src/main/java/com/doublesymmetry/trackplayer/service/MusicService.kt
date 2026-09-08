@@ -474,16 +474,40 @@ class MusicService : HeadlessJsMediaService() {
     }
 
     /**
+     * Whether the player is actually making sound, or is about to.
+     *
+     * [isPlaybackOngoing] does NOT answer this. It reads media3's
+     * `MediaNotificationManager.isStartedInForeground` (see [isForegroundService]) — i.e. "has
+     * media3 promoted the service", which is a different question and diverges in exactly the
+     * case this whole placeholder mechanism exists for: media3 DECLINING to promote while the app
+     * is backgrounded. There, audio plays under our placeholder with media3's flag still false.
+     *
+     * `playWhenReady` is included alongside `isPlaying` on purpose: between two tracks the player
+     * is briefly buffering and not yet "playing", while the intent to play is unchanged. Asking
+     * only `isPlaying` would read a normal track transition as silence.
+     */
+    private fun playerWantsToPlay(): Boolean =
+        ::player.isInitialized && (player.isPlaying || player.playWhenReady)
+
+    /**
      * Takes the placeholder down when nothing replaced it.
      *
      * Only ever runs after [promoteForPendingStart] posted one. If playback started in the
-     * meantime, media3 owns the notification and this must not touch it — that is what the
-     * isPlaybackOngoing() guard is for. Otherwise the start that forced the promotion led
-     * nowhere, and the service should stop being foreground instead of holding an ongoing
-     * notification the user cannot dismiss.
+     * meantime this must not touch it: media3 may own the notification by now, or the sound may
+     * be coming out under our own placeholder because media3 declined to promote. Both are
+     * "something is playing", and only the second is invisible to [isPlaybackOngoing].
+     *
+     * Getting that wrong is not a cosmetic slip. Dropping the foreground state out from under a
+     * backgrounded service that IS playing is how the system comes to kill it — the user hears
+     * playback stop and has to press play again. The guard used to be `isPlaybackOngoing()`
+     * alone, which meant a promotion media3 refused (the case this code was written for) retired
+     * itself ten seconds later, mid-song.
+     *
+     * Otherwise the start that forced the promotion led nowhere, and the service should stop
+     * being foreground instead of holding an ongoing notification the user cannot dismiss.
      */
     private val retirePlaceholder = Runnable {
-        if (!placeholderStanding || isPlaybackOngoing() || isShuttingDown) return@Runnable
+        if (!placeholderStanding || isPlaybackOngoing() || playerWantsToPlay() || isShuttingDown) return@Runnable
         try {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             placeholderStanding = false
