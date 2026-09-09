@@ -1,3 +1,20 @@
+## 4.1.81
+
+### Bug Fixes
+
+* **android:** il segnaposto non si ritira piu' mentre la musica sta suonando. La guardia di
+  `retirePlaceholder`, introdotta in 4.1.80, non chiedeva quello che il suo commento dichiarava:
+  `isPlaybackOngoing()` non significa "sta suonando", legge
+  `MediaNotificationManager.isStartedInForeground` di media3, cioe' "media3 ha promosso il
+  servizio". Le due domande divergono esattamente nel caso per cui questo meccanismo esiste —
+  media3 che RIFIUTA di promuovere con l'app in background: li' l'audio esce sotto il nostro
+  segnaposto con il flag di media3 ancora falso, e dieci secondi dopo il segnaposto si ritirava a
+  meta' canzone. Un servizio in background che perde lo stato di foreground e' un servizio che il
+  sistema puo' uccidere: l'utente sente la riproduzione fermarsi e deve ripremere play. La guardia
+  ora interroga anche il player, con `playWhenReady` accanto a `isPlaying` perche' fra due tracce
+  il player bufferizza e non e' ancora "playing" mentre l'intenzione di suonare non e' cambiata —
+  col solo `isPlaying` una normale transizione verrebbe letta come silenzio.
+
 ## 4.1.80
 
 ### Bug Fixes
