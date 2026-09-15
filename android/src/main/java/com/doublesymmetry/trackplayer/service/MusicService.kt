@@ -58,6 +58,7 @@ import com.doublesymmetry.trackplayer.module.MusicEvents
 import com.doublesymmetry.trackplayer.module.MusicEvents.Companion.METADATA_PAYLOAD_KEY
 import com.doublesymmetry.trackplayer.R as TrackPlayerR
 import com.doublesymmetry.trackplayer.utils.AppForegroundTracker
+import com.doublesymmetry.trackplayer.utils.AutoConnectionDetector
 import com.doublesymmetry.trackplayer.utils.BundleUtils
 import com.doublesymmetry.trackplayer.utils.BundleUtils.setRating
 import com.doublesymmetry.trackplayer.utils.CoilBitmapLoader
@@ -1866,13 +1867,24 @@ class MusicService : HeadlessJsMediaService() {
         private val rootItem = buildMediaItem(title = "root", mediaId = AA_ROOT_KEY, isPlayable = false)
         private val forYouItem = buildMediaItem(title = "For You", mediaId = AA_FOR_YOU_KEY, isPlayable = false)
 
-        // FORK PATCH: onDisconnected fires only a long time after Android Auto actually
-        // disconnects, so AutoConnectionDetector — which watches CarConnection directly —
-        // is what drives the pause. This stays as a BACKSTOP for the case that detector
-        // cannot cover: its provider being unavailable, or the React context being torn
-        // down and rebuilt around the moment the car goes away. Late is still better than
-        // never, which is what the app shipped with while this was commented out — music
-        // kept playing on the phone speaker after every drive.
+        // FORK PATCH: AutoConnectionDetector, which watches CarConnection directly, is what
+        // drives the pause when the car goes away. onDisconnected is only a BACKSTOP for
+        // the case that detector cannot cover: its provider being unavailable, or the
+        // React context being torn down and rebuilt around the moment the car goes away.
+        // Late is still better than never, which is what the app shipped with while this
+        // was commented out — music kept playing on the phone speaker after every drive.
+        //
+        // A controller going away is NOT the car going away, though. Android Auto sends
+        // its transport commands through the legacy MediaSessionCompat path, and media3
+        // keeps a legacy controller only until 5 minutes after its last command
+        // (MediaSessionLegacyStub: DEFAULT_CONNECTION_TIMEOUT_MS, ConnectionTimeoutHandler)
+        // — then drops it and calls this, with the car still attached. Forwarded as-is,
+        // that paused the music five minutes after the last tap on the car screen, in the
+        // middle of a song, and pressing play armed the next five minutes. That timeout is
+        // also why this callback always seemed to arrive "a long time after" a real
+        // disconnect. So while the detector still sees the car, the drop is ignored: a
+        // real disconnect flips the detector first, and when the detector is not watching
+        // at all it reports no car, so the backstop still fires exactly where it is needed.
         //
         // Only auto controllers are reported. Every other controller — system UI, the
         // app's own notification, a Wear companion — disconnects constantly in normal
@@ -1887,12 +1899,16 @@ class MusicService : HeadlessJsMediaService() {
             val isAutomotiveController = session.isAutomotiveController(controller)
             val isAutoCompanionController = session.isAutoCompanionController(controller)
             if (isAutomotiveController || isAutoCompanionController) {
-                emit(MusicEvents.CONNECTOR_DISCONNECTED, Bundle().apply {
-                    putString("package", controller.packageName)
-                    putBoolean("isAutomotiveController", isAutomotiveController)
-                    putBoolean("isAutoCompanionController", isAutoCompanionController)
-                    putBoolean("isMediaNotificationController", false)
-                })
+                if (AutoConnectionDetector.reportsCarConnected()) {
+                    Timber.tag("APM").d("auto controller ${controller.packageName} dropped, car still connected: not a disconnect")
+                } else {
+                    emit(MusicEvents.CONNECTOR_DISCONNECTED, Bundle().apply {
+                        putString("package", controller.packageName)
+                        putBoolean("isAutomotiveController", isAutomotiveController)
+                        putBoolean("isAutoCompanionController", isAutoCompanionController)
+                        putBoolean("isMediaNotificationController", false)
+                    })
+                }
             }
             super.onDisconnected(session, controller)
         }

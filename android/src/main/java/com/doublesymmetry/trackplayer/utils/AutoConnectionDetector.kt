@@ -13,10 +13,11 @@ import timber.log.Timber
 /**
  * Watches the car connection and tells JS when Android Auto goes away.
  *
- * This is the ONLY source of [MusicEvents.CONNECTOR_DISCONNECTED]: media3's
- * `MediaLibrarySession.Callback.onDisconnected` fires so long after the car
- * actually disconnects that it cannot drive the pause (see the FORK PATCH note
- * in MusicService), so it is only a late backstop.
+ * This is the primary source of [MusicEvents.CONNECTOR_DISCONNECTED]. media3's
+ * `MediaLibrarySession.Callback.onDisconnected` reports a controller going away,
+ * not the car: Android Auto's legacy controller is dropped five minutes after its
+ * last command whether or not the car is still there. So it is only a backstop,
+ * and it defers to [reportsCarConnected] (see the FORK PATCH note in MusicService).
  *
  * Which makes the registration below load-bearing, and it used to be tied to an
  * Activity:
@@ -72,8 +73,18 @@ class AutoConnectionDetector private constructor(
             detector.registerCarConnectionReceiver()
             return detector
         }
+
+        /**
+         * Whether the watch currently sees a car attached. False when nothing is
+         * watching (never installed, provider unavailable), so it can only rule a
+         * disconnect OUT — never confirm one.
+         */
+        fun reportsCarConnected(): Boolean = instance?.isCarConnected == true
     }
 
+    // Written on the main thread by the observer, read from the media session's
+    // callbacks.
+    @Volatile
     var isCarConnected = false
         private set
 
