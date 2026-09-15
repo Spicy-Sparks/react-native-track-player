@@ -1,3 +1,17 @@
+## 4.1.83
+
+### Bug Fixes
+
+* **android:** Android Auto non mette piu' in pausa la musica a meta' brano cinque minuti dopo
+  l'ultimo tocco sullo schermo dell'auto. Android Auto manda i comandi di trasporto dal percorso
+  legacy di MediaSessionCompat, e media3 tiene un controller legacy solo fino a 5 minuti dopo il suo
+  ultimo comando (`DEFAULT_CONNECTION_TIMEOUT_MS` in `MediaSessionLegacyStub`): poi lo scarta e
+  chiama `onDisconnected`, con l'auto ancora collegata. Dalla 4.1.73 quel callback veniva inoltrato a
+  JS come disconnessione dell'auto, e l'app metteva in pausa; premendo play si armavano altri cinque
+  minuti. Ora il callback cede a `AutoConnectionDetector`: finche' il rilevatore vede l'auto, un
+  controller che se ne va non e' una disconnessione. Il paracadute resta dove serve, cioe' quando il
+  rilevatore non sta osservando nulla.
+
 ## 4.1.82
 
 ### Bug Fixes
