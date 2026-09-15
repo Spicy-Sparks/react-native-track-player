@@ -1,3 +1,20 @@
+## 4.1.82
+
+### Bug Fixes
+
+* **android:** il pulsante di un auricolare cablato (e di quasi ogni earbud Bluetooth) torna a
+  funzionare quando l'app non tiene l'audio dentro questo player. `KEYCODE_MEDIA_PLAY_PAUSE` e
+  `KEYCODE_HEADSETHOOK` venivano lasciati non consumati apposta, perche' fosse media3 ad applicare
+  la sua traduzione 1/2/3 tap in play-pause / successiva / precedente. Quella delega pero' regge
+  solo se a suonare e' il player di media3: un'app che tiene la riproduzione altrove — una WebView
+  con la sua media session, per dire — lascia questo ExoPlayer fermo su una timeline vuota, dove
+  `COMMAND_SEEK_TO_NEXT` non e' disponibile e il comando viene scartato senza un suono. Risultato
+  misurato su un Pixel 6a: i tasti dedicati arrivavano, il pulsante dell'auricolare non faceva
+  assolutamente niente, ne' singolo ne' doppio. Ora i tap li conta il servizio ed emette gli stessi
+  eventi JS dei tasti dedicati, cosi' l'azione arriva dove la riproduzione sta davvero. La finestra
+  e' quella di media3, quindi al tatto non cambia nulla, e su leanback non si conta — come non
+  conta media3.
+
 ## 4.1.81
 
 ### Bug Fixes
