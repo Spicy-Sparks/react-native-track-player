@@ -18,8 +18,10 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
+import android.view.ViewConfiguration
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
@@ -642,9 +644,10 @@ class MusicService : HeadlessJsMediaService() {
             commandStarted = true
             super.onStartCommand(intent, flags, startId)
         } else if (isMediaButton && !mediaKeyConsumed) {
-            // Keycodes onMediaKeyEvent intentionally leaves unconsumed (e.g.
-            // KEYCODE_MEDIA_PLAY_PAUSE / HEADSETHOOK) must still reach media3 so it can
-            // apply its play/pause toggle.
+            // Keycodes onMediaKeyEvent leaves unconsumed must still reach media3 so it can
+            // apply its own default for them. Since the one-button media keys are counted
+            // and consumed here (see onPlayPauseKeyTap), what is left is the long tail of
+            // transport keys this file does not translate.
             super.onStartCommand(intent, flags, startId)
         }
         return START_STICKY
@@ -1704,6 +1707,8 @@ class MusicService : HeadlessJsMediaService() {
         // its retirement — the teardown below drops the foreground state anyway.
         foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
         foregroundWatchdogHandler.removeCallbacks(retirePlaceholder)
+        foregroundWatchdogHandler.removeCallbacks(emitPlayPauseTaps)
+        playPauseTapCount = 0
         placeholderStanding = false
         pendingForegroundStartAt = 0L
         unregisterAudioDeviceCallback()
@@ -1722,6 +1727,69 @@ class MusicService : HeadlessJsMediaService() {
         super.onDestroy()
     }
 
+    // FORK PATCH — single / double / triple tap on the one-button media key.
+    //
+    // KEYCODE_MEDIA_PLAY_PAUSE and KEYCODE_HEADSETHOOK are what a wired headset remote
+    // and most Bluetooth earbuds send: one button, and the press count picks the action.
+    // media3 implements that translation itself, which is why these two keycodes used to
+    // be left unconsumed (`-> null`) so MediaSessionImpl could apply it.
+    //
+    // That delegation only works when media3's own player is the one playing. An app whose
+    // audio lives elsewhere — eSound plays most of its catalogue through an embed WebView
+    // that publishes its own media session, and stops TrackPlayer while it does — leaves
+    // this session's ExoPlayer idle on an empty timeline. media3 then applies the tap to
+    // THAT player: COMMAND_SEEK_TO_NEXT is unavailable without a timeline, so the
+    // double-tap is dropped silently, and the single-tap toggle plays nothing. Measured on
+    // a Pixel 6a (eSound, embed playback): KEYCODE_MEDIA_NEXT — which this file emits
+    // itself — skipped the track, while HEADSETHOOK did nothing at all, single or double.
+    //
+    // So count the taps here and emit the same JS events the dedicated keys emit. JS owns
+    // the queue for every engine, so the action lands where playback actually is. The
+    // window matches media3's, so the feel of a press is unchanged.
+    private var playPauseTapCount = 0
+    private var lastPlayPauseDownTime = -1L
+    private var lastPlayPauseEventTime = -1L
+
+    // A TV has no one-button remote: media3 skips tap counting on leanback and so do we,
+    // or every play/pause on the couch would wait out the double-tap window.
+    private val isLeanback: Boolean by lazy {
+        packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
+
+    private val emitPlayPauseTaps = Runnable {
+        when (playPauseTapCount) {
+            0 -> { }
+            1 -> emit(MusicEvents.BUTTON_PLAY_PAUSE)
+            2 -> emit(MusicEvents.BUTTON_SKIP_NEXT)
+            else -> emit(MusicEvents.BUTTON_SKIP_PREVIOUS)
+        }
+        playPauseTapCount = 0
+    }
+
+    private fun onPlayPauseKeyTap(keyEvent: KeyEvent) {
+        // A held button repeats; only the press itself counts.
+        if (keyEvent.repeatCount != 0) return
+
+        // One press can reach the service twice — once as the ACTION_MEDIA_BUTTON start and
+        // once through the session callback — depending on how the framework routed it.
+        // Both carry the same KeyEvent, so the second sighting must not count as a second tap.
+        if (keyEvent.downTime == lastPlayPauseDownTime && keyEvent.eventTime == lastPlayPauseEventTime) return
+        lastPlayPauseDownTime = keyEvent.downTime
+        lastPlayPauseEventTime = keyEvent.eventTime
+
+        if (isLeanback) {
+            emit(MusicEvents.BUTTON_PLAY_PAUSE)
+            return
+        }
+
+        playPauseTapCount++
+        foregroundWatchdogHandler.removeCallbacks(emitPlayPauseTaps)
+        foregroundWatchdogHandler.postDelayed(
+            emitPlayPauseTaps,
+            ViewConfiguration.getDoubleTapTimeout().toLong()
+        )
+    }
+
     fun onMediaKeyEvent(intent: Intent?): Boolean? {
         val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
@@ -1731,16 +1799,14 @@ class MusicService : HeadlessJsMediaService() {
 
         if (keyEvent?.action == KeyEvent.ACTION_DOWN) {
             return when (keyEvent.keyCode) {
-                // Do NOT consume single-button media keys (play/pause + wired headset hook).
-                // Returning null delegates to media3's super.onMediaButtonEvent, which applies
-                // its built-in single/double/triple-tap -> playPause/seekToNext/seekToPrevious.
-                // Those route back to JS via the APMForwardingPlayer overrides. Consuming them
-                // here (return true) bypassed media3 and broke double-tap-to-skip on any
-                // earbud/AVRCP device that sends PLAY_PAUSE instead of NEXT/PREVIOUS.
-                // (Mirrors the old MediaSessionCompat behavior, which let the framework
-                // translate raw headset clicks into onSkipToNext/onSkipToPrevious.)
+                // The one-button media keys: a wired headset remote and most Bluetooth
+                // earbuds send these, and the NUMBER of presses picks the action
+                // (1 play/pause, 2 next, 3 previous). Counted here, in onPlayPauseKeyTap.
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                KeyEvent.KEYCODE_HEADSETHOOK -> null
+                KeyEvent.KEYCODE_HEADSETHOOK -> {
+                    onPlayPauseKeyTap(keyEvent)
+                    true
+                }
                 KeyEvent.KEYCODE_MEDIA_STOP -> {
                     emit(MusicEvents.BUTTON_STOP)
                     true
