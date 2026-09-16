@@ -446,21 +446,7 @@ class MusicService : HeadlessJsMediaService() {
     private val promoteForPendingStart = Runnable {
         if (isForegroundService()) return@Runnable
         try {
-            val channelId = DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID
-            ensureNotificationChannel(channelId)
-            val placeholder = NotificationCompat.Builder(this, channelId)
-                .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
-                .setContentTitle(getString(R.string.playback_channel_name))
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
-                .setOngoing(true)
-                .build()
-            ServiceCompat.startForeground(
-                this,
-                DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
-                placeholder,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
+            postPlaceholderForeground()
             placeholderStanding = true
             Timber.tag("APM").d("promoteForPendingStart: honoured the deferred foreground start")
             // The placeholder has done its one job the moment it is posted. Give media3 a window
@@ -491,6 +477,81 @@ class MusicService : HeadlessJsMediaService() {
      */
     private fun playerWantsToPlay(): Boolean =
         ::player.isInitialized && (player.isPlaying || player.playWhenReady)
+
+    /**
+     * Calls startForeground() with a placeholder on media3's own notification id and channel, so
+     * a real media notification replaces it instead of appearing next to it.
+     */
+    private fun postPlaceholderForeground() {
+        val channelId = DefaultMediaNotificationProvider.DEFAULT_CHANNEL_ID
+        ensureNotificationChannel(channelId)
+        val placeholder = NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(androidx.media3.session.R.drawable.media3_icon_circular_play)
+            .setContentTitle(getString(R.string.playback_channel_name))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
+            .setOngoing(true)
+            .build()
+        ServiceCompat.startForeground(
+            this,
+            DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID,
+            placeholder,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+        )
+        foregroundStartOwed = false
+    }
+
+    /**
+     * True from an onStartCommand() that found us not foreground until the service actually calls
+     * startForeground(). Unlike [pendingForegroundStartAt] it does not expire and does not depend
+     * on whether the app is foregrounded: it tracks the system's own `fgRequired` flag, which
+     * stays set until startForeground() whatever time has passed.
+     */
+    @Volatile
+    private var foregroundStartOwed = false
+
+    /**
+     * Stopping a service the system is still waiting on is not a timeout, it is a crash.
+     *
+     * AOSP ActiveServices.bringDownServiceLocked(): a service brought down while `fgRequired` is
+     * still set sends SERVICE_FOREGROUND_CRASH_MSG, i.e. crashApplication("Context.
+     * startForegroundService() did not then call Service.startForeground()"). On Android 8-11 that
+     * reaches the app as a bare RemoteServiceException from ActivityThread$H.handleMessage, from
+     * 12 on as ForegroundServiceDidNotStartInTimeException. The timeout itself is only an ANR; the
+     * crash is always a stop that came first. It is decided in system_server when the stop is
+     * requested, so onDestroy() is already too late — this has to run before every stop.
+     *
+     * Callers that stop us early are ordinary: the headless JS task finishing
+     * (HeadlessJsMediaService.onHeadlessJsTaskFinish), onTaskRemoved, and media3 itself
+     * (pauseAllPlayersAndStopSelf, which its default onTaskRemoved uses).
+     *
+     * So pay what is owed and take it straight down: startForeground() then stopForeground(REMOVE).
+     * Legal on every version because the system asked for it, and invisible to the user.
+     */
+    private fun honourOwedForegroundStart(reason: String) {
+        if (!foregroundStartOwed) return
+        foregroundStartOwed = false
+        if (isForegroundService()) return
+        try {
+            postPlaceholderForeground()
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            placeholderStanding = false
+            Timber.tag("APM").d("honourOwedForegroundStart: paid before $reason")
+        } catch (e: Exception) {
+            Timber.tag("APM").e(e, "honourOwedForegroundStart: could not pay before $reason")
+        }
+    }
+
+    // Service.stopSelf() is final, so every stop is covered at its caller instead: here for
+    // media3's own, in onBeforeStopSelf for the headless task, and inline in onTaskRemoved.
+    override fun pauseAllPlayersAndStopSelf() {
+        honourOwedForegroundStart("pauseAllPlayersAndStopSelf")
+        super.pauseAllPlayersAndStopSelf()
+    }
+
+    override fun onBeforeStopSelf() {
+        honourOwedForegroundStart("headless task finished")
+    }
 
     /**
      * Takes the placeholder down when nothing replaced it.
@@ -630,6 +691,10 @@ class MusicService : HeadlessJsMediaService() {
         // immediately if we are already foreground), reuses media3's own notification id and
         // channel so a real notification replaces it, and now retires itself if nothing ever
         // starts playing.
+        // Owed regardless of foreground state: see honourOwedForegroundStart. The app itself only
+        // binds, so an onStartCommand that finds us not foreground comes from a
+        // startForegroundService() — media buttons, media3's notification manager, a widget.
+        if (!isForegroundService()) foregroundStartOwed = true
         if (!AppForegroundTracker.foregrounded && !isForegroundService()) {
             pendingForegroundStartAt = SystemClock.elapsedRealtime()
             // Arm the fallback. If media3 promotes on its own first (case 3a) the runnable is
@@ -1518,6 +1583,7 @@ class MusicService : HeadlessJsMediaService() {
         if (required) foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
         try {
             super.onUpdateNotification(session, required)
+            if (required && isForegroundService()) foregroundStartOwed = false
             // media3 has rendered its own notification over ours, so the placeholder is gone and
             // retirePlaceholder must not touch what replaced it.
             placeholderStanding = false
@@ -1627,6 +1693,7 @@ class MusicService : HeadlessJsMediaService() {
                     stopForeground(true)
                 }
                 onDestroy()
+                honourOwedForegroundStart("onTaskRemoved")
                 // https://github.com/androidx/media/issues/27#issuecomment-1456042326
                 stopSelf()
                 // Kill the process outright instead of exitProcess(0)/System.exit(0).

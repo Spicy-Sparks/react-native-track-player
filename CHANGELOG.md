@@ -1,3 +1,23 @@
+## 4.1.84
+
+### Bug Fixes
+
+* **android:** fermare il servizio mentre il sistema aspetta ancora la sua `startForeground()` non
+  e' un timeout, e' un crash — e finora lo era. In AOSP (`ActiveServices.bringDownServiceLocked`)
+  un servizio portato giu' con `fgRequired` ancora vero manda `SERVICE_FOREGROUND_CRASH_MSG`:
+  su Android 8-11 arriva come `RemoteServiceException` nuda da `ActivityThread$H.handleMessage`
+  ("Context.startForegroundService() did not then call Service.startForeground()"), da Android 12
+  come `ForegroundServiceDidNotStartInTimeException`. Il timeout vero e proprio, invece, e' solo un
+  ANR: il crash e' sempre uno stop arrivato prima. A fermarci presto sono chiamanti ordinari — il
+  task headless che finisce, `onTaskRemoved`, e il `pauseAllPlayersAndStopSelf()` di media3 — e il
+  segnaposto della 4.1.80 non copriva nessuno dei tre, perche' arriva dopo 3s mentre la decisione la
+  prende system_server nel momento dello stop (quindi `onDestroy` e' gia' tardi). Ora il servizio
+  tiene il conto di una promozione dovuta e la salda prima di ogni stop: `startForeground()` col
+  segnaposto e subito `stopForeground(REMOVE)`, invisibile all'utente e legale su ogni versione
+  perche' e' il sistema ad averla chiesta. `Service.stopSelf()` e' final, quindi l'aggancio sta sui
+  chiamanti: il nuovo hook `onBeforeStopSelf()` di `HeadlessJsMediaService`, l'override di
+  `pauseAllPlayersAndStopSelf()` e la riga in `onTaskRemoved`.
+
 ## 4.1.83
 
 ### Bug Fixes

@@ -129,9 +129,17 @@ public abstract class HeadlessJsMediaService : MediaLibraryService(), HeadlessJs
     override fun onHeadlessJsTaskFinish(taskId: Int) {
         activeTasks.remove(taskId)
         if (activeTasks.isEmpty()) {
+            onBeforeStopSelf()
             stopSelf()
         }
     }
+
+    /**
+     * Runs right before this class stops the service. Service.stopSelf() is final, so a subclass
+     * that must act before a stop reaches the system (a pending startForeground(), for one) needs
+     * this hook.
+     */
+    protected open fun onBeforeStopSelf() = Unit
 
     /**
      * Get the [com.facebook.react.ReactNativeHost] used by this app. By default, assumes [getApplication] is an instance
