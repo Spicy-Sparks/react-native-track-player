@@ -1,3 +1,21 @@
+## 4.1.85
+
+### Bug Fixes
+
+* **android:** Android Auto non resta piu' su "No items" dopo un avvio a freddo. `onGetChildren`
+  rispondeva subito col nodo in memoria, ma quando e' l'auto ad avviare l'app il nodo lo costruisce
+  il JS, che parte dopo, e l'evento di browse emesso in quel momento non ha listener: l'auto teneva
+  la lista vuota per sempre (motivo del rifiuto Play "the content of your application is not able
+  to load"). Un nodo non ancora costruito resta in attesa di `setBrowseTree` (al massimo 15s) e
+  l'evento viene riemesso quando il JS ascolta, poi a 2,5s e 6s, e a 12s con `final: true`: con l'app
+  avviata dall'auto i timer JS non girano, quindi i tentativi li deve fare il servizio.
+* **android:** nuovo `setBrowseError(code, message, actionLabel)`: l'errore di piattaforma che
+  Android Auto mostra al posto dell'albero (`authenticationExpired` / `premiumAccountRequired`),
+  con l'azione che apre l'app sul telefono. Vale solo finche' un'auto e' collegata, perche' Android
+  Auto legge la sessione di piattaforma, condivisa col telefono.
+* **android:** niente crash su una lista di media item vuota; `setSearchResults` rifiuta prima che
+  il servizio sia collegato.
+
 ## 4.1.84
 
 ### Bug Fixes
