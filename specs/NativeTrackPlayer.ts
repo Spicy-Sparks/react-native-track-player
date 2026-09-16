@@ -56,6 +56,11 @@ export interface Spec extends TurboModule {
     playableStyle: number,
   ): Promise<void>;
   setSearchResults(searchResults: UnsafeObject[]): Promise<void>;
+  setBrowseError(
+    code: string | null,
+    message: string | null,
+    actionLabel: string | null,
+  ): Promise<void>;
   crossFadePrepare(previous: boolean, seekTo?: number): Promise<void>;
   switchExoPlayer(
     fadeDuration: number,

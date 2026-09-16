@@ -1,5 +1,6 @@
 package com.doublesymmetry.trackplayer.module
 
+import androidx.media3.common.PlaybackException
 import android.annotation.SuppressLint
 import android.content.*
 import android.os.Build
@@ -933,8 +934,21 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         val mediaItemsMap = mediaItems.toHashMap()
         musicService.mediaTree = mediaItemsMap.mapValues { readableArrayToMediaItems(it.value as ArrayList<HashMap<String, String>>) }
         Timber.tag("APM").d("refreshing browseTree")
-        musicService.notifyChildrenChanged()
+        musicService.onBrowseTreeChanged()
         callback.resolve(musicService.mediaTree.toString())
+    }
+
+    // code: "authenticationExpired" | "premiumAccountRequired" | null (clears the error)
+    override fun setBrowseError(code: String?, message: String?, actionLabel: String?, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        val errorCode = when (code) {
+            null -> null
+            "authenticationExpired" -> PlaybackException.ERROR_CODE_AUTHENTICATION_EXPIRED
+            "premiumAccountRequired" -> PlaybackException.ERROR_CODE_PREMIUM_ACCOUNT_REQUIRED
+            else -> PlaybackException.ERROR_CODE_SETUP_REQUIRED
+        }
+        musicService.setBrowseError(errorCode, message, actionLabel)
+        callback.resolve(null)
     }
 
     // this method doesn't seem to affect style after onGetRoot is called, and won't change if notifyChildrenChanged is emitted.
@@ -960,6 +974,7 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
     }
 
     override fun setSearchResults(mediaItems: ReadableArray, callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
         musicService.setSearchResults(readableArrayToMediaItems(mediaItems.toArrayList() as ArrayList<HashMap<String, String>>).toTypedArray())
         callback.resolve(null)
     }

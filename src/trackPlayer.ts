@@ -725,6 +725,20 @@ export async function setSearchResults(
 }
 
 /**
+ * Shows a platform error in Android Auto in place of the browse tree (Android
+ * only), e.g. for a signed-out or non-premium user, with an optional action
+ * that opens the app on the phone. Pass `null` as code to clear it.
+ */
+export async function setBrowseError(
+  code: 'authenticationExpired' | 'premiumAccountRequired' | null,
+  message?: string,
+  actionLabel?: string,
+): Promise<void> {
+  if (!isAndroid) return;
+  return TrackPlayer.setBrowseError(code, message ?? null, actionLabel ?? null);
+}
+
+/**
  * acquires the wake lock of MusicService (android only.)
  */
 export async function acquireWakeLock() {

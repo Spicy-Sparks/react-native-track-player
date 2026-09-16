@@ -232,6 +232,10 @@ RCT_EXPORT_MODULE()
 - (void)setSearchResults:(nonnull NSDictionary *)browseTree resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
 }
 
+- (void)setBrowseError:(NSString *)code message:(NSString *)message actionLabel:(NSString *)actionLabel resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    resolve(nil);
+}
+
 - (void)setEqualizerPreset:(double)preset resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
 }
 

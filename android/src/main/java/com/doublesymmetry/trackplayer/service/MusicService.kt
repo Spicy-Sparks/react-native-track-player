@@ -68,6 +68,8 @@ import com.facebook.react.jstasks.HeadlessJsTaskConfig
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import androidx.media3.common.PlaybackException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.flow
 import timber.log.Timber
@@ -149,6 +151,7 @@ class MusicService : HeadlessJsMediaService() {
 
         const val AA_FOR_YOU_KEY = "for-you"
         const val AA_ROOT_KEY = "/"
+        const val BROWSE_PENDING_TIMEOUT_MS = 15_000L
 
         const val DEFAULT_JUMP_INTERVAL = 15.0
         const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5
@@ -185,6 +188,70 @@ class MusicService : HeadlessJsMediaService() {
     var searchBrowser: MediaSession.ControllerInfo? = null
     var searchQuery: String = ""
     var lastConnectedPackage: String = ""
+
+    // A car that asks for a node the JS side has not built yet must not be told
+    // "this node is empty": Android Auto caches that answer and shows "No items"
+    // for good. It happens every cold start — the car restores the screen it was
+    // on, the service answers before React is up, and the browse event it emits
+    // goes nowhere because no JS listener exists yet. So an unbuilt node is held
+    // open until setBrowseTree delivers it, and the event is emitted again then,
+    // when a listener is guaranteed to be there (only JS that is listening calls
+    // setBrowseTree).
+    private val pendingChildren =
+        HashMap<String, MutableList<SettableFuture<LibraryResult<ImmutableList<MediaItem>>>>>()
+    private val browseHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val reEmittedBrowse = HashSet<String>()
+
+    @MainThread
+    fun onBrowseTreeChanged() {
+        val resolved = pendingChildren.keys.filter { !mediaTree[it].isNullOrEmpty() }
+        resolved.forEach { key ->
+            val items = mediaTree[key] ?: listOf()
+            pendingChildren.remove(key)?.forEach { it.set(LibraryResult.ofItemList(items, null)) }
+            reEmittedBrowse.remove(key)
+        }
+        pendingChildren.keys.filter { reEmittedBrowse.add(it) }.forEach { key ->
+            emit(MusicEvents.BUTTON_BROWSE, Bundle().apply { putString("mediaId", key) })
+        }
+        notifyChildrenChanged()
+    }
+
+    // Platform error shown by Android Auto in place of the browse tree, e.g. a
+    // signed-out or non-premium user. `code` is a PlaybackException error code;
+    // null clears the error. The resolution action opens the app on the phone.
+    //
+    // Android Auto reads the platform session, which media3 cannot address per
+    // controller, so the error is necessarily session-wide — the phone's media
+    // controls see it too. It is therefore applied only while a car controller
+    // is connected, and lifted the moment the last one leaves.
+    private var browseError: PlaybackException? = null
+    private val autoControllers = HashSet<MediaSession.ControllerInfo>()
+
+    @MainThread
+    fun setBrowseError(code: Int?, message: String?, actionLabel: String?) {
+        browseError = if (code == null) null else {
+            val extras = Bundle()
+            val openApp = if (::mediaSession.isInitialized) mediaSession.sessionActivity else null
+            if (actionLabel != null && openApp != null) {
+                extras.putString(
+                    MediaConstants.PLAYBACK_STATE_EXTRAS_KEY_ERROR_RESOLUTION_ACTION_LABEL,
+                    actionLabel
+                )
+                extras.putParcelable(
+                    MediaConstants.PLAYBACK_STATE_EXTRAS_KEY_ERROR_RESOLUTION_ACTION_INTENT,
+                    openApp
+                )
+            }
+            PlaybackException(message, null, code, extras)
+        }
+        applyBrowseError()
+    }
+
+    @MainThread
+    private fun applyBrowseError() {
+        if (!::mediaSession.isInitialized) return
+        mediaSession.setPlaybackException(if (autoControllers.isEmpty()) null else browseError)
+    }
 
     fun setEqualizerPreset(preset: Int) {
         player.setEqualizerPreset(preset)
@@ -1776,6 +1843,10 @@ class MusicService : HeadlessJsMediaService() {
         foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
         foregroundWatchdogHandler.removeCallbacks(retirePlaceholder)
         foregroundWatchdogHandler.removeCallbacks(emitPlayPauseTaps)
+        browseHandler.removeCallbacksAndMessages(null)
+        pendingChildren.values.flatten().forEach { it.set(LibraryResult.ofItemList(listOf(), null)) }
+        pendingChildren.clear()
+        reEmittedBrowse.clear()
         playPauseTapCount = 0
         placeholderStanding = false
         pendingForegroundStartAt = 0L
@@ -1965,6 +2036,9 @@ class MusicService : HeadlessJsMediaService() {
         ) {
             val isAutomotiveController = session.isAutomotiveController(controller)
             val isAutoCompanionController = session.isAutoCompanionController(controller)
+            if (autoControllers.remove(controller) && autoControllers.isEmpty() && browseError != null) {
+                applyBrowseError()
+            }
             if (isAutomotiveController || isAutoCompanionController) {
                 if (AutoConnectionDetector.reportsCarConnected()) {
                     Timber.tag("APM").d("auto controller ${controller.packageName} dropped, car still connected: not a disconnect")
@@ -2007,6 +2081,10 @@ class MusicService : HeadlessJsMediaService() {
                 if (!selfWake(controller.packageName)) {
                     onStartCommand(null, 0, 0)
                 }
+            }
+            if (isAutomotiveController || isAutoCompanionController) {
+                autoControllers.add(controller)
+                if (browseError != null) browseHandler.post { applyBrowseError() }
             }
             return if (
                 isMediaNotificationController ||
@@ -2068,7 +2146,28 @@ class MusicService : HeadlessJsMediaService() {
             params: LibraryParams?
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             emit(MusicEvents.BUTTON_BROWSE, Bundle().apply { putString("mediaId", parentId) })
-            return Futures.immediateFuture(LibraryResult.ofItemList(mediaTree[parentId] ?: listOf(), null))
+            val built = mediaTree[parentId]
+            if (!built.isNullOrEmpty()) {
+                return Futures.immediateFuture(LibraryResult.ofItemList(built, null))
+            }
+            // Not built yet: wait for JS (see pendingChildren). If it never comes,
+            // answer with whatever exists after the timeout; a later setBrowseTree
+            // still reaches the car through notifyChildrenChanged.
+            val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            pendingChildren.getOrPut(parentId) { mutableListOf() }.add(future)
+            browseHandler.postDelayed({
+                if (!future.isDone) {
+                    pendingChildren[parentId]?.let {
+                        it.remove(future)
+                        if (it.isEmpty()) {
+                            pendingChildren.remove(parentId)
+                            reEmittedBrowse.remove(parentId)
+                        }
+                    }
+                    future.set(LibraryResult.ofItemList(mediaTree[parentId] ?: listOf(), null))
+                }
+            }, BROWSE_PENDING_TIMEOUT_MS)
+            return future
         }
 
         override fun onGetItem(
@@ -2102,7 +2201,7 @@ class MusicService : HeadlessJsMediaService() {
             mediaItems: MutableList<MediaItem>
         ): ListenableFuture<MutableList<MediaItem>> {
             Timber.tag("APM")
-                .d("addMediaItem: ${controller.packageName}, ${mediaItems[0].mediaId}, ${mediaItems.size}")
+                .d("addMediaItem: ${controller.packageName}, ${mediaItems.firstOrNull()?.mediaId}, ${mediaItems.size}")
             return super.onAddMediaItems(mediaSession, controller, mediaItems)
         }
 
@@ -2113,7 +2212,10 @@ class MusicService : HeadlessJsMediaService() {
             startIndex: Int,
             startPositionMs: Long
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            Timber.tag("APM").d("setMediaItem: ${controller.packageName}, ${mediaItems[0].toBundle()}")
+            Timber.tag("APM").d("setMediaItem: ${controller.packageName}, ${mediaItems.firstOrNull()?.mediaId}")
+            if (mediaItems.isEmpty()) {
+                return Futures.immediateFailedFuture(UnsupportedOperationException("no media items"))
+            }
             if (mediaItems[0].requestMetadata.searchQuery == null) {
                 emit(MusicEvents.BUTTON_PLAY_FROM_ID, Bundle().apply {
                     putString("id", mediaItems[0].mediaId)
