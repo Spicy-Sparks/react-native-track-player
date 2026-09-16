@@ -152,6 +152,8 @@ class MusicService : HeadlessJsMediaService() {
         const val AA_FOR_YOU_KEY = "for-you"
         const val AA_ROOT_KEY = "/"
         const val BROWSE_PENDING_TIMEOUT_MS = 15_000L
+        const val BROWSE_FINAL_LEAD_MS = 3_000L
+        val BROWSE_RETRY_DELAYS_MS = listOf(2_500L, 6_000L)
 
         const val DEFAULT_JUMP_INTERVAL = 15.0
         const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5
@@ -194,9 +196,12 @@ class MusicService : HeadlessJsMediaService() {
     // for good. It happens every cold start — the car restores the screen it was
     // on, the service answers before React is up, and the browse event it emits
     // goes nowhere because no JS listener exists yet. So an unbuilt node is held
-    // open until setBrowseTree delivers it, and the event is emitted again then,
-    // when a listener is guaranteed to be there (only JS that is listening calls
-    // setBrowseTree).
+    // open until setBrowseTree delivers it, and the event is emitted again: when
+    // setBrowseTree first shows a listener is there, and on a native schedule,
+    // because a first build on a cold start often fails and JS timers do not run
+    // while the app has no foreground (React Native drives them from frames). The
+    // last emission, just before the car is answered with what exists, carries
+    // `final` so JS publishes even an error rather than leaving the node empty.
     private val pendingChildren =
         HashMap<String, MutableList<SettableFuture<LibraryResult<ImmutableList<MediaItem>>>>>()
     private val browseHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -2147,6 +2152,7 @@ class MusicService : HeadlessJsMediaService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             emit(MusicEvents.BUTTON_BROWSE, Bundle().apply { putString("mediaId", parentId) })
             val built = mediaTree[parentId]
+            Timber.tag("APM").d("children: ${browser.packageName}, $parentId, built=${built?.size ?: -1}")
             if (!built.isNullOrEmpty()) {
                 return Futures.immediateFuture(LibraryResult.ofItemList(built, null))
             }
@@ -2155,6 +2161,21 @@ class MusicService : HeadlessJsMediaService() {
             // still reaches the car through notifyChildrenChanged.
             val future = SettableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
             pendingChildren.getOrPut(parentId) { mutableListOf() }.add(future)
+            BROWSE_RETRY_DELAYS_MS.forEach { delay ->
+                browseHandler.postDelayed({
+                    if (!future.isDone) {
+                        emit(MusicEvents.BUTTON_BROWSE, Bundle().apply { putString("mediaId", parentId) })
+                    }
+                }, delay)
+            }
+            browseHandler.postDelayed({
+                if (!future.isDone) {
+                    emit(MusicEvents.BUTTON_BROWSE, Bundle().apply {
+                        putString("mediaId", parentId)
+                        putBoolean("final", true)
+                    })
+                }
+            }, BROWSE_PENDING_TIMEOUT_MS - BROWSE_FINAL_LEAD_MS)
             browseHandler.postDelayed({
                 if (!future.isDone) {
                     pendingChildren[parentId]?.let {
