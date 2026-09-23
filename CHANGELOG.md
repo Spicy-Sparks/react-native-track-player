@@ -1,3 +1,18 @@
+## 4.1.86
+
+### Bug Fixes
+
+* **android:** il play/pausa della notifica funziona a ogni tocco, non solo al primo. I pulsanti
+  della notifica di media3 (`DefaultActionFactory`) mandano `KeyEvent(ACTION_DOWN, keyCode)`, con
+  `downTime` ed `eventTime` a 0 su ogni tocco: il filtro dei doppioni della 4.1.82 li confrontava
+  con la pressione precedente e scartava ogni tocco dopo il primo, finche' il servizio non
+  ripartiva. Colpiti Android 7-12, dove i controlli multimediali di sistema usano i pulsanti della
+  notifica, e le skin OEM che fanno lo stesso piu' in alto; successiva e precedente funzionavano
+  perche' mandano keycode dedicati. Ora una pressione senza timestamp fa play/pausa subito, come
+  fa media3 col suo controller della notifica, e l'unico doppione possibile (lo stesso Intent che
+  il primo `super.onStartCommand` passa alla sessione) si riconosce dall'istanza del KeyEvent.
+  Auricolari e Bluetooth restano come prima: filtro sui timestamp e conteggio dei tocchi.
+
 ## 4.1.85
 
 ### Bug Fixes
