@@ -1893,6 +1893,7 @@ class MusicService : HeadlessJsMediaService() {
     private var playPauseTapCount = 0
     private var lastPlayPauseDownTime = -1L
     private var lastPlayPauseEventTime = -1L
+    private var lastUntimedPlayPause: KeyEvent? = null
 
     // A TV has no one-button remote: media3 skips tap counting on leanback and so do we,
     // or every play/pause on the couch would wait out the double-tap window.
@@ -1913,6 +1914,22 @@ class MusicService : HeadlessJsMediaService() {
     private fun onPlayPauseKeyTap(keyEvent: KeyEvent) {
         // A held button repeats; only the press itself counts.
         if (keyEvent.repeatCount != 0) return
+
+        // media3's own notification buttons build their KeyEvent as KeyEvent(ACTION_DOWN, keyCode)
+        // (DefaultActionFactory), so downTime and eventTime are 0 on EVERY tap. The timestamp
+        // check below took each such tap for a repeat of the one before and dropped it: the
+        // notification's play/pause worked once per service, then never again — on Android 7-12,
+        // whose system media controls fire the notification's buttons, and on OEM skins above.
+        // A notification button is no one-button remote either (media3 does not count taps from
+        // its notification controller), so it toggles at once. Its only repeat is the same press
+        // handed on by super.onStartCommand to the session callback: the same Intent, whose
+        // extras return the same KeyEvent instance.
+        if (keyEvent.downTime == 0L && keyEvent.eventTime == 0L) {
+            if (keyEvent === lastUntimedPlayPause) return
+            lastUntimedPlayPause = keyEvent
+            emit(MusicEvents.BUTTON_PLAY_PAUSE)
+            return
+        }
 
         // One press can reach the service twice — once as the ACTION_MEDIA_BUTTON start and
         // once through the session callback — depending on how the framework routed it.
