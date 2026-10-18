@@ -165,6 +165,7 @@ class MusicService : HeadlessJsMediaService() {
     private val binder = MusicBinder()
     private val scope = MainScope()
     private lateinit var fakePlayer: ExoPlayer
+    private var fakePlayerReleased = false
     private lateinit var mediaSession: MediaLibrarySession
     private var progressUpdateJob: Job? = null
     var mediaTree: Map<String, List<MediaItem>> = HashMap()
@@ -841,7 +842,7 @@ class MusicService : HeadlessJsMediaService() {
             }
             emit(MusicEvents.PLAYBACK_NOT_PLAYABLE_TRACK_ACTIVE, bundle)
         }
-        fakePlayer.release()
+        releaseFakePlayer()
         // A cold-start onTaskRemoved can release the (built-once) MediaSession before we
         // reach here, while the process keeps living. Rebuild it if so — otherwise media3
         // is left holding a released session and can never refresh the notification
@@ -1669,6 +1670,19 @@ class MusicService : HeadlessJsMediaService() {
         }
     }
 
+    // onCreate builds a placeholder ExoPlayer for the MediaSession, and only setupPlayer() used to
+    // release it. A service created and destroyed without ever being set up — a controller or
+    // media-button bind in the background, which is most starts on Android TV — leaked it, and each
+    // one keeps its own "ExoPlayer:Playback" thread. eSound's TV builds (vc 836-840) died with
+    // OutOfMemoryError in pthread_create at ~240 of those threads, and mobile processes were seen at
+    // 220-300 as well. Released exactly once, whichever comes first.
+    @MainThread
+    private fun releaseFakePlayer() {
+        if (!::fakePlayer.isInitialized || fakePlayerReleased) return
+        fakePlayerReleased = true
+        fakePlayer.release()
+    }
+
     // Guards against releasing the MediaSession more than once. androidx.media3 throws
     // IllegalArgumentException("session is already released") on a double release. This
     // happened because onTaskRemoved() releases the session and then calls onDestroy(),
@@ -1865,6 +1879,8 @@ class MusicService : HeadlessJsMediaService() {
         // FORK PATCH
         // -> Attempt to fix https://github.com/doublesymmetry/react-native-track-player/issues/2485
         releaseMediaSession()
+        // After the session that may still be pointing at it.
+        releaseFakePlayer()
 
         instance = null
         progressUpdateJob?.cancel()
