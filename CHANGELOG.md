@@ -1,3 +1,18 @@
+## 4.1.88
+
+### Bug Fixes
+
+* **android:** ogni MediaSession ricostruita dopo la prima ha un id proprio (`trackplayer.<n>`).
+  media3 registra l'id prima di costruire la sessione e non lo libera se la costruzione fallisce;
+  un rebuild fallito dentro `onGetSession` (che media3 inghiotte) lasciava occupato l'id "" e il
+  `MusicService.onCreate` successivo moriva con "Session ID must be unique" (Lyra vc 78).
+  I rebuild falliti sono distanziati (2 s) e abbandonati dopo 3 fallimenti per istanza del
+  servizio; nel frattempo `onGetSession` risponde null invece di una sessione rilasciata.
+* **android:** i placeholder ExoPlayer condividono un solo thread di playback (un
+  `PlaybackLooperProvider` a conteggio di riferimenti, che si chiude con l'ultimo): un
+  placeholder sopravvissuto al servizio non costa piu' un thread (OOM in pthread_create sui box
+  Android TV di eSound, vc 836-843). Timber pianta il DebugTree una sola volta per processo.
+
 ## 4.1.87
 
 ### Features
