@@ -351,6 +351,8 @@ class MusicService : HeadlessJsMediaService() {
         player.crossFadePrepare(previous, seekTo)
     }
 
+    fun getTrailingSilenceMs(): Long = player.getTrailingSilenceMs()
+
     fun switchExoPlayer(
         fadeDuration: Long = 2500,
         fadeInterval: Long = 20,

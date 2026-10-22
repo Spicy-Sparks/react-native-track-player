@@ -102,6 +102,13 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
         self.crossfadePrepare(item: queue.items[nextIndex])
     }
     
+    // Equal-power crossfade curves. Wrapper volume is a linear amplitude and two
+    // unrelated songs add in POWER, so linear ramps (1-t and t) sum to half the
+    // power halfway through: an audible dip in the middle of every crossfade.
+    // cos/sin keep out^2 + in^2 = 1 for the whole fade.
+    static func equalPowerOut(_ t: Float) -> Float { cos(min(max(t, 0), 1) * .pi / 2) }
+    static func equalPowerIn(_ t: Float) -> Float { sin(min(max(t, 0), 1) * .pi / 2) }
+
     public func switchExoPlayer(
         fadeDuration: Int = 2500,
         fadeInterval: Int = 20,
@@ -161,7 +168,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
                 if prevWrapper === self.wrapper { break }
                 let timeDiff = DispatchTime.now().uptimeNanoseconds - startFadeOutTime.uptimeNanoseconds
                 let timeElapsed = Float(min(Int(timeDiff) / 1_000_000, fadeDuration))
-                prevWrapper.volume = fadeFromVolume * (1 -  timeElapsed / Float(fadeDuration))
+                prevWrapper.volume = fadeFromVolume * QueuedAudioPlayer.equalPowerOut(timeElapsed / Float(fadeDuration))
                 try await Task.sleep(nanoseconds: UInt64(fadeInterval * 1000000))
             }
             // Finalize: once the fade-out completes, silence and PAUSE the
@@ -195,7 +202,7 @@ public class QueuedAudioPlayer: AudioPlayer, QueueManagerDelegate {
                         if newWrapper !== self.wrapper { break }
                         let timeDiff = DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
                         let timeElapsed = Float(min(Int(timeDiff) / 1_000_000, fadeDuration))
-                        newWrapper.volume = fadeToVolume * timeElapsed / Float(fadeDuration)
+                        newWrapper.volume = fadeToVolume * QueuedAudioPlayer.equalPowerIn(timeElapsed / Float(fadeDuration))
                         try await Task.sleep(nanoseconds: UInt64(fadeInterval * 1000000))
                     }
                 }

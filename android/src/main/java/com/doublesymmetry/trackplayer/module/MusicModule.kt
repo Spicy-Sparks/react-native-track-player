@@ -1003,6 +1003,11 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
         callback.resolve(null)
     }
 
+    override fun getTrailingSilenceMs(callback: Promise) = launchInScope {
+        if (verifyServiceBoundOrReject(callback)) return@launchInScope
+        callback.resolve(musicService.getTrailingSilenceMs().toDouble())
+    }
+
     override fun switchExoPlayer(
         fadeDuration: Double,
         fadeInterval: Double,

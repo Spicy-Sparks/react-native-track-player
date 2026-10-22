@@ -248,6 +248,10 @@ RCT_EXPORT_MODULE()
 - (void)setPlaybackState:(nonnull NSString *)mediaID resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
 }
 
+- (void)getTrailingSilenceMs:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
+    [trackPlayer getTrailingSilenceMs:resolve rejecter:reject];
+}
+
 - (void)switchExoPlayer:(double)fadeDuration fadeInterval:(double)fadeInterval fadeToVolume:(double)fadeToVolume waitUntil:(nonnull NSNumber *)waitUntil resolve:(nonnull RCTPromiseResolveBlock)resolve reject:(nonnull RCTPromiseRejectBlock)reject {
     [trackPlayer switchExoPlayer:fadeDuration fadeInterval:fadeInterval fadeToVolume:fadeToVolume waitUntil:waitUntil resolver:resolve rejecter:reject];
 }

@@ -789,6 +789,17 @@ export async function crossFade(
 }
 
 /**
+ * How long the playing track's audio has been continuously silent, in ms.
+ * Returns -1 when unknown (nothing measured yet, or no audio tap on this
+ * item). Used to start a crossfade where the music ends instead of a fixed
+ * time before the end of the file.
+ */
+export async function getTrailingSilenceMs(): Promise<number> {
+  const ms = await TrackPlayer.getTrailingSilenceMs();
+  return typeof ms === 'number' ? ms : -1;
+}
+
+/**
  * get the last connected package. non android will return undefined.
  *
  * android without a connected package (either system.UI, android auto, or media controller) yet

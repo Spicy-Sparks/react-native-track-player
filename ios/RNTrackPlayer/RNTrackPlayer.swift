@@ -664,6 +664,14 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         resolve(NSNull())
     }
 
+    // Milliseconds the playing track's audio has been continuously silent, or
+    // -1 when unknown (no tap on this item, e.g. some HLS). See AudioTap.
+    @objc(getTrailingSilenceMs:rejecter:)
+    public func getTrailingSilenceMs(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
+        if (rejectWhenNotInitialized(reject: reject)) { return }
+        resolve(player.audioTap?.trailingSilenceMs ?? -1)
+    }
+
     @objc(switchExoPlayer:fadeInterval:fadeToVolume:waitUntil:resolver:rejecter:)
     public func switchExoPlayer(fadeDuration: Double, fadeInterval: Double, fadeToVolume: Double, waitUntil: NSNumber, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }

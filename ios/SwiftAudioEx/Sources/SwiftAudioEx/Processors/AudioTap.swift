@@ -13,6 +13,51 @@ import AVFoundation
  audio stream.
  */
 open class AudioTap {
+    // Silence metering for the smart crossfade. Fed by the processing-tap
+    // callbacks in AVPlayerWrapper (not by subclasses, which override
+    // prepare/process without calling super), so every tap meters.
+    // Written on the audio render thread, read from JS calls; a stale
+    // word-sized read is harmless.
+    private var meterSampleRate: Double = 0
+    private var meterIsFloat32 = false
+    private var silentFrames: Int = 0
+
+    // -48 dBFS peak: below a mastered fade-out, above dither/codec noise.
+    private static let silencePeak: Float = 0.004
+
+    /// Milliseconds of continuous silence in the processed audio, or -1 when
+    /// nothing has been measured (no tap on this item, or a format we do not read).
+    public var trailingSilenceMs: Int {
+        guard meterSampleRate > 0, meterIsFloat32 else { return -1 }
+        return Int(Double(silentFrames) * 1000 / meterSampleRate)
+    }
+
+    internal func meterPrepare(description: AudioStreamBasicDescription) {
+        meterSampleRate = description.mSampleRate
+        meterIsFloat32 = (description.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+            && description.mBitsPerChannel == 32
+        silentFrames = 0
+    }
+
+    internal func meterReset() {
+        silentFrames = 0
+    }
+
+    internal func meterProcess(numberOfFrames: Int, buffer: UnsafeMutableAudioBufferListPointer) {
+        guard meterIsFloat32, numberOfFrames > 0 else { return }
+        var peak: Float = 0
+        for channel in buffer {
+            guard let data = channel.mData else { continue }
+            let count = Int(channel.mDataByteSize) / MemoryLayout<Float>.size
+            let samples = data.assumingMemoryBound(to: Float.self)
+            for i in 0..<count {
+                let v = abs(samples[i])
+                if v > peak { peak = v }
+            }
+        }
+        silentFrames = peak < AudioTap.silencePeak ? silentFrames + numberOfFrames : 0
+    }
+
     // Called at tap initialization for a given player item. Use this to setup anything you might need.
     open func initialize() { print("audioTap: initialize") }
     // Called at teardown of the internal tap.  Use this to reset any memory buffers you have created, etc.
@@ -76,6 +121,7 @@ extension AVPlayerWrapper {
             Unmanaged.passUnretained(audioTap).release()
         } prepare: { tapRef, maxFrames, processingFormat in
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
+            audioTap.meterPrepare(description: processingFormat.pointee)
             audioTap.prepare(description: processingFormat.pointee)
         } unprepare: { tapRef in
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
@@ -85,6 +131,12 @@ extension AVPlayerWrapper {
                 return
             }
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
+            // A seek restarts the source: what was measured before it will not be heard.
+            if flagsOut.pointee & MTAudioProcessingTapFlags(kMTAudioProcessingTapFlag_StartOfStream) != 0 {
+                audioTap.meterReset()
+            }
+            // Meter the SOURCE audio, before the tap's own processing (EQ, limiter).
+            audioTap.meterProcess(numberOfFrames: numberFrames, buffer: UnsafeMutableAudioBufferListPointer(bufferListInOut))
             audioTap.process(numberOfFrames: numberFrames, buffer: UnsafeMutableAudioBufferListPointer(bufferListInOut))
         }
 

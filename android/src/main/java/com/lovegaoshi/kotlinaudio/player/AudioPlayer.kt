@@ -51,7 +51,10 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 abstract class AudioPlayer internal constructor(
     private val context: Context,
@@ -611,6 +614,21 @@ abstract class AudioPlayer internal constructor(
         exoPlayer.seekTo(positionMs)
     }
 
+    /**
+     * How long the playing track's decoded audio has been silent, in ms, or -1
+     * when unknown. Lets JS start the crossfade where the music ends rather
+     * than a fixed number of seconds before the end of the file.
+     */
+    fun getTrailingSilenceMs(): Long =
+        (if (currentExoPlayer) gainProcessor else gainProcessor2).getTrailingSilenceMs()
+
+    // Equal-power crossfade curves. Player volume is a linear amplitude, and two
+    // unrelated songs add in POWER, so linear ramps (1-t and t) sum to half the
+    // power halfway through: an audible dip in the middle of every crossfade.
+    // cos/sin keep out^2 + in^2 = 1 for the whole fade.
+    private fun equalPowerOut(t: Float): Float = cos(t.coerceIn(0f, 1f) * (PI.toFloat() / 2f))
+    private fun equalPowerIn(t: Float): Float = sin(t.coerceIn(0f, 1f) * (PI.toFloat() / 2f))
+
     fun crossFadePrepare(previous: Boolean = false, seekTo: Double = 0.0) {
         if (!options.crossfade) { return }
         val mPlayer = if (currentExoPlayer) exoPlayer2!! else exoPlayer1
@@ -686,7 +704,7 @@ abstract class AudioPlayer internal constructor(
                     // subsequent crossFade, stop touching its volume — the
                     // new fade-in task owns it.
                     if (prevPlayer === exoPlayer) break
-                    prevPlayer.volume = fadeFromVolume * (1 - min((System.currentTimeMillis() - startFadeOutTime), fadeDuration).toFloat() / fadeDuration)
+                    prevPlayer.volume = fadeFromVolume * equalPowerOut(min((System.currentTimeMillis() - startFadeOutTime), fadeDuration).toFloat() / fadeDuration)
                     delay(fadeInterval)
                 }
                 // Guard: only finalize/pause if prevPlayer is still the
@@ -724,7 +742,7 @@ abstract class AudioPlayer internal constructor(
                             // Guard: if newPlayer was demoted to inactive, stop —
                             // the new fade-out task owns its volume.
                             if (newPlayer !== exoPlayer) break
-                            newPlayer.volume = fadeToVolume * min((System.currentTimeMillis() - startTime), fadeDuration) / fadeDuration
+                            newPlayer.volume = fadeToVolume * equalPowerIn(min((System.currentTimeMillis() - startTime), fadeDuration).toFloat() / fadeDuration)
                             delay(fadeInterval)
                         }
                     }
