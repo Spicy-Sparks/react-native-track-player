@@ -1,3 +1,24 @@
+## 4.1.87
+
+### Features
+
+* **crossfade:** curve equal-power al posto delle rampe lineari, su iOS e Android. Il volume e'
+  un'ampiezza lineare e due brani diversi si sommano in potenza: con 1-t e t a meta' dissolvenza
+  restava meta' della potenza, un calo di ~3 dB udibile in ogni transizione. Con cos/sin la
+  potenza resta costante per tutta la dissolvenza.
+* **crossfade:** nuovo `getTrailingSilenceMs()`: da quanti ms l'audio del brano in riproduzione e'
+  in silenzio continuo (picco sotto -48 dBFS), -1 se non si sa. Misurato sul PCM decodificato,
+  prima del guadagno di normalizzazione: Android nel `GainAudioProcessor` (vale per ogni
+  sorgente, HLS compreso), iOS nel tap di processing, azzerato a ogni seek. Serve a far partire
+  il crossfade dove la musica finisce davvero, non N secondi prima della fine del file.
+
+### Bug Fixes
+
+* **android:** il placeholder ExoPlayer viene rilasciato anche quando il servizio muore senza
+  essere mai stato configurato (bind in background, la maggior parte degli avvii su Android TV).
+  Prima ognuno lasciava un thread "ExoPlayer:Playback": le build TV di eSound morivano con
+  OutOfMemoryError a ~240 thread. (Era gia' in 4.1.86, mai pubblicata.)
+
 ## 4.1.86
 
 ### Bug Fixes
