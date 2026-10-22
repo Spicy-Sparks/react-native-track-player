@@ -38,6 +38,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.BitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.PlaybackLooperProvider
 import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
@@ -84,6 +85,19 @@ class MusicService : HeadlessJsMediaService() {
         var instance: MusicService? = null
             private set
         const val EMPTY_NOTIFICATION_ID = 1
+
+        // Every placeholder ExoPlayer in the process shares this one playback thread. Built
+        // per player, each placeholder owns an "ExoPlayer:Playback" thread for as long as it
+        // lives, so any placeholder that outlives its service leaks a thread — on the low-RAM
+        // Android TV boxes that is what eSound vc 836-843 died of (OutOfMemoryError in
+        // pthread_create, PlaybackLooperProvider.obtainLooper, from onCreate). The placeholder
+        // never plays anything, so sharing costs nothing. media3's provider is reference
+        // counted: the thread starts with the first placeholder and quits with the last.
+        private val placeholderLooperProvider = PlaybackLooperProvider()
+
+        // Timber keeps every planted tree in a process-wide list. Planting one per onCreate
+        // grew it by one tree per service lifecycle, and each log line then ran through all.
+        private var debugTreePlanted = false
 
         // ActivityManager kills a service started with startForegroundService() if it has not
         // called startForeground() within 5s (ActiveServices.SERVICE_START_FOREGROUND_TIMEOUT).
@@ -391,9 +405,14 @@ class MusicService : HeadlessJsMediaService() {
     override fun onCreate() {
         try {
             instance = this
-            Timber.plant(Timber.DebugTree())
+            if (!debugTreePlanted) {
+                debugTreePlanted = true
+                Timber.plant(Timber.DebugTree())
+            }
             Timber.tag("APM").d("RNTP musicservice created.")
-            fakePlayer = ExoPlayer.Builder(this).build()
+            fakePlayer = ExoPlayer.Builder(this)
+                .setPlaybackLooperProvider(placeholderLooperProvider)
+                .build()
             mediaSession = buildMediaSession(fakePlayer)
             registerAudioDeviceCallback()
             super.onCreate()
