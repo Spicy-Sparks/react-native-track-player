@@ -1,6 +1,7 @@
 package com.doublesymmetry.trackplayer.service
 
 import android.annotation.SuppressLint
+import java.util.concurrent.atomic.AtomicInteger
 import android.app.*
 import android.content.Context
 import android.content.Intent
@@ -157,6 +158,19 @@ class MusicService : HeadlessJsMediaService() {
 
         const val DEFAULT_JUMP_INTERVAL = 15.0
         const val DEFAULT_STOP_FOREGROUND_GRACE_PERIOD = 5
+
+        // media3 keeps a process-wide map of live MediaSession ids and refuses a duplicate
+        // ("Session ID must be unique"). It registers the id BEFORE building the session's
+        // internals, and never unregisters it if that build throws. A rebuild that fails inside
+        // onGetSession (ensureMediaSession) is swallowed by media3's MediaSessionServiceStub
+        // ("Failed to add a session to session service"), so the default id "" stays taken for
+        // the life of the process, and the next MusicService.onCreate dies on it (Lyra vc 78,
+        // API 28-36). The first session in a process keeps the default id — nothing changes on
+        // the common path — and every later one gets a fresh id. The id is never shown to a
+        // controller: Android Auto, media buttons and the notification follow the session and
+        // its token, not this string.
+        private val sessionBuilds = AtomicInteger(0)
+        private const val SESSION_ID_PREFIX = "trackplayer."
     }
     private lateinit var player: QueuedAudioPlayer
     // Expose the internal QueuedAudioPlayer instance for other classes (e.g. TrackPlayerVideoView)
@@ -1722,10 +1736,13 @@ class MusicService : HeadlessJsMediaService() {
             data = "trackplayer://notification.click".toUri()
             action = Intent.ACTION_VIEW
         }
+        // Counted before building, so a build that fails still retires its id.
+        val build = sessionBuilds.getAndIncrement()
         return MediaLibrarySession.Builder(this, forPlayer, APMMediaSessionCallback())
             .setBitmapLoader(CacheBitmapLoader(CoilBitmapLoader(this)))
             // https://github.com/androidx/media/issues/1218
             .setSessionActivity(PendingIntent.getActivity(this, 0, openAppIntent, getPendingIntentFlags()))
+            .apply { if (build > 0) setId("$SESSION_ID_PREFIX$build") }
             .build()
     }
 
