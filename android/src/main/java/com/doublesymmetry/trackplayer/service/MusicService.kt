@@ -165,12 +165,20 @@ class MusicService : HeadlessJsMediaService() {
         // onGetSession (ensureMediaSession) is swallowed by media3's MediaSessionServiceStub
         // ("Failed to add a session to session service"), so the default id "" stays taken for
         // the life of the process, and the next MusicService.onCreate dies on it (Lyra vc 78,
-        // API 28-36). The first session in a process keeps the default id — nothing changes on
-        // the common path — and every later one gets a fresh id. The id is never shown to a
-        // controller: Android Auto, media buttons and the notification follow the session and
-        // its token, not this string.
+        // API 28-36). The counter is process-wide: only the first session built in a process
+        // keeps the default id; every later build — an ensureMediaSession rebuild, or the session
+        // of any later MusicService in the same process — gets "trackplayer.<n>". The id is never
+        // shown to a controller: Android Auto, media buttons and the notification follow the
+        // session and its token, not this string.
         private val sessionBuilds = AtomicInteger(0)
         private const val SESSION_ID_PREFIX = "trackplayer."
+
+        // A failed rebuild still leaves a half-built session behind (it holds this service as
+        // its context, and may hold a system-side session). If whatever made it fail keeps
+        // failing, a controller that keeps reconnecting must not pile those up: rebuilds are
+        // spaced out and, after a few consecutive failures, given up for this service instance.
+        private const val MAX_SESSION_REBUILD_FAILURES = 3
+        private const val SESSION_REBUILD_BACKOFF_MS = 2_000L
     }
     private lateinit var player: QueuedAudioPlayer
     // Expose the internal QueuedAudioPlayer instance for other classes (e.g. TrackPlayerVideoView)
@@ -864,7 +872,9 @@ class MusicService : HeadlessJsMediaService() {
         // is left holding a released session and can never refresh the notification
         // (metadata + play/pause state) even though playback itself works.
         ensureMediaSession()
-        mediaSession.player = player.player
+        // Only a live session takes the player. If the rebuild failed, the next one (from a
+        // controller's onGetSession) is built on player.player directly.
+        if (!isMediaSessionReleased) mediaSession.player = player.player
         observeEvents()
     }
 
@@ -1753,6 +1763,9 @@ class MusicService : HeadlessJsMediaService() {
     // state update, even though the ExoPlayer set up afterwards still plays audio and
     // handles button presses. Rebuild the session whenever it is needed but has been
     // released so media3 always has a live session to drive the notification.
+    private var sessionRebuildFailures = 0
+    private var lastSessionRebuildFailureAt = 0L
+
     @MainThread
     private fun ensureMediaSession() {
         // Never resurrect the session while tearing the service down — that is the zombie-rebuild
@@ -1761,9 +1774,24 @@ class MusicService : HeadlessJsMediaService() {
         // while the service is alive (setupPlayer / a live controller), where isShuttingDown is false.
         if (isShuttingDown) return
         if (::mediaSession.isInitialized && !isMediaSessionReleased) return
+        if (sessionRebuildFailures >= MAX_SESSION_REBUILD_FAILURES) return
+        // Lazy check against the last failure's timestamp, not a scheduled retry: the next
+        // controller to ask is what triggers the next attempt.
+        val now = SystemClock.elapsedRealtime()
+        if (sessionRebuildFailures > 0 && now - lastSessionRebuildFailureAt < SESSION_REBUILD_BACKOFF_MS) return
         val forPlayer: Player = if (::player.isInitialized) player.player else fakePlayer
-        mediaSession = buildMediaSession(forPlayer)
+        try {
+            mediaSession = buildMediaSession(forPlayer)
+        } catch (e: Exception) {
+            // Was rethrown into media3's connect(), which swallows it anyway; here it is counted
+            // and logged, and the caller sees that the session is still released.
+            sessionRebuildFailures++
+            lastSessionRebuildFailureAt = now
+            Timber.tag("APM").e(e, "MediaSession rebuild failed ($sessionRebuildFailures/$MAX_SESSION_REBUILD_FAILURES)")
+            return
+        }
         isMediaSessionReleased = false
+        sessionRebuildFailures = 0
     }
 
     @MainThread
@@ -1850,9 +1878,13 @@ class MusicService : HeadlessJsMediaService() {
 //        return false
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         Timber.tag("APM").d("onGetSession: ${controllerInfo.packageName}")
         ensureMediaSession()
+        // A rebuild that failed, is backing off or was given up leaves only a released session:
+        // answer "no session", which media3 handles on every path (bind, media button, connect),
+        // instead of handing out a dead one. During shutdown the old behaviour is kept.
+        if (isMediaSessionReleased && !isShuttingDown) return null
         return mediaSession
     }
 
