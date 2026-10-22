@@ -1435,6 +1435,20 @@ class MusicService : HeadlessJsMediaService() {
      */
     fun isForegroundService(): Boolean = isPlaybackOngoing()
 
+    /**
+     * Whether this process is at foreground-service importance or better right now, i.e. some
+     * foreground service of the app is running (see case 3c in [onUpdateNotification]). A read
+     * that fails counts as "no": the promotion is then simply not attempted, as before.
+     */
+    private fun processHoldsForegroundService(): Boolean = try {
+        val info = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(info)
+        info.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND_SERVICE
+    } catch (e: Throwable) {
+        Timber.tag("APM").w(e, "could not read the process importance")
+        false
+    }
+
     @MainThread
     private fun observeEvents() {
         scope.launch {
@@ -1691,7 +1705,14 @@ class MusicService : HeadlessJsMediaService() {
         } else if (pendingForegroundStart) {
             true
         } else {
-            isForegroundService() && startInForegroundRequired
+            // 3c. Another foreground service already holds the process (the app's embed
+            //     media service, carrying the track across an embed -> direct hand-over).
+            //     Android grants such a process the right to start one more from the
+            //     background (PROCESS_CAPABILITY_BFSL at PROCESS_STATE_FOREGROUND_SERVICE),
+            //     so this is not the refused start of case 3b. Without it MusicService
+            //     could never take over with the screen off, and the app's service would
+            //     have to stay up for the whole direct track.
+            (isForegroundService() || processHoldsForegroundService()) && startInForegroundRequired
         }
         // Honoured exactly once, whatever super does with it below: if the promotion succeeds the
         // deadline is satisfied and the flag is stale; if it throws, retrying on a later
