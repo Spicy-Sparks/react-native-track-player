@@ -32,8 +32,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // ── Bass Boost (low shelf) ──
         private const val BB_FREQ = 150.0
-        private const val BB_MIN_DB = 6.0    // slider 0 = gentle warmth
-        private const val BB_MAX_DB = 24.0   // slider 1 = full boost
+        private const val BB_MIN_DB = 0.0    // slider 0 = neutral (unity shelf)
+        private const val BB_MAX_DB = 12.0   // match the EQ band boost ceiling
         private const val BB_Q = 0.8
 
         // ── Loudness Enhancer (low shelf + high shelf) ──
@@ -169,6 +169,9 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var safetyGain = 1.0
     private var safetyAttCoeff = 0.0
     private var safetyRelCoeff = 0.0
+    // Frames of fade-in left after a flush, and its length. See onFlush.
+    private var fadeInLeft = 0
+    private var fadeInFrames = 0
 
     // Frames left in the smoothing tail after all effects turned off. While the
     // tail runs the chain keeps processing so coefficients can ramp to unity
@@ -300,9 +303,29 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             // Bypass tail
             bypassTailFrames = 0
 
+            fadeInFrames = max(1, (sampleRate * 0.003).toInt()) // ~3 ms
+            fadeInLeft = fadeInFrames
+
             return inputAudioFormat
         }
         return AudioProcessor.AudioFormat.NOT_SET
+    }
+
+    // A flush is a discontinuity: a new item, a seek, a resume. Nothing reset here before, so the
+    // limiter's look-ahead delay line (~1.5 ms, always running) played the tail of the PREVIOUS
+    // audio into the first frames of the new one, and the filters kept its state: a "tsk" at the
+    // start of every song. Start clean, and fade the first ~3 ms in, because audio that begins
+    // mid-waveform (a seek, a saved position) clicks on its own. Gapless transitions do not flush.
+    override fun onFlush() {
+        for (line in safetyDelay) line.fill(0.0)
+        safetyPos = 0
+        safetyGain = 1.0
+        resetFilterState()
+        fadeInLeft = fadeInFrames
+    }
+
+    override fun onReset() {
+        onFlush()
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
@@ -503,6 +526,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                 val delayed = safetyDelay[ch][pos]      // output: input from `lookahead` frames ago
                 safetyDelay[ch][pos] = buf[ch][frame]   // store current input
                 buf[ch][frame] = delayed * g
+            }
+            if (fadeInLeft > 0) {
+                val ramp = 1.0 - fadeInLeft.toDouble() / fadeInFrames
+                for (ch in 0 until nCh) buf[ch][frame] *= ramp
+                fadeInLeft--
             }
             pos++
             if (pos >= safetyLookahead) pos = 0

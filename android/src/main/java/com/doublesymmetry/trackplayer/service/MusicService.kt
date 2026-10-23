@@ -2186,7 +2186,7 @@ class MusicService : HeadlessJsMediaService() {
                 )) {
                 lastConnectedPackage = controller.packageName
                 // HACK: attempt to wake up activity (for legacy APM). if not, start headless.
-                if (!selfWake(controller.packageName)) {
+                if (!isLeanback && !selfWake(controller.packageName)) {
                     onStartCommand(null, 0, 0)
                 }
             }
