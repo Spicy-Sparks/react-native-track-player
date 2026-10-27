@@ -1,3 +1,18 @@
+## 4.1.89
+
+### Bug Fixes
+
+* **android:** `MusicService` si promuove a foreground service anche dal background quando un
+  altro foreground service dell'app tiene gia' il processo (caso 3c di `onUpdateNotification`).
+  Android lo consente (capability BFSL a `PROCESS_STATE_FOREGROUND_SERVICE`); serve al passaggio
+  embed -> direct a schermo spento, dove il servizio media dell'embed tiene il processo finche'
+  TrackPlayer non ha il suo. Prima il servizio non poteva mai prendere il foreground e Android
+  congelava l'app ("la musica si ferma dopo una o due canzoni a schermo spento"). L'importanza
+  del processo si legge solo quando media3 chiede il foreground (86cb7db4z).
+* **android:** sui TV (leanback) niente risveglio dell'activity alla connessione di un controller.
+* **equalizer:** reset dello stato a ogni flush (niente "tsk" a inizio brano, fade-in di ~3 ms);
+  bass boost 0-12 dB invece di 6-24 dB.
+
 ## 4.1.88
 
 ### Bug Fixes
