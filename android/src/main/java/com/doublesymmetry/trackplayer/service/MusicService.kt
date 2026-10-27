@@ -1712,7 +1712,7 @@ class MusicService : HeadlessJsMediaService() {
             //     so this is not the refused start of case 3b. Without it MusicService
             //     could never take over with the screen off, and the app's service would
             //     have to stay up for the whole direct track.
-            (isForegroundService() || processHoldsForegroundService()) && startInForegroundRequired
+            startInForegroundRequired && (isForegroundService() || processHoldsForegroundService())
         }
         // Honoured exactly once, whatever super does with it below: if the promotion succeeds the
         // deadline is satisfied and the flag is stale; if it throws, retrying on a later
