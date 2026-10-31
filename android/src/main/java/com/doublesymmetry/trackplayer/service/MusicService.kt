@@ -1718,8 +1718,12 @@ class MusicService : HeadlessJsMediaService() {
         // deadline is satisfied and the flag is stale; if it throws, retrying on a later
         // notification update would be a genuine background start, which is the illegal one.
         if (pendingForegroundStart) pendingForegroundStartAt = 0L
-        // media3 is handling the promotion itself, so the placeholder is not needed.
-        if (required) foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        // The placeholder fallback stays armed. `required` does not mean media3 will promote:
+        // media3 1.8.0 returns without promoting when the session has nothing to show (an empty
+        // timeline while content is still loading), and otherwise promotes later, on a posted
+        // callback. Cancelling the fallback here left nobody to call startForeground() before the
+        // system deadline ("did not then call Service.startForeground()", eSound 850). The
+        // fallback checks for itself when it runs and does nothing if media3 has promoted.
         try {
             super.onUpdateNotification(session, required)
             if (required && isForegroundService()) foregroundStartOwed = false
