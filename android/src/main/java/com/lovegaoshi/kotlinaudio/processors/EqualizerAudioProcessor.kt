@@ -400,6 +400,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // afterwards so coefficients can ramp to unity (click-free). The safety
         // limiter below is independent of this gate.
         var runChain = effectsActive
+        var fadeToBypass = false
         if (effectsActive) {
             bypassTailFrames = (sampleRate * 0.1).toInt() // ~100 ms
         } else if (bypassTailFrames > 0) {
@@ -408,8 +409,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             bypassTailFrames -= size / (bytesPerSample * nCh)
             if (bypassTailFrames <= 0) {
                 bypassTailFrames = 0
-                runChain = false
-                resetFilterState()
+                // Last tail block: still processed, but crossfaded into the dry signal, so the
+                // switch to bypass is not a step. Going straight to the dry block jumped by
+                // whatever the chain still changed (the DC blocker alone: ~1,600 LSB on a 20 Hz
+                // tone). The filters are cleared once the block is out.
+                fadeToBypass = true
             }
         }
 
@@ -424,15 +428,16 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
 
         when (inputAudioFormat.encoding) {
-            C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size, runChain)
-            C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size, runChain)
+            C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size, runChain, fadeToBypass)
+            C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size, runChain, fadeToBypass)
         }
+        if (fadeToBypass) resetFilterState()
         output.flip()
     }
 
     // ═══════════════ Processing: Float32 path ═══════════════
 
-    private fun processFloat32(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean) {
+    private fun processFloat32(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean, fadeToBypass: Boolean) {
         val frameCount = size / (4 * nCh)
 
         // Read all samples into a working buffer [channel][frame]
@@ -442,6 +447,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                 buf[ch][frame] = input.float.toDouble()
             }
         }
+
+        val dry = if (fadeToBypass) Array(nCh) { buf[it].copyOf() } else null
 
         if (runEffects) {
             // 1. EQ bands
@@ -483,6 +490,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
 
+        if (dry != null) crossfadeTo(buf, dry, nCh, frameCount)
+
         // 6. Transparent true-peak safety limiter (always) + write output
         applySafetyLimiter(buf, nCh, frameCount)
         for (frame in 0 until frameCount) {
@@ -494,7 +503,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
     // ═══════════════ Processing: Int16 path ═══════════════
 
-    private fun processInt16(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean) {
+    private fun processInt16(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean, fadeToBypass: Boolean) {
         val frameCount = size / (2 * nCh)
 
         val buf = Array(nCh) { DoubleArray(frameCount) }
@@ -503,6 +512,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                 buf[ch][frame] = input.short.toDouble() / 32768.0
             }
         }
+
+        val dry = if (fadeToBypass) Array(nCh) { buf[it].copyOf() } else null
 
         if (runEffects) {
             // 1. EQ bands
@@ -544,12 +555,23 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
 
+        if (dry != null) crossfadeTo(buf, dry, nCh, frameCount)
+
         // 6. Transparent true-peak safety limiter (always) + write output
         applySafetyLimiter(buf, nCh, frameCount)
         for (frame in 0 until frameCount) {
             for (ch in 0 until nCh) {
                 output.putShort((buf[ch][frame] * 32768.0).coerceIn(-32768.0, 32767.0).toInt().toShort())
             }
+        }
+    }
+
+    // Linear crossfade from the processed block to the dry one over the length of the block.
+    private fun crossfadeTo(buf: Array<DoubleArray>, dry: Array<DoubleArray>, nCh: Int, frameCount: Int) {
+        if (frameCount <= 0) return
+        for (frame in 0 until frameCount) {
+            val t = (frame + 1).toDouble() / frameCount
+            for (ch in 0 until nCh) buf[ch][frame] = buf[ch][frame] * (1.0 - t) + dry[ch][frame] * t
         }
     }
 
