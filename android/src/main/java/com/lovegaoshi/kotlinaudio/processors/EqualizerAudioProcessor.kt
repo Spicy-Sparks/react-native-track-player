@@ -283,16 +283,21 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // Bass boost and loudness are rebuilt from their stored levels even while switched off:
         // a level set between configure() and this flush was designed for the old sample rate,
-        // and switching the effect on later does not redesign it.
+        // and switching the effect on later does not redesign it. A switched-off effect starts
+        // from unity, so switching it on ramps in through the coefficient smoothing.
         val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
         bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
-        bbCur = bbTgt.copyOf()
+        bbCur = if (isBassBoostEnabled) bbTgt.copyOf() else UNITY.copyOf()
         bbZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
         // Loudness
         lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
         lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-        lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
+        if (isLoudnessEnabled) {
+            lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
+        } else {
+            lnLoCur = UNITY.copyOf(); lnHiCur = UNITY.copyOf()
+        }
         lnLoZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
         lnHiZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
