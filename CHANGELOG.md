@@ -1,3 +1,12 @@
+## 4.1.91
+
+### Bug Fixes
+
+* **equalizer:** turning every effect off no longer ends with a step: at the end of the ~100 ms tail the chain's
+  output is crossfaded into the dry signal over ~10 ms (across buffers, whatever their size) instead of switching at
+  once, and switching an effect on from bypass, or back on halfway through, fades the chain back in the same way.
+  Before, the switch jumped by whatever the chain still changed (up to ~2,700 LSB on a 20 Hz tone) (124ckhdfxr6).
+
 ## 4.1.90
 
 4.1.89 was never published on npm: its changes arrive with this version.
