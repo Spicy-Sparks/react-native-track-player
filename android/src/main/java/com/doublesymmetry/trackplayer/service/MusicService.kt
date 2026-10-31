@@ -87,6 +87,12 @@ class MusicService : HeadlessJsMediaService() {
             private set
         const val EMPTY_NOTIFICATION_ID = 1
 
+        // Action for a host app that starts this service with Context.startForegroundService()
+        // (a home-screen widget playing without UI). It tells onStartCommand that the system now
+        // waits for a startForeground(), which an action-less start cannot: media3 also starts
+        // the service with an action-less intent, after it has already promoted.
+        const val ACTION_FOREGROUND_START = "com.doublesymmetry.trackplayer.FOREGROUND_START"
+
         // Every placeholder ExoPlayer in the process shares this one playback thread. Built
         // per player, each placeholder owns an "ExoPlayer:Playback" thread for as long as it
         // lives, so any placeholder that outlives its service leaks a thread — on the low-RAM
@@ -2107,12 +2113,13 @@ class MusicService : HeadlessJsMediaService() {
     // startForeground() (see the arming of promoteForPendingStart in onStartCommand):
     //  - a play key: media3's MediaButtonReceiver accepts nothing else from API 26, and its
     //    DefaultActionFactory uses getForegroundService() only for play;
-    //  - an intent with no action: the host app's widget (LyraWidget startPlaybackWithoutUi) and
-    //    media3's own start-self before it promotes.
-    private fun isDeadlineStart(intent: Intent?): Boolean {
-        if (intent == null) return false
-        if (intent.action == null) return true
-        return intent.action == Intent.ACTION_MEDIA_BUTTON && isPlayKey(intent)
+    //  - ACTION_FOREGROUND_START, set by a host app that starts the service that way (Lyra's
+    //    widget). An action-less intent does not count: media3 starts itself with one after it
+    //    has already called startForeground(), and arming then could cover a paused notification.
+    private fun isDeadlineStart(intent: Intent?): Boolean = when (intent?.action) {
+        ACTION_FOREGROUND_START -> true
+        Intent.ACTION_MEDIA_BUTTON -> isPlayKey(intent)
+        else -> false
     }
 
     private fun isPlayKey(intent: Intent?): Boolean {
