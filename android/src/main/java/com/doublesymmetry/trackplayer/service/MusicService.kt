@@ -842,12 +842,16 @@ class MusicService : HeadlessJsMediaService() {
         // Arm the fallback, once per outstanding start (see fallbackArmed). If media3 promotes on
         // its own first (case 3a) it is cancelled as soon as that is seen; if it never does — the
         // cold-start case — this is what keeps the system from killing us. The deadline also runs
-        // for a start that arrives while the app is visible: the user can leave before content
-        // loads, and media3 has nothing to promote with an empty timeline. In the foreground only
-        // a start from outside counts, though: the service's own onStartCommand(null, ...) calls
-        // (a headless wake) owe the system nothing, and a placeholder there would put a playing
-        // notification over an idle app.
-        if (notForeground && (backgrounded || intent != null) && !fallbackArmed) {
+        // for a play key that arrives while the app is visible (a headset through media3's
+        // MediaButtonReceiver, the notification's play): the user can leave before content loads,
+        // and media3 has nothing to promote with an empty timeline. In the foreground only those
+        // keys arm it, because only they come through startForegroundService() (MediaButtonReceiver
+        // accepts nothing else from API 26, DefaultActionFactory uses getForegroundService() only
+        // for play). Next/previous and custom notification actions are plain startService() calls
+        // with no deadline that may not refresh the notification: a placeholder there would cover
+        // the paused controls and then take them down. The service's own onStartCommand(null, ...)
+        // wakes owe nothing either.
+        if (notForeground && (backgrounded || (isMediaButton && isPlayKey(intent))) && !fallbackArmed) {
             fallbackArmed = true
             foregroundWatchdogHandler.postDelayed(promoteForPendingStart, FOREGROUND_PROMOTE_FALLBACK_MS)
         }
@@ -2098,6 +2102,23 @@ class MusicService : HeadlessJsMediaService() {
             emitPlayPauseTaps,
             ViewConfiguration.getDoubleTapTimeout().toLong()
         )
+    }
+
+    // The keys media3 starts this service with through startForegroundService(): see the arming of
+    // promoteForPendingStart in onStartCommand.
+    private fun isPlayKey(intent: Intent?): Boolean {
+        val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+        }
+        return when (keyEvent?.keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK -> true
+            else -> false
+        }
     }
 
     fun onMediaKeyEvent(intent: Intent?): Boolean? {
