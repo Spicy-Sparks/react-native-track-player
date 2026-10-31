@@ -189,6 +189,13 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     // (click-free); afterwards the processor hard-bypasses (bit-perfect copy).
     private var bypassTailFrames = 0
 
+    // How much of the dry signal is in the output: 0 = the chain's output, 1 = bypass. It moves
+    // toward its target by 1/bypassFadeFrames per frame (~10 ms end to end), across buffers, in
+    // both directions: the end of the tail fades into bypass, an effect switched on fades the
+    // chain back in, and a change of mind halfway turns around from where the mix is.
+    private var bypassFadeFrames = 1
+    private var bypassMix = 1.0
+
     // ═══════════════════ EQ API ═══════════════════
 
     fun setGain(band: Int, gainDB: Float) {
@@ -328,6 +335,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // Bypass tail
         bypassTailFrames = 0
+        bypassFadeFrames = max(1, (sampleRate * 0.01).toInt())
+        bypassMix = if (effectsActive()) 0.0 else 1.0
 
         fadeInFrames = max(1, (sampleRate * 0.003).toInt()) // ~3 ms
     }
@@ -376,6 +385,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun clearSignalState() {
+        // A discontinuity starts clean (and faded in): no crossfade carries over it.
+        bypassMix = if (effectsActive() || bypassTailFrames > 0) 0.0 else 1.0
         for (line in safetyDelay) line.fill(0.0)
         safetyPos = 0
         safetyGain = 1.0
@@ -393,25 +404,24 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // even though the user set no boost at all. NOTE: the transparent safety
         // limiter runs regardless (see applySafetyLimiter) to protect the
         // Bluetooth/AAC path from inter-sample clipping.
-        val effectsActive = (isEnabled && hasNonFlatGains) ||
-            isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
+        val effectsActive = effectsActive()
 
         // Run the colouring chain when effects are active, plus a short tail
         // afterwards so coefficients can ramp to unity (click-free). The safety
         // limiter below is independent of this gate.
-        var runChain = effectsActive
         if (effectsActive) {
             bypassTailFrames = (sampleRate * 0.1).toInt() // ~100 ms
         } else if (bypassTailFrames > 0) {
-            runChain = true
             val bytesPerSample = if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) 2 else 4
-            bypassTailFrames -= size / (bytesPerSample * nCh)
-            if (bypassTailFrames <= 0) {
-                bypassTailFrames = 0
-                runChain = false
-                resetFilterState()
-            }
+            bypassTailFrames = max(0, bypassTailFrames - size / (bytesPerSample * nCh))
         }
+        // Bypass and the chain are crossfaded instead of switched (see bypassMix). Switching
+        // straight to dry at the end of the tail jumped by whatever the chain still changed (the
+        // DC blocker alone: ~1,600 LSB on a 20 Hz tone). The chain keeps running until the mix is
+        // all dry; the filters are cleared then.
+        val mixTarget = if (effectsActive || bypassTailFrames > 0) 0.0 else 1.0
+        val runChain = mixTarget == 0.0 || bypassMix < 1.0
+        val mixing = bypassMix != mixTarget
 
         // Smooth all coefficients toward targets (only while the chain runs)
         if (runChain) {
@@ -424,15 +434,16 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
 
         when (inputAudioFormat.encoding) {
-            C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size, runChain)
-            C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size, runChain)
+            C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size, runChain, if (mixing) mixTarget else -1.0)
+            C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size, runChain, if (mixing) mixTarget else -1.0)
         }
+        if (mixing && bypassMix >= 1.0) resetFilterState()
         output.flip()
     }
 
     // ═══════════════ Processing: Float32 path ═══════════════
 
-    private fun processFloat32(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean) {
+    private fun processFloat32(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean, mixTarget: Double) {
         val frameCount = size / (4 * nCh)
 
         // Read all samples into a working buffer [channel][frame]
@@ -442,6 +453,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                 buf[ch][frame] = input.float.toDouble()
             }
         }
+
+        val dry = if (mixTarget >= 0.0) Array(nCh) { buf[it].copyOf() } else null
 
         if (runEffects) {
             // 1. EQ bands
@@ -483,6 +496,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
 
+        if (dry != null) crossfadeTo(buf, dry, nCh, frameCount, mixTarget)
+
         // 6. Transparent true-peak safety limiter (always) + write output
         applySafetyLimiter(buf, nCh, frameCount)
         for (frame in 0 until frameCount) {
@@ -494,7 +509,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
     // ═══════════════ Processing: Int16 path ═══════════════
 
-    private fun processInt16(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean) {
+    private fun processInt16(input: ByteBuffer, output: ByteBuffer, nCh: Int, size: Int, runEffects: Boolean, mixTarget: Double) {
         val frameCount = size / (2 * nCh)
 
         val buf = Array(nCh) { DoubleArray(frameCount) }
@@ -503,6 +518,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                 buf[ch][frame] = input.short.toDouble() / 32768.0
             }
         }
+
+        val dry = if (mixTarget >= 0.0) Array(nCh) { buf[it].copyOf() } else null
 
         if (runEffects) {
             // 1. EQ bands
@@ -544,6 +561,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
 
+        if (dry != null) crossfadeTo(buf, dry, nCh, frameCount, mixTarget)
+
         // 6. Transparent true-peak safety limiter (always) + write output
         applySafetyLimiter(buf, nCh, frameCount)
         for (frame in 0 until frameCount) {
@@ -552,6 +571,21 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             }
         }
     }
+
+    // Moves bypassMix toward its target one step per frame and blends the chain's output with the
+    // dry signal by it.
+    private fun crossfadeTo(buf: Array<DoubleArray>, dry: Array<DoubleArray>, nCh: Int, frameCount: Int, target: Double) {
+        val step = 1.0 / bypassFadeFrames
+        var mix = bypassMix
+        for (frame in 0 until frameCount) {
+            mix = if (target > mix) min(target, mix + step) else max(target, mix - step)
+            for (ch in 0 until nCh) buf[ch][frame] = buf[ch][frame] * (1.0 - mix) + dry[ch][frame] * mix
+        }
+        bypassMix = mix
+    }
+
+    private fun effectsActive(): Boolean = (isEnabled && hasNonFlatGains) ||
+        isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
 
     // ═══════════════ Safety limiter ═══════════════
 
