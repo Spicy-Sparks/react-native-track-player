@@ -1,3 +1,23 @@
+## 4.1.90
+
+4.1.89 was never published on npm: its changes arrive with this version.
+
+### Bug Fixes
+
+* **android:** after a `startForegroundService()` from the background, the placeholder fallback stays armed until
+  media3 has actually promoted the service. It used to be cancelled at the first `onUpdateNotification`, but media3
+  exits without promoting when there is nothing to show yet (content still loading) and otherwise promotes later:
+  the system then killed the app with "Context.startForegroundService() did not then call
+  Service.startForeground()" (124ckhdfxr3). The fallback is armed once per start (keeping the first deadline),
+  stands down as soon as the promotion is seen, and is also armed for play keys while the app is in the
+  foreground. A host app that starts the service with `startForegroundService()` (e.g. a widget) should use
+  `MusicService.ACTION_FOREGROUND_START` (`com.doublesymmetry.trackplayer.FOREGROUND_START`) as the intent action.
+* **equalizer:** the ~3 ms fade after a flush is applied before the limiter's look-ahead (before, it ran out on
+  zeros and the first sample came out at 50-100%). A flush right after a drain (speed or skip-silence change,
+  same-format reconfiguration) no longer resets anything and doesn't cut audio. The new format is applied at the
+  `flush()`, as the media3 contract requires. Bass boost and loudness are recomputed for the new sample rate even
+  while off, and turning them on ramps in gradually (124ckhdfxr6).
+
 ## 4.1.89
 
 ### Bug Fixes
