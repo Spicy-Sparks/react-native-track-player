@@ -173,6 +173,14 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var fadeInLeft = 0
     private var fadeInFrames = 0
 
+    // A format passed to configure() takes effect at the next flush, as the AudioProcessor
+    // contract says: until then queueInput may still receive audio in the old format.
+    private var pendingFormat: AudioProcessor.AudioFormat? = null
+
+    // queueEndOfStream() was called since the last flush: the sink drained us before flushing,
+    // so the audio on either side of that flush is continuous (see onFlush).
+    private var drainedBeforeFlush = false
+
     // Frames left in the smoothing tail after all effects turned off. While the
     // tail runs the chain keeps processing so coefficients can ramp to unity
     // (click-free); afterwards the processor hard-bypasses (bit-perfect copy).
@@ -247,85 +255,119 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT ||
             inputAudioFormat.encoding == C.ENCODING_PCM_FLOAT
         ) {
-            sampleRate = inputAudioFormat.sampleRate.toDouble()
-            channelCount = inputAudioFormat.channelCount
-            val nCh = channelCount
-
-            // EQ
-            for (i in 0 until BAND_COUNT) {
-                eqTgt[i] = peakingEQ(FREQUENCIES[i].toDouble(), gains[i].toDouble(), EQ_Q, sampleRate)
-                eqCur[i] = eqTgt[i].copyOf()
-            }
-            eqZ = Array(BAND_COUNT) { Array(nCh) { doubleArrayOf(0.0, 0.0) } }
-
-            // Bass boost
-            if (isBassBoostEnabled) {
-                val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
-                bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
-            }
-            bbCur = bbTgt.copyOf()
-            bbZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
-
-            // Loudness
-            if (isLoudnessEnabled) {
-                lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-                lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-            }
-            lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
-            lnLoZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
-            lnHiZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
-
-            // Virtualizer all-pass coefficients
-            apCoeffsL = DoubleArray(AP_FREQS_L.size) { i ->
-                val omega = tan(PI * AP_FREQS_L[i] / sampleRate)
-                (1.0 - omega) / (1.0 + omega)
-            }
-            apCoeffsR = DoubleArray(AP_FREQS_R.size) { i ->
-                val omega = tan(PI * AP_FREQS_R[i] / sampleRate)
-                (1.0 - omega) / (1.0 + omega)
-            }
-            apStateL = Array(AP_FREQS_L.size) { doubleArrayOf(0.0, 0.0) }
-            apStateR = Array(AP_FREQS_R.size) { doubleArrayOf(0.0, 0.0) }
-
-            // DC blocker
-            dcXprev = DoubleArray(nCh)
-            dcYprev = DoubleArray(nCh)
-
-            // Transparent true-peak safety limiter
-            safetyLookahead = max(32, (sampleRate * 0.0015).toInt()) // ~1.5 ms look-ahead
-            safetyDelay = Array(nCh) { DoubleArray(safetyLookahead) }
-            safetyPos = 0
-            safetyGain = 1.0
-            // Attack reaches the target within ~one look-ahead window.
-            safetyAttCoeff = 1.0 - exp(-3.0 / safetyLookahead.toDouble())
-            safetyRelCoeff = 1.0 - exp(-1.0 / (0.100 * sampleRate)) // 100 ms release
-
-            // Bypass tail
-            bypassTailFrames = 0
-
-            fadeInFrames = max(1, (sampleRate * 0.003).toInt()) // ~3 ms
-            fadeInLeft = fadeInFrames
-
+            pendingFormat = inputAudioFormat
             return inputAudioFormat
         }
+        pendingFormat = null
         return AudioProcessor.AudioFormat.NOT_SET
     }
 
-    // A flush is a discontinuity: a new item, a seek, a resume. Nothing reset here before, so the
-    // limiter's look-ahead delay line (~1.5 ms, always running) played the tail of the PREVIOUS
-    // audio into the first frames of the new one, and the filters kept its state: a "tsk" at the
-    // start of every song. Start clean, and fade the first ~3 ms in, because audio that begins
-    // mid-waveform (a seek, a saved position) clicks on its own. Gapless transitions do not flush.
-    override fun onFlush() {
-        for (line in safetyDelay) line.fill(0.0)
+    // Sets up every format-dependent value. Runs from onFlush, never from onConfigure: between
+    // configure() and flush() media3 may still queue audio in the OLD format, and swapping the
+    // channel count or the delay line under it mis-framed that audio (mono -> stereo with an odd
+    // sample count left bytes no frame could consume).
+    private fun applyFormat(format: AudioProcessor.AudioFormat) {
+        sampleRate = format.sampleRate.toDouble()
+        channelCount = format.channelCount
+        val nCh = channelCount
+
+        // EQ
+        for (i in 0 until BAND_COUNT) {
+            eqTgt[i] = peakingEQ(FREQUENCIES[i].toDouble(), gains[i].toDouble(), EQ_Q, sampleRate)
+            eqCur[i] = eqTgt[i].copyOf()
+        }
+        eqZ = Array(BAND_COUNT) { Array(nCh) { doubleArrayOf(0.0, 0.0) } }
+
+        // Bass boost
+        if (isBassBoostEnabled) {
+            val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
+            bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
+        }
+        bbCur = bbTgt.copyOf()
+        bbZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
+
+        // Loudness
+        if (isLoudnessEnabled) {
+            lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
+            lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
+        }
+        lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
+        lnLoZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
+        lnHiZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
+
+        // Virtualizer all-pass coefficients
+        apCoeffsL = DoubleArray(AP_FREQS_L.size) { i ->
+            val omega = tan(PI * AP_FREQS_L[i] / sampleRate)
+            (1.0 - omega) / (1.0 + omega)
+        }
+        apCoeffsR = DoubleArray(AP_FREQS_R.size) { i ->
+            val omega = tan(PI * AP_FREQS_R[i] / sampleRate)
+            (1.0 - omega) / (1.0 + omega)
+        }
+        apStateL = Array(AP_FREQS_L.size) { doubleArrayOf(0.0, 0.0) }
+        apStateR = Array(AP_FREQS_R.size) { doubleArrayOf(0.0, 0.0) }
+
+        // DC blocker
+        dcXprev = DoubleArray(nCh)
+        dcYprev = DoubleArray(nCh)
+
+        // Transparent true-peak safety limiter
+        safetyLookahead = max(32, (sampleRate * 0.0015).toInt()) // ~1.5 ms look-ahead
+        safetyDelay = Array(nCh) { DoubleArray(safetyLookahead) }
         safetyPos = 0
         safetyGain = 1.0
-        resetFilterState()
+        // Attack reaches the target within ~one look-ahead window.
+        safetyAttCoeff = 1.0 - exp(-3.0 / safetyLookahead.toDouble())
+        safetyRelCoeff = 1.0 - exp(-1.0 / (0.100 * sampleRate)) // 100 ms release
+
+        // Bypass tail
+        bypassTailFrames = 0
+
+        fadeInFrames = max(1, (sampleRate * 0.003).toInt()) // ~3 ms
+    }
+
+    override fun onQueueEndOfStream() {
+        drainedBeforeFlush = true
+    }
+
+    // Two kinds of flush reach this processor:
+    //  - a discontinuity (a seek, a new item, a resume): media3 throws away what was queued and
+    //    starts from somewhere else. Nothing was reset here before, so the limiter's look-ahead
+    //    delay line (~1.5 ms, always running) played the tail of the PREVIOUS audio into the first
+    //    frames of the new one and the filters kept its state: a "tsk" at the start of songs.
+    //    Start clean, and fade the first ~3 ms in, because audio that begins mid-waveform (a seek,
+    //    a saved position) clicks on its own.
+    //  - a flush after a drain (queueEndOfStream first): a playback speed or skip-silence change,
+    //    or an item that ended on its own. The audio on both sides is continuous, so the delay line
+    //    and the filters carry on untouched; resetting them there cut ~1.5 ms out of the music.
+    // A new format always starts clean: every buffer is rebuilt for it.
+    override fun onFlush() {
+        val drained = drainedBeforeFlush
+        drainedBeforeFlush = false
+        val format = pendingFormat
+        if (format != null) {
+            pendingFormat = null
+            applyFormat(format)
+            fadeInLeft = fadeInFrames
+            return
+        }
+        if (drained) return
+        clearSignalState()
         fadeInLeft = fadeInFrames
     }
 
     override fun onReset() {
-        onFlush()
+        pendingFormat = null
+        drainedBeforeFlush = false
+        clearSignalState()
+        fadeInLeft = fadeInFrames
+    }
+
+    private fun clearSignalState() {
+        for (line in safetyDelay) line.fill(0.0)
+        safetyPos = 0
+        safetyGain = 1.0
+        resetFilterState()
     }
 
     override fun queueInput(inputBuffer: ByteBuffer) {
@@ -516,6 +558,14 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         var pos = safetyPos
         var g = safetyGain
         for (frame in 0 until frameCount) {
+            // The fade-in after a flush goes on the INPUT of the delay line. Applied to its
+            // output it ran out while the cleared line was still emitting zeros, so the first
+            // real sample came out at 50% gain at 44.1 kHz, and at full gain at 8 kHz.
+            if (fadeInLeft > 0) {
+                val ramp = 1.0 - fadeInLeft.toDouble() / fadeInFrames
+                for (ch in 0 until nCh) buf[ch][frame] *= ramp
+                fadeInLeft--
+            }
             // Future peak across channels (the sample about to enter the delay).
             var peak = 0.0
             for (ch in 0 until nCh) peak = max(peak, abs(buf[ch][frame]))
@@ -526,11 +576,6 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                 val delayed = safetyDelay[ch][pos]      // output: input from `lookahead` frames ago
                 safetyDelay[ch][pos] = buf[ch][frame]   // store current input
                 buf[ch][frame] = delayed * g
-            }
-            if (fadeInLeft > 0) {
-                val ramp = 1.0 - fadeInLeft.toDouble() / fadeInFrames
-                for (ch in 0 until nCh) buf[ch][frame] *= ramp
-                fadeInLeft--
             }
             pos++
             if (pos >= safetyLookahead) pos = 0
