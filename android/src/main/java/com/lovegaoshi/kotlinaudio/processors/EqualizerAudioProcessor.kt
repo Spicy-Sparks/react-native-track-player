@@ -177,6 +177,9 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     // contract says: until then queueInput may still receive audio in the old format.
     private var pendingFormat: AudioProcessor.AudioFormat? = null
 
+    // The format the signal state was last built for (null until then, and after a reset).
+    private var activeFormat: AudioProcessor.AudioFormat? = null
+
     // queueEndOfStream() was called since the last flush: the sink drained us before flushing,
     // so the audio on either side of that flush is continuous (see onFlush).
     private var drainedBeforeFlush = false
@@ -278,19 +281,17 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
         eqZ = Array(BAND_COUNT) { Array(nCh) { doubleArrayOf(0.0, 0.0) } }
 
-        // Bass boost
-        if (isBassBoostEnabled) {
-            val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
-            bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
-        }
+        // Bass boost and loudness are rebuilt from their stored levels even while switched off:
+        // a level set between configure() and this flush was designed for the old sample rate,
+        // and switching the effect on later does not redesign it.
+        val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
+        bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
         bbCur = bbTgt.copyOf()
         bbZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
         // Loudness
-        if (isLoudnessEnabled) {
-            lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-            lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-        }
+        lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
+        lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
         lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
         lnLoZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
         lnHiZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
@@ -338,16 +339,21 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     //    Start clean, and fade the first ~3 ms in, because audio that begins mid-waveform (a seek,
     //    a saved position) clicks on its own.
     //  - a flush after a drain (queueEndOfStream first): a playback speed or skip-silence change,
-    //    or an item that ended on its own. The audio on both sides is continuous, so the delay line
-    //    and the filters carry on untouched; resetting them there cut ~1.5 ms out of the music.
-    // A new format always starts clean: every buffer is rebuilt for it.
+    //    a reconfiguration that keeps the format, or an item that ended on its own. The audio is
+    //    taken to be continuous, so the delay line and the filters carry on untouched; resetting
+    //    them there cut ~1.5 ms out of the music. Known limit: media3 also drains before a
+    //    timestamp discontinuity (an HLS splice), where the old ~1.5 ms tail then plays into the
+    //    new audio unfaded; that is what every flush did before 4.1.89, and it is rarer than
+    //    the speed changes it keeps clean.
+    // A different format always starts clean: every buffer is rebuilt for it.
     override fun onFlush() {
         val drained = drainedBeforeFlush
         drainedBeforeFlush = false
         val format = pendingFormat
-        if (format != null) {
-            pendingFormat = null
+        pendingFormat = null
+        if (format != null && format != activeFormat) {
             applyFormat(format)
+            activeFormat = format
             fadeInLeft = fadeInFrames
             return
         }
@@ -358,6 +364,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
     override fun onReset() {
         pendingFormat = null
+        activeFormat = null
         drainedBeforeFlush = false
         clearSignalState()
         fadeInLeft = fadeInFrames
