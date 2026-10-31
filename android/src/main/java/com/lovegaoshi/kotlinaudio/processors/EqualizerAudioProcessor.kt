@@ -189,6 +189,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     // (click-free); afterwards the processor hard-bypasses (bit-perfect copy).
     private var bypassTailFrames = 0
 
+    // Once the tail is over, the chain's output is crossfaded into the dry signal over this many
+    // frames (~10 ms), counted across buffers so a short buffer does not make the fade a step.
+    private var bypassFadeFrames = 1
+    private var bypassFadeLeft = 0
+
     // ═══════════════════ EQ API ═══════════════════
 
     fun setGain(band: Int, gainDB: Float) {
@@ -328,6 +333,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // Bypass tail
         bypassTailFrames = 0
+        bypassFadeFrames = max(1, (sampleRate * 0.01).toInt())
+        bypassFadeLeft = 0
 
         fadeInFrames = max(1, (sampleRate * 0.003).toInt()) // ~3 ms
     }
@@ -376,6 +383,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     }
 
     private fun clearSignalState() {
+        bypassFadeLeft = 0
         for (line in safetyDelay) line.fill(0.0)
         safetyPos = 0
         safetyGain = 1.0
@@ -400,22 +408,25 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // afterwards so coefficients can ramp to unity (click-free). The safety
         // limiter below is independent of this gate.
         var runChain = effectsActive
-        var fadeToBypass = false
         if (effectsActive) {
             bypassTailFrames = (sampleRate * 0.1).toInt() // ~100 ms
+            bypassFadeLeft = 0
         } else if (bypassTailFrames > 0) {
             runChain = true
             val bytesPerSample = if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) 2 else 4
             bypassTailFrames -= size / (bytesPerSample * nCh)
             if (bypassTailFrames <= 0) {
                 bypassTailFrames = 0
-                // Last tail block: still processed, but crossfaded into the dry signal, so the
-                // switch to bypass is not a step. Going straight to the dry block jumped by
-                // whatever the chain still changed (the DC blocker alone: ~1,600 LSB on a 20 Hz
-                // tone). The filters are cleared once the block is out.
-                fadeToBypass = true
+                // End of the tail: the chain keeps running while its output is crossfaded into
+                // the dry signal, so the switch to bypass is not a step. Going straight to dry
+                // jumped by whatever the chain still changed (the DC blocker alone: ~1,600 LSB on
+                // a 20 Hz tone). The filters are cleared once the fade is over.
+                bypassFadeLeft = bypassFadeFrames
             }
+        } else if (bypassFadeLeft > 0) {
+            runChain = true
         }
+        val fadeToBypass = !effectsActive && bypassFadeLeft > 0
 
         // Smooth all coefficients toward targets (only while the chain runs)
         if (runChain) {
@@ -431,7 +442,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             C.ENCODING_PCM_16BIT -> processInt16(inputBuffer, output, nCh, size, runChain, fadeToBypass)
             C.ENCODING_PCM_FLOAT -> processFloat32(inputBuffer, output, nCh, size, runChain, fadeToBypass)
         }
-        if (fadeToBypass) resetFilterState()
+        if (fadeToBypass && bypassFadeLeft == 0) resetFilterState()
         output.flip()
     }
 
@@ -566,11 +577,15 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
     }
 
-    // Linear crossfade from the processed block to the dry one over the length of the block.
+    // Linear crossfade from the processed signal to the dry one, continuing across buffers until
+    // bypassFadeLeft runs out; frames after that are dry.
     private fun crossfadeTo(buf: Array<DoubleArray>, dry: Array<DoubleArray>, nCh: Int, frameCount: Int) {
-        if (frameCount <= 0) return
         for (frame in 0 until frameCount) {
-            val t = (frame + 1).toDouble() / frameCount
+            val t = if (bypassFadeLeft > 0) {
+                val v = 1.0 - (bypassFadeLeft - 1).toDouble() / bypassFadeFrames
+                bypassFadeLeft--
+                v
+            } else 1.0
             for (ch in 0 until nCh) buf[ch][frame] = buf[ch][frame] * (1.0 - t) + dry[ch][frame] * t
         }
     }
