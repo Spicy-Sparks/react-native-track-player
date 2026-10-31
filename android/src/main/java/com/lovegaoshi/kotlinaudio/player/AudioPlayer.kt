@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
+import android.view.TextureView
 import androidx.annotation.CallSuper
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
@@ -107,6 +108,38 @@ abstract class AudioPlayer internal constructor(
 
     var exoPlayer: ExoPlayer
     var player: ForwardingPlayer
+
+    // The surface of the video view on screen, null when none is. Without one
+    // the player is held to the smallest video rendition: a stream can be an
+    // HLS master whose every variant carries video, and with nothing on screen
+    // ExoPlayer still picked the best, 1080p at ~5 Mbit/s for a song in audio
+    // mode, which a mobile link cannot keep up with, so the song kept stopping
+    // to buffer. Held, not disabled: turning a video track back on restarts the
+    // whole period, audio included, while lifting the cap only steps the
+    // quality up from the next segment.
+    // Both players follow it, so the one preparing the next track for a
+    // crossfade is ready with its video when it takes over. Declared before
+    // init: initExoPlayer reads it.
+    var videoTextureView: TextureView? = null
+        set(value) {
+            if (field === value) return
+            field?.let { old -> listOfNotNull(exoPlayer1, exoPlayer2).forEach { it.clearVideoTextureView(old) } }
+            field = value
+            value?.let { exoPlayer.setVideoTextureView(it) }
+            listOfNotNull(exoPlayer1, exoPlayer2).forEach { applyVideoTrackSelection(it) }
+        }
+
+    private fun applyVideoTrackSelection(target: ExoPlayer) {
+        val builder = target.trackSelectionParameters.buildUpon()
+        if (videoTextureView == null) {
+            // Nothing fits under 1x1 at 1 bit/s, so the smallest one is taken.
+            builder.setMaxVideoSize(1, 1).setMaxVideoBitrate(1)
+        } else {
+            builder.clearVideoSizeConstraints().setMaxVideoBitrate(Int.MAX_VALUE)
+        }
+        target.trackSelectionParameters = builder.build()
+    }
+
     private var playerListener = PlayerListener()
     private val scope = MainScope()
     private var cache: SimpleCache? = null
@@ -301,6 +334,7 @@ abstract class AudioPlayer internal constructor(
         // All track transitions are handled by the JS side via playNext() -> load().
         // This avoids ExoPlayer trying to load queue items that don't have a URL yet.
         mPlayer.pauseAtEndOfMediaItems = true
+        applyVideoTrackSelection(mPlayer)
         nameHolder[0] = mPlayer.toString()
         // https://github.com/androidx/media/issues/2319
         mPlayer.addAnalyticsListener(AudioFxInitListener())
@@ -690,6 +724,11 @@ abstract class AudioPlayer internal constructor(
             }
 
             prevPlayer.setAudioAttributes(prevPlayer.audioAttributes, false)
+            // The video view draws the player that is playing.
+            videoTextureView?.let { surface ->
+                prevPlayer.clearVideoTextureView(surface)
+                exoPlayer.setVideoTextureView(surface)
+            }
             player.switchCrossFadePlayer()
 
             crossfadeFadingOutPlayer = prevPlayer
