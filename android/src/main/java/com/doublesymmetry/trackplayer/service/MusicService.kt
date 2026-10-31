@@ -842,16 +842,15 @@ class MusicService : HeadlessJsMediaService() {
         // Arm the fallback, once per outstanding start (see fallbackArmed). If media3 promotes on
         // its own first (case 3a) it is cancelled as soon as that is seen; if it never does — the
         // cold-start case — this is what keeps the system from killing us. The deadline also runs
-        // for a play key that arrives while the app is visible (a headset through media3's
-        // MediaButtonReceiver, the notification's play): the user can leave before content loads,
-        // and media3 has nothing to promote with an empty timeline. In the foreground only those
-        // keys arm it, because only they come through startForegroundService() (MediaButtonReceiver
-        // accepts nothing else from API 26, DefaultActionFactory uses getForegroundService() only
-        // for play). Next/previous and custom notification actions are plain startService() calls
-        // with no deadline that may not refresh the notification: a placeholder there would cover
-        // the paused controls and then take them down. The service's own onStartCommand(null, ...)
+        // for a start that arrives while the app is visible, or that it has only just left (the
+        // process counts as foreground for ~700 ms after Home): the user can leave before content
+        // loads, and media3 has nothing to promote with an empty timeline. In the foreground only
+        // the starts that come through startForegroundService() arm it (isDeadlineStart).
+        // Next/previous and custom notification actions are plain startService() calls with no
+        // deadline that may not refresh the notification: a placeholder there would cover the
+        // paused controls and then take them down. The service's own onStartCommand(null, ...)
         // wakes owe nothing either.
-        if (notForeground && (backgrounded || (isMediaButton && isPlayKey(intent))) && !fallbackArmed) {
+        if (notForeground && (backgrounded || isDeadlineStart(intent)) && !fallbackArmed) {
             fallbackArmed = true
             foregroundWatchdogHandler.postDelayed(promoteForPendingStart, FOREGROUND_PROMOTE_FALLBACK_MS)
         }
@@ -2104,8 +2103,18 @@ class MusicService : HeadlessJsMediaService() {
         )
     }
 
-    // The keys media3 starts this service with through startForegroundService(): see the arming of
-    // promoteForPendingStart in onStartCommand.
+    // Whether this start came through startForegroundService(), i.e. the system now waits for a
+    // startForeground() (see the arming of promoteForPendingStart in onStartCommand):
+    //  - a play key: media3's MediaButtonReceiver accepts nothing else from API 26, and its
+    //    DefaultActionFactory uses getForegroundService() only for play;
+    //  - an intent with no action: the host app's widget (LyraWidget startPlaybackWithoutUi) and
+    //    media3's own start-self before it promotes.
+    private fun isDeadlineStart(intent: Intent?): Boolean {
+        if (intent == null) return false
+        if (intent.action == null) return true
+        return intent.action == Intent.ACTION_MEDIA_BUTTON && isPlayKey(intent)
+    }
+
     private fun isPlayKey(intent: Intent?): Boolean {
         val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
