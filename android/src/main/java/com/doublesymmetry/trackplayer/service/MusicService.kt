@@ -835,16 +835,21 @@ class MusicService : HeadlessJsMediaService() {
         // Owed regardless of foreground state: see honourOwedForegroundStart. The app itself only
         // binds, so an onStartCommand that finds us not foreground comes from a
         // startForegroundService() — media buttons, media3's notification manager, a widget.
-        if (!isForegroundService()) foregroundStartOwed = true
-        if (!AppForegroundTracker.foregrounded && !isForegroundService()) {
-            pendingForegroundStartAt = SystemClock.elapsedRealtime()
-            // Arm the fallback, once per outstanding start (see fallbackArmed). If media3 promotes
-            // on its own first (case 3a) it is cancelled as soon as that is seen; if it never does
-            // — the cold-start case — this is what keeps the system from killing us.
-            if (!fallbackArmed) {
-                fallbackArmed = true
-                foregroundWatchdogHandler.postDelayed(promoteForPendingStart, FOREGROUND_PROMOTE_FALLBACK_MS)
-            }
+        val notForeground = !isForegroundService()
+        val backgrounded = !AppForegroundTracker.foregrounded
+        if (notForeground) foregroundStartOwed = true
+        if (backgrounded && notForeground) pendingForegroundStartAt = SystemClock.elapsedRealtime()
+        // Arm the fallback, once per outstanding start (see fallbackArmed). If media3 promotes on
+        // its own first (case 3a) it is cancelled as soon as that is seen; if it never does — the
+        // cold-start case — this is what keeps the system from killing us. The deadline also runs
+        // for a start that arrives while the app is visible: the user can leave before content
+        // loads, and media3 has nothing to promote with an empty timeline. In the foreground only
+        // a start from outside counts, though: the service's own onStartCommand(null, ...) calls
+        // (a headless wake) owe the system nothing, and a placeholder there would put a playing
+        // notification over an idle app.
+        if (notForeground && (backgrounded || intent != null) && !fallbackArmed) {
+            fallbackArmed = true
+            foregroundWatchdogHandler.postDelayed(promoteForPendingStart, FOREGROUND_PROMOTE_FALLBACK_MS)
         }
 
         val mediaKeyConsumed = if (isMediaButton) onMediaKeyEvent(intent) == true else false
