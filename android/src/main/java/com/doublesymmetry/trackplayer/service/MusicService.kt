@@ -87,6 +87,12 @@ class MusicService : HeadlessJsMediaService() {
             private set
         const val EMPTY_NOTIFICATION_ID = 1
 
+        // Action for a host app that starts this service with Context.startForegroundService()
+        // (a home-screen widget playing without UI). It tells onStartCommand that the system now
+        // waits for a startForeground(), which an action-less start cannot: media3 also starts
+        // the service with an action-less intent, after it has already promoted.
+        const val ACTION_FOREGROUND_START = "com.doublesymmetry.trackplayer.FOREGROUND_START"
+
         // Every placeholder ExoPlayer in the process shares this one playback thread. Built
         // per player, each placeholder owns an "ExoPlayer:Playback" thread for as long as it
         // lives, so any placeholder that outlives its service leaks a thread — on the low-RAM
@@ -546,6 +552,27 @@ class MusicService : HeadlessJsMediaService() {
 
     private val foregroundWatchdogHandler by lazy { Handler(Looper.getMainLooper()) }
 
+    // Whether promoteForPendingStart is posted. It is armed once per outstanding start: Android
+    // does not restart its deadline for a second startForegroundService() while it is still
+    // waiting, so re-posting the fallback on every start pushed it past that deadline.
+    private var fallbackArmed = false
+
+    /**
+     * media3 has called startForeground(): the start the system was waiting on is answered, so
+     * nothing is owed and the fallback is not needed any more. Checked when a notification update
+     * arrives and again right after media3's posted promotion has run.
+     */
+    private fun notePromotionSeen() {
+        if (!isForegroundService()) return
+        foregroundStartOwed = false
+        if (fallbackArmed) {
+            fallbackArmed = false
+            foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        }
+    }
+
+    private val confirmPromotion = Runnable { notePromotionSeen() }
+
     /**
      * Last-resort half of the deferred foreground start. Case 3a in onUpdateNotification only
      * helps when media3 actually asks us to update the notification; on a cold start with nothing
@@ -560,7 +587,11 @@ class MusicService : HeadlessJsMediaService() {
      * promoted by the time this runs, it does nothing.
      */
     private val promoteForPendingStart = Runnable {
-        if (isForegroundService()) return@Runnable
+        fallbackArmed = false
+        // Nothing to do once media3 holds the foreground, or once the start the system was waiting
+        // on has been answered: a promotion media3 made and then dropped again (paused) must not be
+        // covered by this placeholder afterwards.
+        if (isForegroundService() || !foregroundStartOwed) return@Runnable
         try {
             postPlaceholderForeground()
             placeholderStanding = true
@@ -810,13 +841,23 @@ class MusicService : HeadlessJsMediaService() {
         // Owed regardless of foreground state: see honourOwedForegroundStart. The app itself only
         // binds, so an onStartCommand that finds us not foreground comes from a
         // startForegroundService() — media buttons, media3's notification manager, a widget.
-        if (!isForegroundService()) foregroundStartOwed = true
-        if (!AppForegroundTracker.foregrounded && !isForegroundService()) {
-            pendingForegroundStartAt = SystemClock.elapsedRealtime()
-            // Arm the fallback. If media3 promotes on its own first (case 3a) the runnable is
-            // cancelled there; if it never asks — the cold-start case — this is what keeps the
-            // system from killing us.
-            foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        val notForeground = !isForegroundService()
+        val backgrounded = !AppForegroundTracker.foregrounded
+        if (notForeground) foregroundStartOwed = true
+        if (backgrounded && notForeground) pendingForegroundStartAt = SystemClock.elapsedRealtime()
+        // Arm the fallback, once per outstanding start (see fallbackArmed). If media3 promotes on
+        // its own first (case 3a) it is cancelled as soon as that is seen; if it never does — the
+        // cold-start case — this is what keeps the system from killing us. The deadline also runs
+        // for a start that arrives while the app is visible, or that it has only just left (the
+        // process counts as foreground for ~700 ms after Home): the user can leave before content
+        // loads, and media3 has nothing to promote with an empty timeline. In the foreground only
+        // the starts that come through startForegroundService() arm it (isDeadlineStart).
+        // Next/previous and custom notification actions are plain startService() calls with no
+        // deadline that may not refresh the notification: a placeholder there would cover the
+        // paused controls and then take them down. The service's own onStartCommand(null, ...)
+        // wakes owe nothing either.
+        if (notForeground && (backgrounded || isDeadlineStart(intent)) && !fallbackArmed) {
+            fallbackArmed = true
             foregroundWatchdogHandler.postDelayed(promoteForPendingStart, FOREGROUND_PROMOTE_FALLBACK_MS)
         }
 
@@ -1718,11 +1759,19 @@ class MusicService : HeadlessJsMediaService() {
         // deadline is satisfied and the flag is stale; if it throws, retrying on a later
         // notification update would be a genuine background start, which is the illegal one.
         if (pendingForegroundStart) pendingForegroundStartAt = 0L
-        // media3 is handling the promotion itself, so the placeholder is not needed.
-        if (required) foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        // The placeholder fallback stays armed until a promotion is actually SEEN. `required` does
+        // not mean media3 will promote: media3 1.8.0 returns without promoting when the session has
+        // nothing to show (an empty timeline while content is still loading), and otherwise
+        // promotes later, on a posted callback. Cancelling the fallback here left nobody to call
+        // startForeground() before the system deadline ("did not then call
+        // Service.startForeground()", eSound 850). A promotion made since the last update is seen
+        // here, before super can demote again; the one this update triggers is checked just after
+        // media3's posted promotion has run.
+        notePromotionSeen()
         try {
             super.onUpdateNotification(session, required)
-            if (required && isForegroundService()) foregroundStartOwed = false
+            notePromotionSeen()
+            foregroundWatchdogHandler.post(confirmPromotion)
             // media3 has rendered its own notification over ours, so the placeholder is gone and
             // retirePlaceholder must not touch what replaced it.
             placeholderStanding = false
@@ -1951,6 +2000,8 @@ class MusicService : HeadlessJsMediaService() {
         // A pending placeholder promotion must not fire against a dying service, and neither must
         // its retirement — the teardown below drops the foreground state anyway.
         foregroundWatchdogHandler.removeCallbacks(promoteForPendingStart)
+        fallbackArmed = false
+        foregroundWatchdogHandler.removeCallbacks(confirmPromotion)
         foregroundWatchdogHandler.removeCallbacks(retirePlaceholder)
         foregroundWatchdogHandler.removeCallbacks(emitPlayPauseTaps)
         browseHandler.removeCallbacksAndMessages(null)
@@ -2056,6 +2107,34 @@ class MusicService : HeadlessJsMediaService() {
             emitPlayPauseTaps,
             ViewConfiguration.getDoubleTapTimeout().toLong()
         )
+    }
+
+    // Whether this start came through startForegroundService(), i.e. the system now waits for a
+    // startForeground() (see the arming of promoteForPendingStart in onStartCommand):
+    //  - a play key: media3's MediaButtonReceiver accepts nothing else from API 26, and its
+    //    DefaultActionFactory uses getForegroundService() only for play;
+    //  - ACTION_FOREGROUND_START, set by a host app that starts the service that way (Lyra's
+    //    widget). An action-less intent does not count: media3 starts itself with one after it
+    //    has already called startForeground(), and arming then could cover a paused notification.
+    private fun isDeadlineStart(intent: Intent?): Boolean = when (intent?.action) {
+        ACTION_FOREGROUND_START -> true
+        Intent.ACTION_MEDIA_BUTTON -> isPlayKey(intent)
+        else -> false
+    }
+
+    private fun isPlayKey(intent: Intent?): Boolean {
+        val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+        }
+        return when (keyEvent?.keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK -> true
+            else -> false
+        }
     }
 
     fun onMediaKeyEvent(intent: Intent?): Boolean? {
