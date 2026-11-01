@@ -1,3 +1,19 @@
+## 4.1.93
+
+### Bug Fixes
+
+* **equalizer:** a change of level or preset (EQ bands, bass boost, loudness) moves the filters sample by sample over
+  ~3 ms, carried across buffers, instead of in one step at the start of each buffer. On iOS a large jump left a step
+  of ~27 LSB at every buffer boundary (up to ~19,800 LSB when loudness went back to 0, ~6,600 on an EQ +12 → −12
+  preset change); on Android the coefficients moved 0.8% per buffer, so a slider took ~3 s to be heard in full and
+  small buffers clicked. A 0 dB filter is now an exact pass-through, so smoothing toward it no longer sweeps the
+  filter through odd shapes. All of these are now at the level of the music (124ckhdfxr6).
+* **equalizer (iOS):** balance smooths each channel's gain instead of the balance value, so moving it across the
+  centre no longer leaves a residual at the corner of the pan law; the gain for any balance is unchanged. A level or
+  preset change no longer allocates memory on the render thread (124ckhdfxr6).
+* **equalizer (Android):** the audio thread reads each effect's target once per buffer, so both channels follow
+  the same change when a slider moves mid-buffer (124ckhdfxr6).
+
 ## 4.1.92
 
 ### Bug Fixes
