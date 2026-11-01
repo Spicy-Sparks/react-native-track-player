@@ -145,7 +145,9 @@ abstract class AudioPlayer internal constructor(
     private var cache: SimpleCache? = null
     val playerEventHolder = PlayerEventHolder()
     private val focusListener = APMFocusListener()
-    private val focusManager = FocusManager(context, listener=focusListener, options=options)
+    private val focusManager = FocusManager(context, listener=focusListener, options=options).apply {
+        onDuckChanged = { ducked -> volumeMultiplier = if (ducked) 0.2f else 1f }
+    }
     var fftEmitter: (DoubleArray) -> Unit = { v -> Timber.tag("APMFFT").d("FFT emitted $v") }
     private val balanceProcessor = BalanceAudioProcessor()
     private val equalizerProcessor = EqualizerAudioProcessor()
@@ -175,14 +177,7 @@ abstract class AudioPlayer internal constructor(
                 // even when ExoPlayer handles focus internally (handleAudioFocus=true).
                 // This ensures RemoteDuck events reach JS for proper resume handling,
                 // especially on Android Auto where ExoPlayer's internal resume may fail.
-                // if (!options.handleAudioFocus) {
-                when (value) {
-                    AudioPlayerState.IDLE,
-                    AudioPlayerState.ERROR -> focusManager.abandonAudioFocusIfHeld()
-                    AudioPlayerState.READY -> focusManager.requestAudioFocus()
-                    else -> {}
-                }
-                // }
+                focusManager.onPlayerStateChanged(value, options.handleAudioFocus)
             }
         }
 
@@ -268,8 +263,6 @@ abstract class AudioPlayer internal constructor(
 
     val isPlaying
         get() = exoPlayer.isPlaying
-
-    private var wasDucking = false
 
     fun players (): List<ExoPlayer> {
         if (options.crossfade) {
@@ -1167,12 +1160,12 @@ abstract class AudioPlayer internal constructor(
                 AudioManager.AUDIOFOCUS_LOSS -> {
                     playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = true)
                     pause()
-                    focusManager.hasAudioFocus = false
+                    // Also ends a duck: no GAIN follows a permanent loss.
+                    focusManager.onFocusLostPermanently()
                 }
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                     playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = false)
                     if (isPlaying) {
-                        wasDucking = false
                         pause()
                     }
                 }
@@ -1180,21 +1173,17 @@ abstract class AudioPlayer internal constructor(
                     playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = false)
                     if (alwaysPauseOnInterruption) {
                         if (isPlaying) {
-                            wasDucking = false
                             pause()
                         }
                     } else {
-                        wasDucking = true
-                        volumeMultiplier = 0.2f
+                        focusManager.onDuck()
                     }
                 }
                 AudioManager.AUDIOFOCUS_GAIN -> {
                     playerEventHolder.updateOnAudioFocusChanged(isPaused = false, isPermanent = false)
-                    if (wasDucking) {
-                        volumeMultiplier = 1f
-                        wasDucking = false
-                    }
-                    focusManager.hasAudioFocus = true
+                    // Ends any duck, also one a transient loss interrupted (a navigation prompt,
+                    // then a call): that loss used to forget the duck and leave the volume at 0.2.
+                    focusManager.onFocusGained()
                 }
             }
         }
