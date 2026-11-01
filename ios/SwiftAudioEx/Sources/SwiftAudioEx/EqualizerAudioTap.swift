@@ -7,6 +7,7 @@
 //  Quality features:
 //  - Float64 arithmetic in all IIR paths (eliminates rounding artefacts)
 //  - Per-block coefficient smoothing (click-free parameter changes)
+//  - Fades (~10 ms) when an effect is switched and between the chain and bypass
 //  - DC blocking filter (removes sub-sonic drift from cascaded IIRs)
 //  - Envelope-following true-peak limiter (transparent ceiling protection)
 //  - All-pass-based stereo virtualizer (natural phase-width, no comb filtering)
@@ -135,10 +136,51 @@ public class EqualizerAudioTap: AudioTap {
     // Coefficient smoothing alpha (computed from sample rate)
     private var smoothAlpha: Double = 0.004
 
-    // Frames left in the smoothing tail after all effects turned off. While the
-    // tail runs the chain keeps processing so coefficients can ramp to unity
-    // (click-free); afterwards the tap hard-bypasses (bit-perfect passthrough).
+    // Frames left in the tail after all effects turned off. While the tail runs
+    // the chain keeps processing so the effect switched off last fades out (see
+    // eqMix); afterwards the chain crossfades into bit-perfect passthrough.
     private var bypassTailFrames: Int = 0
+
+    // How much of the dry signal is in the output: 0 = the chain's output, 1 = bypass. It moves
+    // toward its target by 1/fadeFrames per frame (~10 ms end to end), across buffers, both ways.
+    // Switching straight to dry at the end of the tail jumped by whatever the chain still changed
+    // (the DC blocker alone, on bass-heavy audio).
+    private var fadeFrames: Int = 441
+    private var bypassMix: Double = 1.0
+
+    // Each effect fades in and out of the chain on its own: 0 = out, 1 = in, at the same rate.
+    // Before, switching one effect while others kept playing cut its filter in or out at a buffer
+    // boundary. While an effect is out its filter rests at its designed level with cleared state
+    // (see restEffectsThatAreOut), so it fades back in at the level its slider shows.
+    private var eqMix: Double = 0
+    private var bbMix: Double = 0
+    private var lnMix: Double = 0
+    private var vzMix: Double = 0
+
+    // The virtualizer level and the balance as applied. Each follows its setting through two
+    // one-pole stages (so it starts and settles without a kink): a step moved the side signal, or
+    // a whole channel's level, at once. ~2 ms each for the level; ~10 ms each for the balance,
+    // whose pan law has a corner at the centre that a fast sweep across it would make audible.
+    private var levelCoeff: Double = 1
+    private var balanceCoeff: Double = 1
+    private var vzLevelA: Double = 0.5
+    private var vzLevel: Double = 0.5
+    private var balA: Double = 0
+    private var bal: Double = 0
+
+    // The switches as read at the start of the buffer being processed: the UI thread can flip them
+    // halfway through one.
+    private var eqOn = false
+    private var bbOn = false
+    private var lnOn = false
+    private var vzOn = false
+
+    // Dry copies for the fades, [channel][frame]. Grown when a bigger buffer arrives.
+    private var chainDry: [[Float]] = []
+    private var stageDry: [[Float]] = []
+
+    // hasNonFlatGains as last read by the audio thread (see process: it does not wait for the lock).
+    private var nonFlatGains = false
 
     // Tap lifecycle tracking
     private var activeTapCount: Int = 0
@@ -226,6 +268,7 @@ public class EqualizerAudioTap: AudioTap {
             apStateL = []; apStateR = []; apCoeffsL = []; apCoeffsR = []
             dcXprev = []; dcYprev = []
             safetyDelay = []
+            chainDry = []; stageDry = []
             activeTapCount = 0
         }
     }
@@ -234,7 +277,12 @@ public class EqualizerAudioTap: AudioTap {
         sampleRate = Double(description.mSampleRate)
         channelCount = Int(description.mChannelsPerFrame)
         let ch = channelCount
-        let z2 = [Double](repeating: 0, count: 2)
+        // Every coefficient set and filter state gets its own storage: the render thread writes them
+        // in place (and now also while bypassed), and shared copy-on-write storage would be
+        // allocated there at the first write.
+        // (Not a [0, 0] literal: the optimizer turns it into one shared constant buffer.)
+        func zStates(_ count: Int) -> [[Double]] { (0..<count).map { _ in [Double](repeating: 0, count: 2) } }
+        func own(_ c: [Double]) -> [Double] { c.map { $0 } }
 
         // Smoothing alpha: ~5 ms time constant, adapted to sample rate
         smoothAlpha = 1.0 - exp(-1.0 / (0.005 * sampleRate))
@@ -242,21 +290,21 @@ public class EqualizerAudioTap: AudioTap {
         // ── EQ bands ──
         eqCur = Array(repeating: Self.kUnity, count: Self.bandCount)
         eqTgt = Array(repeating: Self.kUnity, count: Self.bandCount)
-        eqZ   = Array(repeating: Array(repeating: z2, count: ch), count: Self.bandCount)
+        eqZ   = (0..<Self.bandCount).map { _ in zStates(ch) }
         refreshEQTargets()
-        eqCur = eqTgt  // snap to initial values (no smoothing ramp on first prepare)
+        eqCur = eqTgt.map(own)  // snap to initial values (no smoothing ramp on first prepare)
 
         // ── Bass boost ──
-        bbZ = Array(repeating: z2, count: ch)
+        bbZ = zStates(ch)
         refreshBBTarget()
-        bbCur = bbTgt
+        bbCur = own(bbTgt)
 
         // ── Loudness ──
-        lnLoZ = Array(repeating: z2, count: ch)
-        lnHiZ = Array(repeating: z2, count: ch)
+        lnLoZ = zStates(ch)
+        lnHiZ = zStates(ch)
         refreshLnTargets()
-        lnLoCur = lnLoTgt
-        lnHiCur = lnHiTgt
+        lnLoCur = own(lnLoTgt)
+        lnHiCur = own(lnHiTgt)
 
         // ── Virtualizer all-pass (cross-channel) ──
         apCoeffsL = Self.apFreqsL.map { f in
@@ -267,8 +315,8 @@ public class EqualizerAudioTap: AudioTap {
             let omega = tan(Double.pi * f / sampleRate)
             return (1.0 - omega) / (1.0 + omega)
         }
-        apStateL = Array(repeating: z2, count: Self.apFreqsL.count)
-        apStateR = Array(repeating: z2, count: Self.apFreqsR.count)
+        apStateL = zStates(Self.apFreqsL.count)
+        apStateR = zStates(Self.apFreqsR.count)
 
         // ── DC blocker ──
         dcXprev = Array(repeating: 0, count: ch)
@@ -276,7 +324,7 @@ public class EqualizerAudioTap: AudioTap {
 
         // ── Transparent true-peak safety limiter ──
         safetyLookahead = max(32, Int(sampleRate * 0.0015))     // ~1.5 ms look-ahead
-        safetyDelay = Array(repeating: Array(repeating: 0, count: safetyLookahead), count: ch)
+        safetyDelay = (0..<ch).map { _ in [Double](repeating: 0, count: safetyLookahead) }
         safetyPos = 0
         safetyGain = 1.0
         // Attack reaches the target within ~one look-ahead window so a peak is
@@ -284,8 +332,27 @@ public class EqualizerAudioTap: AudioTap {
         safetyAttCoeff = 1.0 - exp(-3.0 / Double(safetyLookahead))
         safetyRelCoeff = 1.0 - exp(-1.0 / (0.100 * sampleRate))  // 100 ms release
 
-        // ── Bypass tail ──
+        // ── Bypass tail and fades ──
         bypassTailFrames = 0
+        fadeFrames = max(1, Int(sampleRate * 0.01))
+        levelCoeff = 1.0 - exp(-1.0 / (0.002 * sampleRate))
+        balanceCoeff = 1.0 - exp(-1.0 / (0.010 * sampleRate))
+        paramLock.lock()
+        nonFlatGains = hasNonFlatGains
+        let nonFlat = nonFlatGains
+        paramLock.unlock()
+        let balance = Double(max(-1, min(1, self.balance)))
+        let active = (isEnabled && nonFlat) || isBassBoostEnabled || isLoudnessEnabled
+            || isVirtualizerEnabled || balance != 0
+        bypassMix = active ? 0 : 1
+        settleEffects(eq: isEnabled, bb: isBassBoostEnabled, ln: isLoudnessEnabled,
+                      vz: isVirtualizerEnabled, balance: balance)
+        // Separate storage for every channel of each copy: shared (copy-on-write) storage would be
+        // detached, i.e. allocated, on the render thread at the first fade. Sized for the largest
+        // buffer the tap was told to expect, so process() never has to grow them.
+        let frames = max(4096, maxFrames)
+        chainDry = (0..<ch).map { _ in [Float](repeating: 0, count: frames) }
+        stageDry = (0..<ch).map { _ in [Float](repeating: 0, count: frames) }
     }
 
     public override func unprepare() {
@@ -295,14 +362,15 @@ public class EqualizerAudioTap: AudioTap {
     /// Zero all filter memory so the next processed buffer starts clean.
     /// Called on unprepare and when the smoothing tail ends after bypass.
     private func resetFilterState() {
+        // In place: a new [0, 0] array per state allocated on the render thread.
         for b in 0..<eqZ.count {
-            for c in 0..<eqZ[b].count { eqZ[b][c] = [0, 0] }
+            for c in 0..<eqZ[b].count { clearState(&eqZ[b][c]) }
         }
-        for c in 0..<bbZ.count   { bbZ[c]   = [0, 0] }
-        for c in 0..<lnLoZ.count { lnLoZ[c] = [0, 0] }
-        for c in 0..<lnHiZ.count { lnHiZ[c] = [0, 0] }
-        for s in 0..<apStateL.count { apStateL[s] = [0, 0] }
-        for s in 0..<apStateR.count { apStateR[s] = [0, 0] }
+        for c in 0..<bbZ.count   { clearState(&bbZ[c]) }
+        for c in 0..<lnLoZ.count { clearState(&lnLoZ[c]) }
+        for c in 0..<lnHiZ.count { clearState(&lnHiZ[c]) }
+        for s in 0..<apStateL.count { clearState(&apStateL[s]) }
+        for s in 0..<apStateR.count { clearState(&apStateR[s]) }
         for c in 0..<dcXprev.count { dcXprev[c] = 0; dcYprev[c] = 0 }
     }
 
@@ -311,7 +379,23 @@ public class EqualizerAudioTap: AudioTap {
     public override func process(numberOfFrames: Int, buffer: UnsafeMutableAudioBufferListPointer) {
         guard numberOfFrames > 0 else { return }
 
+        let n = numberOfFrames
         let nCh = min(buffer.count, channelCount)
+
+        // ── 1. Absorb pending parameter changes (briefly hold lock) ──
+        // Also while bypassed, so the targets an effect is settled on are current. Never waits for
+        // the UI thread: if a setter holds the lock, the changes are picked up on the next buffer.
+        if paramLock.try() {
+            if needsEQUpdate { refreshEQTargetsLocked(); needsEQUpdate = false }
+            if needsBBUpdate { refreshBBTargetLocked();  needsBBUpdate = false }
+            if needsLnUpdate { refreshLnTargetsLocked(); needsLnUpdate = false }
+            nonFlatGains = hasNonFlatGains
+            paramLock.unlock()
+        }
+        let nonFlat = nonFlatGains
+
+        eqOn = isEnabled; bbOn = isBassBoostEnabled; lnOn = isLoudnessEnabled; vzOn = isVirtualizerEnabled
+        let balTarget = Double(max(-1, min(1, balance)))
 
         // Only effects that actually modify the signal count as active. An
         // enabled EQ with a flat curve is unity passthrough, so it must NOT
@@ -319,129 +403,85 @@ public class EqualizerAudioTap: AudioTap {
         // for every user who never touched the equalizer. NOTE: the transparent
         // safety limiter at the end runs regardless (see applySafetyLimiter) to
         // protect the Bluetooth/AAC path from inter-sample clipping.
-        let effectsActive = (isEnabled && hasNonFlatGains)
-            || isBassBoostEnabled || isLoudnessEnabled || isVirtualizerEnabled
-            || balance != 0
+        let effectsActive = (eqOn && nonFlat) || bbOn || lnOn || vzOn || balTarget != 0
 
         // Run the colouring chain when effects are active, plus a short tail
-        // afterwards so coefficients can ramp to unity (click-free). The safety
-        // limiter below is independent of this gate.
-        var runChain = effectsActive
+        // afterwards (see bypassTailFrames). The chain and bypass crossfade
+        // (see bypassMix): the chain keeps running until the mix is all dry.
         if effectsActive {
             bypassTailFrames = Int(sampleRate * 0.1) // ~100 ms
         } else if bypassTailFrames > 0 {
-            runChain = true
-            bypassTailFrames -= numberOfFrames
-            if bypassTailFrames <= 0 {
-                bypassTailFrames = 0
-                runChain = false
-                resetFilterState() // next activation starts from clean state
-            }
+            bypassTailFrames = max(0, bypassTailFrames - n)
         }
+        let mixTarget: Double = (effectsActive || bypassTailFrames > 0) ? 0 : 1
+        let runChain = mixTarget == 0 || bypassMix < 1
+        let mixing = bypassMix != mixTarget
 
         // Passthrough: skip the colouring chain but STILL apply the safety
         // limiter so hot masters can't inter-sample clip over Bluetooth/AAC.
+        // Nothing is heard through the chain, so every effect jumps to its
+        // settled state.
         if !runChain {
-            applySafetyLimiter(numberOfFrames: numberOfFrames, buffer: buffer, nCh: nCh)
+            settleEffects(eq: eqOn, bb: bbOn, ln: lnOn, vz: vzOn, balance: balTarget)
+            applySafetyLimiter(numberOfFrames: n, buffer: buffer, nCh: nCh)
             return
         }
-
-        // ── 1. Absorb pending parameter changes (briefly hold lock) ──
-        paramLock.lock()
-        if needsEQUpdate { refreshEQTargetsLocked(); needsEQUpdate = false }
-        if needsBBUpdate { refreshBBTargetLocked();  needsBBUpdate = false }
-        if needsLnUpdate { refreshLnTargetsLocked(); needsLnUpdate = false }
-        paramLock.unlock()
+        restEffectsThatAreOut()
+        if mixing { copyIn(buffer, nCh, n, into: &chainDry) }
 
         // ── 2. Smooth coefficients toward targets ──
         // Uses exponential convergence equivalent to per-sample smoothing
-        let sf = 1.0 - pow(1.0 - smoothAlpha, Double(numberOfFrames))
+        let sf = 1.0 - pow(1.0 - smoothAlpha, Double(n))
 
-        if isEnabled {
-            smoothCoeffs2D(&eqCur, toward: eqTgt, factor: sf)
-        }
-        if isBassBoostEnabled { smoothCoeffs(&bbCur, toward: bbTgt, factor: sf) }
-        if isLoudnessEnabled {
+        if eqOn || eqMix > 0 { smoothCoeffs2D(&eqCur, toward: eqTgt, factor: sf) }
+        if bbOn || bbMix > 0 { smoothCoeffs(&bbCur, toward: bbTgt, factor: sf) }
+        if lnOn || lnMix > 0 {
             smoothCoeffs(&lnLoCur, toward: lnLoTgt, factor: sf)
             smoothCoeffs(&lnHiCur, toward: lnHiTgt, factor: sf)
         }
 
-        // ── 3. EQ bands (10 cascaded peaking filters, Float64) ──
-        if isEnabled {
+        // ── 3. EQ bands (cascaded peaking filters, Float64) ──
+        eqMix = stage(buffer, nCh, n, eqMix, eqOn) {
             for ch in 0..<nCh {
                 guard let data = buffer[ch].mData else { continue }
                 let samples = data.assumingMemoryBound(to: Float.self)
                 for band in 0..<Self.bandCount {
                     guard band < eqCur.count, band < eqZ.count, ch < eqZ[band].count else { continue }
-                    biquadD(samples, numberOfFrames, eqCur[band], &eqZ[band][ch])
+                    biquadD(samples, n, eqCur[band], &eqZ[band][ch])
                 }
             }
         }
 
         // ── 4. Bass boost (low shelf, Float64) ──
-        if isBassBoostEnabled {
+        bbMix = stage(buffer, nCh, n, bbMix, bbOn) {
             for ch in 0..<nCh {
                 guard ch < bbZ.count, let data = buffer[ch].mData else { continue }
-                biquadD(data.assumingMemoryBound(to: Float.self), numberOfFrames, bbCur, &bbZ[ch])
+                biquadD(data.assumingMemoryBound(to: Float.self), n, bbCur, &bbZ[ch])
             }
         }
 
         // ── 5. Loudness enhancer (low shelf + high shelf, Float64) ──
-        if isLoudnessEnabled {
+        lnMix = stage(buffer, nCh, n, lnMix, lnOn) {
             for ch in 0..<nCh {
                 guard ch < lnLoZ.count, ch < lnHiZ.count,
                       let data = buffer[ch].mData else { continue }
                 let samples = data.assumingMemoryBound(to: Float.self)
-                biquadD(samples, numberOfFrames, lnLoCur, &lnLoZ[ch])
-                biquadD(samples, numberOfFrames, lnHiCur, &lnHiZ[ch])
+                biquadD(samples, n, lnLoCur, &lnLoZ[ch])
+                biquadD(samples, n, lnHiCur, &lnHiZ[ch])
             }
         }
 
         // ── 6. Virtualizer (mid-side + cross-channel all-pass, stereo only) ──
-        if isVirtualizerEnabled && nCh >= 2
+        if nCh >= 2
             && apCoeffsL.count == Self.apFreqsL.count
-            && apCoeffsR.count == Self.apFreqsR.count
+            && apCoeffsR.count == Self.apFreqsR.count,
+           let lD = buffer[0].mData, let rD = buffer[1].mData
         {
-            guard let lD = buffer[0].mData, let rD = buffer[1].mData else { return }
             let L = lD.assumingMemoryBound(to: Float.self)
             let R = rD.assumingMemoryBound(to: Float.self)
-            let lvl   = Double(virtualizerLevel)
-            let width = 1.0 + lvl * 1.5    // 1.0 (normal) to 2.5 (wide)
-            let apMix = 0.5 + lvl * 0.5    // 0.5 (moderate) to 1.0 (full phase shift)
-
-            for i in 0..<numberOfFrames {
-                let l = Double(L[i]), r = Double(R[i])
-
-                // Mid-side decomposition + widening
-                let mid  = (l + r) * 0.5
-                let side = (l - r) * 0.5
-                let wL = mid + side * width
-                let wR = mid - side * width
-
-                // Cascade all-pass on LEFT channel (creates phase shift at apFreqsL)
-                var sigL = wL
-                for s in 0..<apCoeffsL.count {
-                    let a = apCoeffsL[s]
-                    let y = a * sigL + apStateL[s][0] - a * apStateL[s][1]
-                    apStateL[s][0] = sigL
-                    apStateL[s][1] = y
-                    sigL = y
-                }
-
-                // Cascade all-pass on RIGHT channel (different frequencies → apFreqsR)
-                var sigR = wR
-                for s in 0..<apCoeffsR.count {
-                    let a = apCoeffsR[s]
-                    let y = a * sigR + apStateR[s][0] - a * apStateR[s][1]
-                    apStateR[s][0] = sigR
-                    apStateR[s][1] = y
-                    sigR = y
-                }
-
-                // Cross-channel decorrelation: each channel gets its own phase-shifted version
-                L[i] = Float(wL * (1.0 - apMix) + sigL * apMix)
-                R[i] = Float(wR * (1.0 - apMix) + sigR * apMix)
-            }
+            vzMix = stage(buffer, nCh, n, vzMix, vzOn) { applyVirtualizer(L, R, n) }
+        } else {
+            vzMix = vzOn ? 1 : 0
         }
 
         // ── 7. DC blocker (removes sub-sonic drift, all active channels) ──
@@ -450,7 +490,7 @@ public class EqualizerAudioTap: AudioTap {
             let samples = data.assumingMemoryBound(to: Float.self)
             var xp = dcXprev[ch], yp = dcYprev[ch]
             let r = Self.dcR
-            for i in 0..<numberOfFrames {
+            for i in 0..<n {
                 let x = Double(samples[i])
                 let y = x - xp + r * yp
                 xp = x; yp = y
@@ -460,21 +500,209 @@ public class EqualizerAudioTap: AudioTap {
         }
 
         // ── 8. Balance (L/R panning, stereo only) ──
-        if balance != 0 && nCh >= 2 {
-            guard let lD = buffer[0].mData, let rD = buffer[1].mData else { return }
+        if nCh >= 2 && (balTarget != 0 || bal != 0 || balA != 0),
+           let lD = buffer[0].mData, let rD = buffer[1].mData
+        {
             let L = lD.assumingMemoryBound(to: Float.self)
             let R = rD.assumingMemoryBound(to: Float.self)
-            let bal = Double(max(-1, min(1, balance)))
-            let lGain = Float(min(1.0, 1.0 - bal))
-            let rGain = Float(min(1.0, 1.0 + bal))
-            for i in 0..<numberOfFrames {
-                L[i] *= lGain
-                R[i] *= rGain
+            let k = balanceCoeff
+            var a = balA, b = bal
+            for i in 0..<n {
+                a += k * (balTarget - a)
+                b += k * (a - b)
+                L[i] = Float(Double(L[i]) * min(1.0, 1.0 - b))
+                R[i] = Float(Double(R[i]) * min(1.0, 1.0 + b))
             }
+            // Back at the centre: stop applying a gain a hair under 1.
+            if balTarget == 0 && abs(a) < 1e-6 && abs(b) < 1e-6 { a = 0; b = 0 }
+            balA = a; bal = b
+        }
+
+        // ── Crossfade with the dry input while entering or leaving bypass ──
+        if mixing {
+            crossfadeWithDry(buffer, nCh, n, target: mixTarget)
+            if bypassMix >= 1 { resetFilterState() }
         }
 
         // ── 9. Transparent true-peak safety limiter (also runs on passthrough) ──
-        applySafetyLimiter(numberOfFrames: numberOfFrames, buffer: buffer, nCh: nCh)
+        applySafetyLimiter(numberOfFrames: n, buffer: buffer, nCh: nCh)
+    }
+
+    // ═══════════════ Internal: Fades ═══════════════
+
+    /// The fades move linearly but are heard through this S-curve (smoothstep):
+    /// flat at both ends, so a fade does not start or stop with a kink.
+    private static func sCurve(_ x: Double) -> Double { x * x * (3 - 2 * x) }
+
+    /// `mix` moved `frames` steps of 1/fadeFrames toward `target`.
+    private func advance(_ mix: Double, toward target: Double, frames: Int) -> Double {
+        let step = 1.0 / Double(fadeFrames)
+        var m = mix
+        for _ in 0..<frames {
+            if m == target { break }
+            m = target > m ? min(target, m + step) : max(target, m - step)
+        }
+        return m
+    }
+
+    /// Runs one effect in place, faded by its mix, and returns the new mix. All in:
+    /// the effect alone. All out: skipped. In between, the effect's output is blended
+    /// with its input while the mix moves one step per frame toward the switch.
+    private func stage(_ buffer: UnsafeMutableAudioBufferListPointer, _ nCh: Int, _ n: Int,
+                       _ mix: Double, _ on: Bool, _ effect: () -> Void) -> Double {
+        let target: Double = on ? 1 : 0
+        if mix == target {
+            if on { effect() }
+            return mix
+        }
+        copyIn(buffer, nCh, n, into: &stageDry)
+        effect()
+        let step = 1.0 / Double(fadeFrames)
+        for ch in 0..<nCh {
+            guard ch < stageDry.count, let data = buffer[ch].mData else { continue }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            stageDry[ch].withUnsafeBufferPointer { dry in
+                var m = mix
+                for i in 0..<n {
+                    m = target > m ? min(target, m + step) : max(target, m - step)
+                    let w = Self.sCurve(m)
+                    let d = Double(dry[i])
+                    samples[i] = Float(d + (Double(samples[i]) - d) * w)
+                }
+            }
+        }
+        return advance(mix, toward: target, frames: n)
+    }
+
+    /// Blends the chain's output with the dry input by bypassMix, moving it toward `target`.
+    private func crossfadeWithDry(_ buffer: UnsafeMutableAudioBufferListPointer, _ nCh: Int, _ n: Int,
+                                  target: Double) {
+        let step = 1.0 / Double(fadeFrames)
+        let start = bypassMix
+        for ch in 0..<nCh {
+            guard ch < chainDry.count, let data = buffer[ch].mData else { continue }
+            let samples = data.assumingMemoryBound(to: Float.self)
+            chainDry[ch].withUnsafeBufferPointer { dry in
+                var m = start
+                for i in 0..<n {
+                    m = target > m ? min(target, m + step) : max(target, m - step)
+                    let w = Self.sCurve(m)
+                    samples[i] = Float(Double(samples[i]) * (1 - w) + Double(dry[i]) * w)
+                }
+            }
+        }
+        bypassMix = advance(start, toward: target, frames: n)
+    }
+
+    /// Copies the first `n` frames of every channel into `dst`, growing it if needed.
+    private func copyIn(_ buffer: UnsafeMutableAudioBufferListPointer, _ nCh: Int, _ n: Int,
+                        into dst: inout [[Float]]) {
+        if dst.count < nCh {
+            dst.append(contentsOf: [[Float]](repeating: [], count: nCh - dst.count))
+        }
+        for ch in 0..<nCh {
+            if dst[ch].count < n { dst[ch] = [Float](repeating: 0, count: max(n, 4096)) }
+            guard let data = buffer[ch].mData else { continue }
+            let src = data.assumingMemoryBound(to: Float.self)
+            dst[ch].withUnsafeMutableBufferPointer { d in
+                d.baseAddress!.update(from: src, count: n)
+            }
+        }
+    }
+
+    /// An effect that is out of the chain rests at its designed level with cleared
+    /// state, so it fades back in at the level its slider shows instead of where it
+    /// was last left.
+    private func restEffectsThatAreOut() {
+        if !eqOn && eqMix == 0 {
+            for b in 0..<min(eqCur.count, eqTgt.count) { copyCoeffs(&eqCur[b], eqTgt[b]) }
+            for b in 0..<eqZ.count { for c in 0..<eqZ[b].count { clearState(&eqZ[b][c]) } }
+        }
+        if !bbOn && bbMix == 0 {
+            copyCoeffs(&bbCur, bbTgt)
+            for c in 0..<bbZ.count { clearState(&bbZ[c]) }
+        }
+        if !lnOn && lnMix == 0 {
+            copyCoeffs(&lnLoCur, lnLoTgt); copyCoeffs(&lnHiCur, lnHiTgt)
+            for c in 0..<lnLoZ.count { clearState(&lnLoZ[c]) }
+            for c in 0..<lnHiZ.count { clearState(&lnHiZ[c]) }
+        }
+        if !vzOn && vzMix == 0 {
+            vzLevelA = Double(virtualizerLevel); vzLevel = vzLevelA
+            for s in 0..<apStateL.count { clearState(&apStateL[s]) }
+            for s in 0..<apStateR.count { clearState(&apStateR[s]) }
+        }
+    }
+
+    /// Puts every effect where its switch and level say, with no fade: for when
+    /// nothing is heard through the chain (bypassed) or the stream starts over.
+    private func settleEffects(eq: Bool, bb: Bool, ln: Bool, vz: Bool, balance: Double) {
+        eqMix = eq ? 1 : 0
+        bbMix = bb ? 1 : 0
+        lnMix = ln ? 1 : 0
+        vzMix = vz ? 1 : 0
+        for b in 0..<min(eqCur.count, eqTgt.count) { copyCoeffs(&eqCur[b], eqTgt[b]) }
+        copyCoeffs(&bbCur, bbTgt)
+        copyCoeffs(&lnLoCur, lnLoTgt); copyCoeffs(&lnHiCur, lnHiTgt)
+        vzLevelA = Double(virtualizerLevel); vzLevel = vzLevelA
+        balA = balance; bal = balance
+    }
+
+    /// Element by element, so the audio thread does not allocate a new array, and only where a
+    /// value changes: writing to storage still shared with another array would detach (allocate) it.
+    private func copyCoeffs(_ cur: inout [Double], _ tgt: [Double]) {
+        for k in 0..<min(cur.count, tgt.count) where cur[k] != tgt[k] { cur[k] = tgt[k] }
+    }
+
+    private func clearState(_ z: inout [Double]) {
+        for k in 0..<z.count where z[k] != 0 { z[k] = 0 }
+    }
+
+    /// Mid-side widening plus cross-channel all-pass decorrelation, at the
+    /// smoothed virtualizer level.
+    private func applyVirtualizer(_ L: UnsafeMutablePointer<Float>, _ R: UnsafeMutablePointer<Float>, _ n: Int) {
+        let target = Double(virtualizerLevel)
+        let k = levelCoeff
+        var lvlA = vzLevelA, lvl = vzLevel
+
+        for i in 0..<n {
+            lvlA += k * (target - lvlA)
+            lvl += k * (lvlA - lvl)
+            let width = 1.0 + lvl * 1.5    // 1.0 (normal) to 2.5 (wide)
+            let apMix = 0.5 + lvl * 0.5    // 0.5 (moderate) to 1.0 (full phase shift)
+            let l = Double(L[i]), r = Double(R[i])
+
+            // Mid-side decomposition + widening
+            let mid  = (l + r) * 0.5
+            let side = (l - r) * 0.5
+            let wL = mid + side * width
+            let wR = mid - side * width
+
+            // Cascade all-pass on LEFT channel (creates phase shift at apFreqsL)
+            var sigL = wL
+            for s in 0..<apCoeffsL.count {
+                let a = apCoeffsL[s]
+                let y = a * sigL + apStateL[s][0] - a * apStateL[s][1]
+                apStateL[s][0] = sigL
+                apStateL[s][1] = y
+                sigL = y
+            }
+
+            // Cascade all-pass on RIGHT channel (different frequencies → apFreqsR)
+            var sigR = wR
+            for s in 0..<apCoeffsR.count {
+                let a = apCoeffsR[s]
+                let y = a * sigR + apStateR[s][0] - a * apStateR[s][1]
+                apStateR[s][0] = sigR
+                apStateR[s][1] = y
+                sigR = y
+            }
+
+            // Cross-channel decorrelation: each channel gets its own phase-shifted version
+            L[i] = Float(wL * (1.0 - apMix) + sigL * apMix)
+            R[i] = Float(wR * (1.0 - apMix) + sigR * apMix)
+        }
+        vzLevelA = lvlA; vzLevel = lvl
     }
 
     /// Transparent look-ahead peak limiter. Linked across channels (one shared
@@ -489,33 +717,35 @@ public class EqualizerAudioTap: AudioTap {
         let ceil = Self.safetyCeiling
         let attC = safetyAttCoeff, relC = safetyRelCoeff
 
-        var ptrs: [UnsafeMutablePointer<Float>] = []
-        ptrs.reserveCapacity(nCh)
-        for ch in 0..<nCh {
-            guard let data = buffer[ch].mData else { return }
-            ptrs.append(data.assumingMemoryBound(to: Float.self))
-        }
-
-        var pos = safetyPos
-        var g = safetyGain
-        for i in 0..<numberOfFrames {
-            // Future peak across channels (the sample about to enter the delay).
-            var peak = 0.0
-            for ch in 0..<nCh { peak = max(peak, abs(Double(ptrs[ch][i]))) }
-            let tgt = peak > ceil ? ceil / peak : 1.0
-            // Fast (attack) when reducing gain, slow (release) when recovering.
-            g += (tgt - g) * (tgt < g ? attC : relC)
-
+        // The channel pointers live on the stack: an array here was a heap allocation on every
+        // render callback.
+        withUnsafeTemporaryAllocation(of: UnsafeMutablePointer<Float>.self, capacity: nCh) { ptrs in
             for ch in 0..<nCh {
-                let delayed = safetyDelay[ch][pos]          // output: input from `lookahead` frames ago
-                safetyDelay[ch][pos] = Double(ptrs[ch][i])  // store current input
-                ptrs[ch][i] = Float(delayed * g)
+                guard let data = buffer[ch].mData else { return }
+                (ptrs.baseAddress! + ch).initialize(to: data.assumingMemoryBound(to: Float.self))
             }
-            pos += 1
-            if pos >= safetyLookahead { pos = 0 }
+
+            var pos = safetyPos
+            var g = safetyGain
+            for i in 0..<numberOfFrames {
+                // Future peak across channels (the sample about to enter the delay).
+                var peak = 0.0
+                for ch in 0..<nCh { peak = max(peak, abs(Double(ptrs[ch][i]))) }
+                let tgt = peak > ceil ? ceil / peak : 1.0
+                // Fast (attack) when reducing gain, slow (release) when recovering.
+                g += (tgt - g) * (tgt < g ? attC : relC)
+
+                for ch in 0..<nCh {
+                    let delayed = safetyDelay[ch][pos]          // output: input from `lookahead` frames ago
+                    safetyDelay[ch][pos] = Double(ptrs[ch][i])  // store current input
+                    ptrs[ch][i] = Float(delayed * g)
+                }
+                pos += 1
+                if pos >= safetyLookahead { pos = 0 }
+            }
+            safetyPos = pos
+            safetyGain = g
         }
-        safetyPos = pos
-        safetyGain = g
     }
 
     // ═══════════════ Internal: Biquad Processing ════════════════
@@ -568,6 +798,7 @@ public class EqualizerAudioTap: AudioTap {
     private func refreshEQTargets() {
         paramLock.lock()
         refreshEQTargetsLocked()
+        needsEQUpdate = false  // just rebuilt from the current values: process() need not redo it
         paramLock.unlock()
     }
 
@@ -585,6 +816,7 @@ public class EqualizerAudioTap: AudioTap {
     private func refreshBBTarget() {
         paramLock.lock()
         refreshBBTargetLocked()
+        needsBBUpdate = false  // just rebuilt from the current values: process() need not redo it
         paramLock.unlock()
     }
 
@@ -597,6 +829,7 @@ public class EqualizerAudioTap: AudioTap {
     private func refreshLnTargets() {
         paramLock.lock()
         refreshLnTargetsLocked()
+        needsLnUpdate = false  // just rebuilt from the current values: process() need not redo it
         paramLock.unlock()
     }
 

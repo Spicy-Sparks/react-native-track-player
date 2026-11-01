@@ -1,3 +1,18 @@
+## 4.1.92
+
+### Bug Fixes
+
+* **equalizer (Android):** switching one effect (EQ, bass boost, loudness, virtualizer) on or off while others keep
+  playing fades it over ~10 ms instead of cutting its filter in or out at a buffer boundary (up to ~1,900 LSB of
+  second difference on a bass-heavy test signal, now at the level of the music). An effect switched back on fades in
+  at the level its slider shows, not from the coefficients it was last left with. The virtualizer level follows its
+  slider smoothly. The per-effect fades and the 4.1.91 bypass crossfade use an S-curve (124ckhdfxr6).
+* **equalizer (iOS):** the same fixes as Android 4.1.91 and above. At the end of the bypass tail the chain is
+  crossfaded into the dry signal instead of switched, switching an effect on from bypass fades the chain in, and
+  each effect fades when it is switched while others play (up to ~3,100 LSB before). The virtualizer level and the
+  balance follow their settings smoothly (a balance step jumped by up to ~3,900 LSB). The render callback no longer
+  allocates memory (it did at least once per callback) or waits for the parameter lock (124ckhdfxr6).
+
 ## 4.1.91
 
 ### Bug Fixes

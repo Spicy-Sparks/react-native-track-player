@@ -22,6 +22,10 @@ open class AudioTap {
     private var meterIsFloat32 = false
     private var silentFrames: Int = 0
 
+    // The most frames process() will be asked for at once, from the tap's prepare callback
+    // (0 = unknown). Set before prepare(description:), so a subclass can size its buffers there.
+    internal var maxFrames: Int = 0
+
     // -48 dBFS peak: below a mastered fade-out, above dither/codec noise.
     private static let silencePeak: Float = 0.004
 
@@ -122,6 +126,7 @@ extension AVPlayerWrapper {
         } prepare: { tapRef, maxFrames, processingFormat in
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()
             audioTap.meterPrepare(description: processingFormat.pointee)
+            audioTap.maxFrames = Int(maxFrames)
             audioTap.prepare(description: processingFormat.pointee)
         } unprepare: { tapRef in
             let audioTap = Unmanaged<AudioTap>.fromOpaque(MTAudioProcessingTapGetStorage(tapRef)).takeUnretainedValue()

@@ -17,6 +17,7 @@ import kotlin.math.*
  *  - Loudness enhancer (low shelf + high shelf biquad)
  *  - Stereo virtualizer (mid-side + cross-channel all-pass)
  *  - Per-block coefficient smoothing (click-free parameter changes)
+ *  - Per-effect fade in/out when an effect is switched (~10 ms, click-free)
  *  - DC blocking filter (removes sub-sonic drift)
  *  - Transparent look-ahead true-peak safety limiter (always on)
  *  - Denormal flush (prevents FPU slowdown on ARM)
@@ -196,6 +197,31 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var bypassFadeFrames = 1
     private var bypassMix = 1.0
 
+    // Each effect fades in and out of the chain on its own: 0 = out, 1 = in. The mix moves toward
+    // the effect's switch by 1/bypassFadeFrames per frame (~10 ms), across buffers. Before, the
+    // switch cut a filter in or out at a buffer boundary while the other effects kept playing,
+    // and an effect switched back on restarted from the coefficients it was last left with.
+    // While an effect is out its filter rests at its designed level with cleared state (see
+    // restEffectsThatAreOut), so it fades back in at the level its slider shows.
+    private var eqMix = 0.0
+    private var bbMix = 0.0
+    private var lnMix = 0.0
+    private var vzMix = 0.0
+
+    // The virtualizer level as applied. It follows virtualizerLevel through two one-pole stages
+    // (~2 ms each, so it starts and settles without a kink): a step in the level moved the side
+    // signal at once.
+    private var vzLevelA = 0.5
+    private var vzLevel = 0.5
+    private var vzLevelCoeff = 1.0
+
+    // The switches as read at the start of the buffer being processed: the UI thread can flip
+    // them halfway through one.
+    private var eqOn = false
+    private var bbOn = false
+    private var lnOn = false
+    private var vzOn = false
+
     // ═══════════════════ EQ API ═══════════════════
 
     fun setGain(band: Int, gainDB: Float) {
@@ -290,21 +316,17 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         // Bass boost and loudness are rebuilt from their stored levels even while switched off:
         // a level set between configure() and this flush was designed for the old sample rate,
-        // and switching the effect on later does not redesign it. A switched-off effect starts
-        // from unity, so switching it on ramps in through the coefficient smoothing.
+        // and switching the effect on later does not redesign it. Switching one on fades it in
+        // through its mix (see eqMix), at the designed level.
         val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
         bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
-        bbCur = if (isBassBoostEnabled) bbTgt.copyOf() else UNITY.copyOf()
+        bbCur = bbTgt.copyOf()
         bbZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
         // Loudness
         lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
         lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-        if (isLoudnessEnabled) {
-            lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
-        } else {
-            lnLoCur = UNITY.copyOf(); lnHiCur = UNITY.copyOf()
-        }
+        lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
         lnLoZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
         lnHiZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
@@ -336,7 +358,9 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // Bypass tail
         bypassTailFrames = 0
         bypassFadeFrames = max(1, (sampleRate * 0.01).toInt())
+        vzLevelCoeff = 1.0 - exp(-1.0 / (0.002 * sampleRate))
         bypassMix = if (effectsActive()) 0.0 else 1.0
+        settleEffects(isEnabled, isBassBoostEnabled, isLoudnessEnabled, isVirtualizerEnabled)
 
         fadeInFrames = max(1, (sampleRate * 0.003).toInt()) // ~3 ms
     }
@@ -387,6 +411,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private fun clearSignalState() {
         // A discontinuity starts clean (and faded in): no crossfade carries over it.
         bypassMix = if (effectsActive() || bypassTailFrames > 0) 0.0 else 1.0
+        settleEffects(isEnabled, isBassBoostEnabled, isLoudnessEnabled, isVirtualizerEnabled)
         for (line in safetyDelay) line.fill(0.0)
         safetyPos = 0
         safetyGain = 1.0
@@ -404,11 +429,13 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // even though the user set no boost at all. NOTE: the transparent safety
         // limiter runs regardless (see applySafetyLimiter) to protect the
         // Bluetooth/AAC path from inter-sample clipping.
-        val effectsActive = effectsActive()
+        eqOn = isEnabled; bbOn = isBassBoostEnabled; lnOn = isLoudnessEnabled; vzOn = isVirtualizerEnabled
+        val effectsActive = (eqOn && hasNonFlatGains) || bbOn || lnOn || vzOn
 
         // Run the colouring chain when effects are active, plus a short tail
-        // afterwards so coefficients can ramp to unity (click-free). The safety
-        // limiter below is independent of this gate.
+        // afterwards: the effect switched off last fades out of the chain (see
+        // eqMix) before the chain crossfades into bypass. The safety limiter
+        // below is independent of this gate.
         if (effectsActive) {
             bypassTailFrames = (sampleRate * 0.1).toInt() // ~100 ms
         } else if (bypassTailFrames > 0) {
@@ -423,14 +450,18 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         val runChain = mixTarget == 0.0 || bypassMix < 1.0
         val mixing = bypassMix != mixTarget
 
-        // Smooth all coefficients toward targets (only while the chain runs)
+        // Smooth the coefficients of the effects in the chain toward their targets. With the chain
+        // bypassed nothing is heard through it, so every effect jumps to its settled state.
         if (runChain) {
-            if (isEnabled) smoothCoeffs2D(eqCur, eqTgt)
-            if (isBassBoostEnabled) smoothCoeffs(bbCur, bbTgt)
-            if (isLoudnessEnabled) {
+            restEffectsThatAreOut()
+            if (eqOn || eqMix > 0.0) smoothCoeffs2D(eqCur, eqTgt)
+            if (bbOn || bbMix > 0.0) smoothCoeffs(bbCur, bbTgt)
+            if (lnOn || lnMix > 0.0) {
                 smoothCoeffs(lnLoCur, lnLoTgt)
                 smoothCoeffs(lnHiCur, lnHiTgt)
             }
+        } else {
+            settleEffects(eqOn, bbOn, lnOn, vzOn)
         }
 
         when (inputAudioFormat.encoding) {
@@ -456,45 +487,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         val dry = if (mixTarget >= 0.0) Array(nCh) { buf[it].copyOf() } else null
 
-        if (runEffects) {
-            // 1. EQ bands
-            if (isEnabled) {
-                for (ch in 0 until nCh) {
-                    val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
-                    for (band in 0 until BAND_COUNT) {
-                        biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
-                    }
-                }
-            }
-
-            // 2. Bass boost
-            if (isBassBoostEnabled) {
-                for (ch in 0 until nCh) {
-                    val chIdx = ch.coerceAtMost(bbZ.size - 1)
-                    biquadBlock(buf[ch], frameCount, bbCur, bbZ[chIdx])
-                }
-            }
-
-            // 3. Loudness (low shelf + high shelf)
-            if (isLoudnessEnabled) {
-                for (ch in 0 until nCh) {
-                    val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
-                    biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
-                    biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
-                }
-            }
-
-            // 4. Virtualizer (stereo only)
-            if (isVirtualizerEnabled && nCh >= 2) {
-                applyVirtualizer(buf[0], buf[1], frameCount)
-            }
-
-            // 5. DC blocker
-            for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(dcXprev.size - 1)
-                applyDCBlock(buf[ch], frameCount, chIdx)
-            }
-        }
+        if (runEffects) applyChain(buf, nCh, frameCount)
 
         if (dry != null) crossfadeTo(buf, dry, nCh, frameCount, mixTarget)
 
@@ -521,45 +514,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
         val dry = if (mixTarget >= 0.0) Array(nCh) { buf[it].copyOf() } else null
 
-        if (runEffects) {
-            // 1. EQ bands
-            if (isEnabled) {
-                for (ch in 0 until nCh) {
-                    val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
-                    for (band in 0 until BAND_COUNT) {
-                        biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
-                    }
-                }
-            }
-
-            // 2. Bass boost
-            if (isBassBoostEnabled) {
-                for (ch in 0 until nCh) {
-                    val chIdx = ch.coerceAtMost(bbZ.size - 1)
-                    biquadBlock(buf[ch], frameCount, bbCur, bbZ[chIdx])
-                }
-            }
-
-            // 3. Loudness
-            if (isLoudnessEnabled) {
-                for (ch in 0 until nCh) {
-                    val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
-                    biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
-                    biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
-                }
-            }
-
-            // 4. Virtualizer (stereo only)
-            if (isVirtualizerEnabled && nCh >= 2) {
-                applyVirtualizer(buf[0], buf[1], frameCount)
-            }
-
-            // 5. DC blocker
-            for (ch in 0 until nCh) {
-                val chIdx = ch.coerceAtMost(dcXprev.size - 1)
-                applyDCBlock(buf[ch], frameCount, chIdx)
-            }
-        }
+        if (runEffects) applyChain(buf, nCh, frameCount)
 
         if (dry != null) crossfadeTo(buf, dry, nCh, frameCount, mixTarget)
 
@@ -572,6 +527,104 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
     }
 
+    // The colouring chain, in place: EQ bands, bass boost, loudness (low + high shelf),
+    // virtualizer (stereo only), DC blocker. Each effect goes through stage() with its own mix.
+    private fun applyChain(buf: Array<DoubleArray>, nCh: Int, frameCount: Int) {
+        eqMix = stage(buf, nCh, frameCount, eqMix, eqOn) {
+            for (ch in 0 until nCh) {
+                val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
+                for (band in 0 until BAND_COUNT) {
+                    biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
+                }
+            }
+        }
+        bbMix = stage(buf, nCh, frameCount, bbMix, bbOn) {
+            for (ch in 0 until nCh) {
+                biquadBlock(buf[ch], frameCount, bbCur, bbZ[ch.coerceAtMost(bbZ.size - 1)])
+            }
+        }
+        lnMix = stage(buf, nCh, frameCount, lnMix, lnOn) {
+            for (ch in 0 until nCh) {
+                val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
+                biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
+                biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
+            }
+        }
+        vzMix = if (nCh >= 2) {
+            stage(buf, nCh, frameCount, vzMix, vzOn) { applyVirtualizer(buf[0], buf[1], frameCount) }
+        } else {
+            if (vzOn) 1.0 else 0.0
+        }
+        for (ch in 0 until nCh) {
+            applyDCBlock(buf[ch], frameCount, ch.coerceAtMost(dcXprev.size - 1))
+        }
+    }
+
+    // Runs one effect over the buffer, faded by its mix, and returns the new mix. All in: the
+    // effect alone. All out: skipped. In between, the effect's output is blended with its input
+    // while the mix moves one step per frame toward the switch.
+    private inline fun stage(
+        buf: Array<DoubleArray>, nCh: Int, frameCount: Int, mix: Double, on: Boolean, effect: () -> Unit
+    ): Double {
+        val target = if (on) 1.0 else 0.0
+        if (mix == target) {
+            if (on) effect()
+            return mix
+        }
+        val dry = Array(nCh) { buf[it].copyOf() }
+        effect()
+        val step = 1.0 / bypassFadeFrames
+        var m = mix
+        for (frame in 0 until frameCount) {
+            m = if (target > m) min(target, m + step) else max(target, m - step)
+            val w = sCurve(m)
+            for (ch in 0 until nCh) buf[ch][frame] = dry[ch][frame] + (buf[ch][frame] - dry[ch][frame]) * w
+        }
+        return m
+    }
+
+    // The fades move linearly but are heard through this S-curve (smoothstep): flat at both ends, so
+    // a fade does not start or stop with a kink.
+    private fun sCurve(x: Double): Double = x * x * (3.0 - 2.0 * x)
+
+    // An effect that is out of the chain rests at its designed level with cleared state, so it
+    // fades back in at the level its slider shows instead of where it was last left.
+    private fun restEffectsThatAreOut() {
+        if (!eqOn && eqMix == 0.0) {
+            for (band in 0 until BAND_COUNT) {
+                eqTgt[band].copyInto(eqCur[band])
+                for (z in eqZ[band]) z.fill(0.0)
+            }
+        }
+        if (!bbOn && bbMix == 0.0) {
+            bbTgt.copyInto(bbCur)
+            for (z in bbZ) z.fill(0.0)
+        }
+        if (!lnOn && lnMix == 0.0) {
+            lnLoTgt.copyInto(lnLoCur); lnHiTgt.copyInto(lnHiCur)
+            for (z in lnLoZ) z.fill(0.0)
+            for (z in lnHiZ) z.fill(0.0)
+        }
+        if (!vzOn && vzMix == 0.0) {
+            vzLevelA = virtualizerLevel.toDouble(); vzLevel = vzLevelA
+            for (s in apStateL) s.fill(0.0)
+            for (s in apStateR) s.fill(0.0)
+        }
+    }
+
+    // Puts every effect where its switch and level say, with no fade: for when nothing is heard
+    // through the chain (bypassed) or the audio starts over (a new format, a discontinuity).
+    private fun settleEffects(eq: Boolean, bb: Boolean, ln: Boolean, vz: Boolean) {
+        eqMix = if (eq) 1.0 else 0.0
+        bbMix = if (bb) 1.0 else 0.0
+        lnMix = if (ln) 1.0 else 0.0
+        vzMix = if (vz) 1.0 else 0.0
+        for (band in 0 until BAND_COUNT) eqTgt[band].copyInto(eqCur[band])
+        bbTgt.copyInto(bbCur)
+        lnLoTgt.copyInto(lnLoCur); lnHiTgt.copyInto(lnHiCur)
+        vzLevelA = virtualizerLevel.toDouble(); vzLevel = vzLevelA
+    }
+
     // Moves bypassMix toward its target one step per frame and blends the chain's output with the
     // dry signal by it.
     private fun crossfadeTo(buf: Array<DoubleArray>, dry: Array<DoubleArray>, nCh: Int, frameCount: Int, target: Double) {
@@ -579,7 +632,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         var mix = bypassMix
         for (frame in 0 until frameCount) {
             mix = if (target > mix) min(target, mix + step) else max(target, mix - step)
-            for (ch in 0 until nCh) buf[ch][frame] = buf[ch][frame] * (1.0 - mix) + dry[ch][frame] * mix
+            val w = sCurve(mix)
+            for (ch in 0 until nCh) buf[ch][frame] = buf[ch][frame] * (1.0 - w) + dry[ch][frame] * w
         }
         bypassMix = mix
     }
@@ -633,11 +687,16 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     // ═══════════════ Virtualizer ═══════════════
 
     private fun applyVirtualizer(L: DoubleArray, R: DoubleArray, count: Int) {
-        val lvl = virtualizerLevel.toDouble()
-        val width = 1.0 + lvl * 1.5    // 1.0 (normal) to 2.5 (wide)
-        val apMix = 0.5 + lvl * 0.5    // 0.5 (moderate) to 1.0 (full phase shift)
+        val target = virtualizerLevel.toDouble()
+        val k = vzLevelCoeff
+        var lvlA = vzLevelA
+        var lvl = vzLevel
 
         for (i in 0 until count) {
+            lvlA += k * (target - lvlA)
+            lvl += k * (lvlA - lvl)
+            val width = 1.0 + lvl * 1.5    // 1.0 (normal) to 2.5 (wide)
+            val apMix = 0.5 + lvl * 0.5    // 0.5 (moderate) to 1.0 (full phase shift)
             val l = L[i]; val r = R[i]
 
             // Mid-side decomposition + widening
@@ -670,6 +729,8 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
             L[i] = wL * (1.0 - apMix) + sigL * apMix
             R[i] = wR * (1.0 - apMix) + sigR * apMix
         }
+        vzLevelA = lvlA
+        vzLevel = lvl
     }
 
     // ═══════════════ DC Blocker ═══════════════
