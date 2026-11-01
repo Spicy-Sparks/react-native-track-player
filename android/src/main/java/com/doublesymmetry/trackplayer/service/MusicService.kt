@@ -65,6 +65,7 @@ import com.doublesymmetry.trackplayer.utils.BundleUtils
 import com.doublesymmetry.trackplayer.utils.BundleUtils.setRating
 import com.doublesymmetry.trackplayer.utils.CoilBitmapLoader
 import com.doublesymmetry.trackplayer.utils.buildMediaItem
+import com.doublesymmetry.trackplayer.video.TrackPlayerVideoView
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.jstasks.HeadlessJsTaskConfig
 import com.google.common.collect.ImmutableList
@@ -911,6 +912,8 @@ class MusicService : HeadlessJsMediaService() {
             skipSilence = playerOptions?.getBoolean(SKIP_SILENCE) ?: false
         )
         player = QueuedAudioPlayer(this@MusicService, mPlayerOptions)
+        // A video view already on screen keeps drawing on a rebuilt player.
+        TrackPlayerVideoView.bindTo(player)
         player.fftEmitter = {v -> emit(MusicEvents.FFT_UPDATED, Bundle().apply {
             // pass the raw data: putDoubleArray("data", v)
             putDoubleArray("data", v)
