@@ -190,6 +190,28 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         get { avPlayer.automaticallyWaitsToMinimizeStalling }
         set { avPlayer.automaticallyWaitsToMinimizeStalling = newValue }
     }
+
+    // Whether a video view shows this player. A stream can be an HLS master
+    // whose every variant carries video, and AVPlayer downloads video with no
+    // view as well. Measured on an iOS 27 simulator with one such master: a
+    // song started in audio mode took a 240p variant (313 kbit/s), and one that
+    // left video mode kept its 720p (2.6 Mbit/s), more than a weak mobile link
+    // carries. Without a view the item is held to its smallest rendition
+    // (there, 144p at 173 kbit/s). Held, not cut off: lifting the hold brought
+    // the picture back to 720p in ~11 s, with no restart of the audio.
+    var videoOnScreen: Bool = false {
+        didSet {
+            guard videoOnScreen != oldValue, let item = avPlayer.currentItem else { return }
+            applyVideoRendition(to: item)
+        }
+    }
+
+    private func applyVideoRendition(to item: AVPlayerItem) {
+        // No video variant fits in 1x1, so the smallest one is taken. A limit on
+        // resolution, not on bit rate: it leaves an audio-only master free to
+        // pick its best audio.
+        item.preferredMaximumResolution = videoOnScreen ? .zero : CGSize(width: 1, height: 1)
+    }
     
     func play() {
         playWhenReady = true
@@ -321,6 +343,7 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
                     )
                     self.item = item;
                     item.preferredForwardBufferDuration = self.bufferDuration
+                    self.applyVideoRendition(to: item)
                     self.avPlayer.replaceCurrentItem(with: item)
                     self.startObservingAVPlayer(item: item)
                     self.applyAVPlayerRate()

@@ -13,7 +13,27 @@ public typealias AudioPlayerState = AVPlayerWrapperState
 public class AudioPlayer: AVPlayerWrapperDelegate {
     /// The wrapper around the underlying AVPlayer
     let wrapper1: AVPlayerWrapperProtocol = AVPlayerWrapper()
-    var wrapper2: AVPlayerWrapperProtocol? = nil
+    // The crossfade wrapper can be made after init, off the main thread, while
+    // `videoOnScreen` is written on it: the reference goes through a lock, and
+    // the new wrapper takes the flag on main, so a change racing it is not lost.
+    private var storedWrapper2: AVPlayerWrapperProtocol? = nil
+    private let wrapper2Lock = NSLock()
+    var wrapper2: AVPlayerWrapperProtocol? {
+        get {
+            wrapper2Lock.lock()
+            defer { wrapper2Lock.unlock() }
+            return storedWrapper2
+        }
+        set {
+            wrapper2Lock.lock()
+            storedWrapper2 = newValue
+            wrapper2Lock.unlock()
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.wrapper2?.videoOnScreen = self.videoOnScreen
+            }
+        }
+    }
     // this is the current wrapper
     var wrapper: AVPlayerWrapperProtocol
     // this is the secondary/crossfade wrapper
@@ -195,6 +215,19 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
     }
     
     /**
+     Whether a video view shows the player. Without one, an HLS stream is held to its smallest
+     video rendition (see `AVPlayerWrapper.videoOnScreen`). Both wrappers follow it, so the one
+     preparing the next track for a crossfade is ready with its video when it takes over.
+     Set it on the main thread, where the player's items are made.
+     */
+    public var videoOnScreen: Bool = false {
+        didSet {
+            wrapper1.videoOnScreen = videoOnScreen
+            wrapper2?.videoOnScreen = videoOnScreen
+        }
+    }
+
+    /**
      The amount of seconds to be buffered by the player. Default value is 0 seconds, this means the AVPlayer will choose an appropriate level of buffering. Setting `bufferDuration` to larger than zero automatically disables `automaticallyWaitsToMinimizeStalling`. Setting it back to zero automatically enables `automaticallyWaitsToMinimizeStalling`.
 
      [Read more from Apple Documentation](https://developer.apple.com/documentation/avfoundation/avplayeritem/1643630-preferredforwardbufferduration)
@@ -266,8 +299,10 @@ public class AudioPlayer: AVPlayerWrapperDelegate {
         self.wrapper = self.wrapper1
         self.crossfade = crossfade
         if (crossfade) {
-            self.wrapper2 = AVPlayerWrapper()
-            self.crossfadeWrapper = self.wrapper2!
+            // Straight to the storage: nothing else can see the player yet.
+            let secondWrapper = AVPlayerWrapper()
+            self.storedWrapper2 = secondWrapper
+            self.crossfadeWrapper = secondWrapper
         } else {
             self.crossfadeWrapper = self.wrapper
         }
