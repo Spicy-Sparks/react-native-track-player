@@ -16,7 +16,7 @@ import kotlin.math.*
  *  - Bass boost (low shelf biquad)
  *  - Loudness enhancer (low shelf + high shelf biquad)
  *  - Stereo virtualizer (mid-side + cross-channel all-pass)
- *  - Per-block coefficient smoothing (click-free parameter changes)
+ *  - Per-sample coefficient smoothing, two poles (click-free parameter changes)
  *  - Per-effect fade in/out when an effect is switched (~10 ms, click-free)
  *  - DC blocking filter (removes sub-sonic drift)
  *  - Transparent look-ahead true-peak safety limiter (always on)
@@ -49,7 +49,6 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         private val AP_FREQS_R = doubleArrayOf(160.0, 420.0, 1000.0, 2200.0, 5000.0, 9500.0)
 
         // ── Processing constants ──
-        private const val SMOOTH_ALPHA = 0.008
         private const val DC_R = 0.9995          // ~3.5 Hz cutoff at 44.1 kHz
         private const val SAFETY_CEILING = 0.794 // ≈ -2 dBFS ceiling (head-room for AAC inter-sample overshoot)
         private const val DENORM_THRESH = 1e-15
@@ -57,9 +56,12 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         private val UNITY = doubleArrayOf(1.0, 0.0, 0.0, 0.0, 0.0)
 
         // ═══════════ Filter Design (Audio EQ Cookbook) ═══════════
+        // At 0 dB every design is still the filter, not UNITY: numerator and denominator come out
+        // identical, so it passes the signal through exactly, and a level change toward or away from
+        // 0 dB moves between two filters of the same shape. Smoothing toward UNITY dragged the poles
+        // across the plane on the way (a loudness change to 0 clicked).
 
         fun peakingEQ(freq: Double, gainDB: Double, q: Double, sr: Double): DoubleArray {
-            if (abs(gainDB) < 0.01) return UNITY.copyOf()
             val A = 10.0.pow(gainDB / 40.0)
             val w0 = 2.0 * PI * freq / sr
             val sw = sin(w0); val cw = cos(w0)
@@ -70,7 +72,6 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
 
         fun lowShelf(freq: Double, gainDB: Double, q: Double, sr: Double): DoubleArray {
-            if (abs(gainDB) < 0.01) return UNITY.copyOf()
             val A = 10.0.pow(gainDB / 40.0)
             val w0 = 2.0 * PI * freq / sr
             val cw = cos(w0); val sw = sin(w0)
@@ -86,7 +87,6 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         }
 
         fun highShelf(freq: Double, gainDB: Double, q: Double, sr: Double): DoubleArray {
-            if (abs(gainDB) < 0.01) return UNITY.copyOf()
             val A = 10.0.pow(gainDB / 40.0)
             val w0 = 2.0 * PI * freq / sr
             val cw = cos(w0); val sw = sin(w0)
@@ -130,21 +130,33 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var sampleRate = 44100.0
     private var channelCount = 2
 
+    // Every biquad has its target coefficients (Tgt, replaced by the setters on the UI thread),
+    // the coefficients in use (Cur) and the first of the two smoothing poles they reach the target
+    // through (Mid): see biquadBlock. The audio thread reads each target once per buffer (the *T
+    // snapshots), so every channel and the advance after the buffer follow the same one.
     // EQ coefficients: [band][5]
     private var eqCur = Array(BAND_COUNT) { UNITY.copyOf() }
+    private var eqMid = Array(BAND_COUNT) { UNITY.copyOf() }
     private var eqTgt = Array(BAND_COUNT) { UNITY.copyOf() }
+    private val eqT = Array(BAND_COUNT) { UNITY }
     private var eqZ = Array(BAND_COUNT) { Array(2) { doubleArrayOf(0.0, 0.0) } }
 
     // Bass boost coefficients
     private var bbCur = UNITY.copyOf()
-    private var bbTgt = UNITY.copyOf()
+    private var bbMid = UNITY.copyOf()
+    @Volatile private var bbTgt = UNITY.copyOf()
+    private var bbT = UNITY
     private var bbZ = Array(2) { doubleArrayOf(0.0, 0.0) }
 
     // Loudness: low shelf + high shelf
     private var lnLoCur = UNITY.copyOf()
-    private var lnLoTgt = UNITY.copyOf()
+    private var lnLoMid = UNITY.copyOf()
+    @Volatile private var lnLoTgt = UNITY.copyOf()
+    private var lnLoT = UNITY
     private var lnHiCur = UNITY.copyOf()
-    private var lnHiTgt = UNITY.copyOf()
+    private var lnHiMid = UNITY.copyOf()
+    @Volatile private var lnHiTgt = UNITY.copyOf()
+    private var lnHiT = UNITY
     private var lnLoZ = Array(2) { doubleArrayOf(0.0, 0.0) }
     private var lnHiZ = Array(2) { doubleArrayOf(0.0, 0.0) }
 
@@ -215,6 +227,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     private var vzLevel = 0.5
     private var vzLevelCoeff = 1.0
 
+    // Coefficient smoothing per sample, each of the two poles (~3 ms). It was a fixed 0.8% per
+    // buffer: steps at every buffer boundary, and a speed that depended on the buffer size (an EQ
+    // change took ~3 s to be heard in full with 1,024-frame buffers, ~2.8 ms with 1-frame ones).
+    private var smoothCoeff = 1.0
+
     // The switches as read at the start of the buffer being processed: the UI thread can flip
     // them halfway through one.
     private var eqOn = false
@@ -244,7 +261,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     fun resetGains() {
         for (i in 0 until BAND_COUNT) {
             gains[i] = 0f
-            eqTgt[i] = UNITY.copyOf()
+            eqTgt[i] = peakingEQ(FREQUENCIES[i].toDouble(), 0.0, EQ_Q, sampleRate)
         }
         hasNonFlatGains = false
     }
@@ -310,7 +327,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // EQ
         for (i in 0 until BAND_COUNT) {
             eqTgt[i] = peakingEQ(FREQUENCIES[i].toDouble(), gains[i].toDouble(), EQ_Q, sampleRate)
-            eqCur[i] = eqTgt[i].copyOf()
+            eqCur[i] = eqTgt[i].copyOf(); eqMid[i] = eqTgt[i].copyOf()
         }
         eqZ = Array(BAND_COUNT) { Array(nCh) { doubleArrayOf(0.0, 0.0) } }
 
@@ -320,13 +337,14 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // through its mix (see eqMix), at the designed level.
         val g = BB_MIN_DB + (BB_MAX_DB - BB_MIN_DB) * bassBoostLevel.toDouble()
         bbTgt = lowShelf(BB_FREQ, g, BB_Q, sampleRate)
-        bbCur = bbTgt.copyOf()
+        bbCur = bbTgt.copyOf(); bbMid = bbTgt.copyOf()
         bbZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
         // Loudness
         lnLoTgt = lowShelf(LN_LO_FREQ, LN_LO_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
         lnHiTgt = highShelf(LN_HI_FREQ, LN_HI_MAX_DB * loudnessLevel.toDouble(), LN_Q, sampleRate)
-        lnLoCur = lnLoTgt.copyOf(); lnHiCur = lnHiTgt.copyOf()
+        lnLoCur = lnLoTgt.copyOf(); lnLoMid = lnLoTgt.copyOf()
+        lnHiCur = lnHiTgt.copyOf(); lnHiMid = lnHiTgt.copyOf()
         lnLoZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
         lnHiZ = Array(nCh) { doubleArrayOf(0.0, 0.0) }
 
@@ -359,6 +377,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         bypassTailFrames = 0
         bypassFadeFrames = max(1, (sampleRate * 0.01).toInt())
         vzLevelCoeff = 1.0 - exp(-1.0 / (0.002 * sampleRate))
+        smoothCoeff = 1.0 - exp(-1.0 / (0.003 * sampleRate))
         bypassMix = if (effectsActive()) 0.0 else 1.0
         settleEffects(isEnabled, isBassBoostEnabled, isLoudnessEnabled, isVirtualizerEnabled)
 
@@ -430,6 +449,7 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         // limiter runs regardless (see applySafetyLimiter) to protect the
         // Bluetooth/AAC path from inter-sample clipping.
         eqOn = isEnabled; bbOn = isBassBoostEnabled; lnOn = isLoudnessEnabled; vzOn = isVirtualizerEnabled
+        snapshotTargets()
         val effectsActive = (eqOn && hasNonFlatGains) || bbOn || lnOn || vzOn
 
         // Run the colouring chain when effects are active, plus a short tail
@@ -450,16 +470,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         val runChain = mixTarget == 0.0 || bypassMix < 1.0
         val mixing = bypassMix != mixTarget
 
-        // Smooth the coefficients of the effects in the chain toward their targets. With the chain
-        // bypassed nothing is heard through it, so every effect jumps to its settled state.
+        // The coefficients of the effects in the chain move toward their targets inside the chain
+        // (see applyChain). With the chain bypassed nothing is heard through it, so every effect
+        // jumps to its settled state.
         if (runChain) {
             restEffectsThatAreOut()
-            if (eqOn || eqMix > 0.0) smoothCoeffs2D(eqCur, eqTgt)
-            if (bbOn || bbMix > 0.0) smoothCoeffs(bbCur, bbTgt)
-            if (lnOn || lnMix > 0.0) {
-                smoothCoeffs(lnLoCur, lnLoTgt)
-                smoothCoeffs(lnHiCur, lnHiTgt)
-            }
         } else {
             settleEffects(eqOn, bbOn, lnOn, vzOn)
         }
@@ -529,27 +544,33 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
     // The colouring chain, in place: EQ bands, bass boost, loudness (low + high shelf),
     // virtualizer (stereo only), DC blocker. Each effect goes through stage() with its own mix.
+    // The filters' coefficients move toward their targets sample by sample inside biquadBlock, and
+    // are then advanced by the same steps (advanceCoeffs).
     private fun applyChain(buf: Array<DoubleArray>, nCh: Int, frameCount: Int) {
         eqMix = stage(buf, nCh, frameCount, eqMix, eqOn) {
             for (ch in 0 until nCh) {
                 val chIdx = ch.coerceAtMost(eqZ[0].size - 1)
                 for (band in 0 until BAND_COUNT) {
-                    biquadBlock(buf[ch], frameCount, eqCur[band], eqZ[band][chIdx])
+                    biquadBlock(buf[ch], frameCount, eqCur[band], eqMid[band], eqT[band], eqZ[band][chIdx])
                 }
             }
         }
+        for (band in 0 until BAND_COUNT) advanceCoeffs(eqCur[band], eqMid[band], eqT[band], frameCount)
         bbMix = stage(buf, nCh, frameCount, bbMix, bbOn) {
             for (ch in 0 until nCh) {
-                biquadBlock(buf[ch], frameCount, bbCur, bbZ[ch.coerceAtMost(bbZ.size - 1)])
+                biquadBlock(buf[ch], frameCount, bbCur, bbMid, bbT, bbZ[ch.coerceAtMost(bbZ.size - 1)])
             }
         }
+        advanceCoeffs(bbCur, bbMid, bbT, frameCount)
         lnMix = stage(buf, nCh, frameCount, lnMix, lnOn) {
             for (ch in 0 until nCh) {
                 val chIdx = ch.coerceAtMost(lnLoZ.size - 1)
-                biquadBlock(buf[ch], frameCount, lnLoCur, lnLoZ[chIdx])
-                biquadBlock(buf[ch], frameCount, lnHiCur, lnHiZ[chIdx])
+                biquadBlock(buf[ch], frameCount, lnLoCur, lnLoMid, lnLoT, lnLoZ[chIdx])
+                biquadBlock(buf[ch], frameCount, lnHiCur, lnHiMid, lnHiT, lnHiZ[chIdx])
             }
         }
+        advanceCoeffs(lnLoCur, lnLoMid, lnLoT, frameCount)
+        advanceCoeffs(lnHiCur, lnHiMid, lnHiT, frameCount)
         vzMix = if (nCh >= 2) {
             stage(buf, nCh, frameCount, vzMix, vzOn) { applyVirtualizer(buf[0], buf[1], frameCount) }
         } else {
@@ -591,17 +612,15 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     // fades back in at the level its slider shows instead of where it was last left.
     private fun restEffectsThatAreOut() {
         if (!eqOn && eqMix == 0.0) {
-            for (band in 0 until BAND_COUNT) {
-                eqTgt[band].copyInto(eqCur[band])
-                for (z in eqZ[band]) z.fill(0.0)
-            }
+            settleEQCoeffs()
+            for (band in 0 until BAND_COUNT) for (z in eqZ[band]) z.fill(0.0)
         }
         if (!bbOn && bbMix == 0.0) {
-            bbTgt.copyInto(bbCur)
+            bbT.copyInto(bbCur); bbT.copyInto(bbMid)
             for (z in bbZ) z.fill(0.0)
         }
         if (!lnOn && lnMix == 0.0) {
-            lnLoTgt.copyInto(lnLoCur); lnHiTgt.copyInto(lnHiCur)
+            settleLnCoeffs()
             for (z in lnLoZ) z.fill(0.0)
             for (z in lnHiZ) z.fill(0.0)
         }
@@ -619,10 +638,26 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
         bbMix = if (bb) 1.0 else 0.0
         lnMix = if (ln) 1.0 else 0.0
         vzMix = if (vz) 1.0 else 0.0
-        for (band in 0 until BAND_COUNT) eqTgt[band].copyInto(eqCur[band])
-        bbTgt.copyInto(bbCur)
-        lnLoTgt.copyInto(lnLoCur); lnHiTgt.copyInto(lnHiCur)
+        snapshotTargets()
+        settleEQCoeffs()
+        bbT.copyInto(bbCur); bbT.copyInto(bbMid)
+        settleLnCoeffs()
         vzLevelA = virtualizerLevel.toDouble(); vzLevel = vzLevelA
+    }
+
+    // Reads each target once: the setters replace them from the UI thread.
+    private fun snapshotTargets() {
+        for (band in 0 until BAND_COUNT) eqT[band] = eqTgt[band]
+        bbT = bbTgt; lnLoT = lnLoTgt; lnHiT = lnHiTgt
+    }
+
+    private fun settleEQCoeffs() {
+        for (band in 0 until BAND_COUNT) { eqT[band].copyInto(eqCur[band]); eqT[band].copyInto(eqMid[band]) }
+    }
+
+    private fun settleLnCoeffs() {
+        lnLoT.copyInto(lnLoCur); lnLoT.copyInto(lnLoMid)
+        lnHiT.copyInto(lnHiCur); lnHiT.copyInto(lnHiMid)
     }
 
     // Moves bypassMix toward its target one step per frame and blends the chain's output with the
@@ -749,15 +784,37 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     // ═══════════════ Biquad processing ═══════════════
 
     /** Process a block of Float64 samples through a biquad filter (Direct Form II Transposed) */
-    private fun biquadBlock(samples: DoubleArray, count: Int, c: DoubleArray, z: DoubleArray) {
-        val b0 = c[0]; val b1 = c[1]; val b2 = c[2]; val a1 = c[3]; val a2 = c[4]
+    // While the coefficients `c` are not yet at the target `t`, they move toward it every sample
+    // through two one-pole stages (`m` is the first): smoothly, with no kink where a change starts.
+    // The caller then advances the stored coefficients by the same steps (advanceCoeffs), so every
+    // channel runs the same trajectory and the next buffer continues it.
+    private fun biquadBlock(samples: DoubleArray, count: Int, c: DoubleArray, m: DoubleArray, t: DoubleArray, z: DoubleArray) {
+        var b0 = c[0]; var b1 = c[1]; var b2 = c[2]; var a1 = c[3]; var a2 = c[4]
         var z1 = z[0]; var z2 = z[1]
-        for (i in 0 until count) {
-            val x = samples[i]
-            val y = b0 * x + z1
-            z1 = b1 * x - a1 * y + z2
-            z2 = b2 * x - a2 * y
-            samples[i] = y
+        if (settled(c, m, t)) {
+            for (i in 0 until count) {
+                val x = samples[i]
+                val y = b0 * x + z1
+                z1 = b1 * x - a1 * y + z2
+                z2 = b2 * x - a2 * y
+                samples[i] = y
+            }
+        } else {
+            val k = smoothCoeff
+            val t0 = t[0]; val t1 = t[1]; val t2 = t[2]; val t3 = t[3]; val t4 = t[4]
+            var m0 = m[0]; var m1 = m[1]; var m2 = m[2]; var m3 = m[3]; var m4 = m[4]
+            for (i in 0 until count) {
+                m0 += k * (t0 - m0); b0 += k * (m0 - b0)
+                m1 += k * (t1 - m1); b1 += k * (m1 - b1)
+                m2 += k * (t2 - m2); b2 += k * (m2 - b2)
+                m3 += k * (t3 - m3); a1 += k * (m3 - a1)
+                m4 += k * (t4 - m4); a2 += k * (m4 - a2)
+                val x = samples[i]
+                val y = b0 * x + z1
+                z1 = b1 * x - a1 * y + z2
+                z2 = b2 * x - a2 * y
+                samples[i] = y
+            }
         }
         // Flush denormals
         if (abs(z1) < DENORM_THRESH) z1 = 0.0
@@ -767,18 +824,36 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
 
     // ═══════════════ Coefficient smoothing ═══════════════
 
-    private fun smoothCoeffs(cur: DoubleArray, tgt: DoubleArray) {
-        for (k in cur.indices) {
-            cur[k] += SMOOTH_ALPHA * (tgt[k] - cur[k])
+    private fun settled(c: DoubleArray, m: DoubleArray, t: DoubleArray): Boolean =
+        c[0] == t[0] && c[1] == t[1] && c[2] == t[2] && c[3] == t[3] && c[4] == t[4] &&
+            m[0] == t[0] && m[1] == t[1] && m[2] == t[2] && m[3] == t[3] && m[4] == t[4]
+
+    // Moves a biquad's coefficients `n` samples toward the target: the steps biquadBlock took inside
+    // the buffer. Once they are within 1e-9 of it (far below anything a sample can show, and above
+    // where the steps stop moving them at any sample rate) they snap onto it, and biquadBlock goes
+    // back to fixed coefficients.
+    private fun advanceCoeffs(c: DoubleArray, m: DoubleArray, t: DoubleArray, n: Int) {
+        if (settled(c, m, t)) return
+        val k = smoothCoeff
+        val t0 = t[0]; val t1 = t[1]; val t2 = t[2]; val t3 = t[3]; val t4 = t[4]
+        var m0 = m[0]; var m1 = m[1]; var m2 = m[2]; var m3 = m[3]; var m4 = m[4]
+        var c0 = c[0]; var c1 = c[1]; var c2 = c[2]; var c3 = c[3]; var c4 = c[4]
+        for (i in 0 until n) {
+            m0 += k * (t0 - m0); c0 += k * (m0 - c0)
+            m1 += k * (t1 - m1); c1 += k * (m1 - c1)
+            m2 += k * (t2 - m2); c2 += k * (m2 - c2)
+            m3 += k * (t3 - m3); c3 += k * (m3 - c3)
+            m4 += k * (t4 - m4); c4 += k * (m4 - c4)
         }
+        val eps = 1e-9
+        if (abs(t0 - c0) < eps && abs(t1 - c1) < eps && abs(t2 - c2) < eps && abs(t3 - c3) < eps &&
+            abs(t4 - c4) < eps && abs(t0 - m0) < eps && abs(t1 - m1) < eps && abs(t2 - m2) < eps &&
+            abs(t3 - m3) < eps && abs(t4 - m4) < eps) {
+            t.copyInto(c); t.copyInto(m)
+            return
+        }
+        c[0] = c0; c[1] = c1; c[2] = c2; c[3] = c3; c[4] = c4
+        m[0] = m0; m[1] = m1; m[2] = m2; m[3] = m3; m[4] = m4
     }
 
-    private fun smoothCoeffs2D(cur: Array<DoubleArray>, tgt: Array<DoubleArray>) {
-        for (i in cur.indices) {
-            val c = cur[i]; val t = tgt[i]
-            for (k in c.indices) {
-                c[k] += SMOOTH_ALPHA * (t[k] - c[k])
-            }
-        }
-    }
 }
