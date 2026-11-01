@@ -31,6 +31,7 @@
     "!ios/SwiftAudioEx/.build/**",
     "!ios/Example/**",
     "android/src/**/*",
+    "!android/src/test/**",
     "android/build.gradle",
     "android/proguard-rules.txt",
     "*.podspec",
