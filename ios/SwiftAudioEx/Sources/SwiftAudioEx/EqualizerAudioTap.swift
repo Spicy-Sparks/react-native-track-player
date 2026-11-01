@@ -6,7 +6,7 @@
 //
 //  Quality features:
 //  - Float64 arithmetic in all IIR paths (eliminates rounding artefacts)
-//  - Per-block coefficient smoothing (click-free parameter changes)
+//  - Per-sample coefficient smoothing, two poles (click-free parameter changes)
 //  - Fades (~10 ms) when an effect is switched and between the chain and bypass
 //  - DC blocking filter (removes sub-sonic drift from cascaded IIRs)
 //  - Envelope-following true-peak limiter (transparent ceiling protection)
@@ -31,6 +31,9 @@ public class EqualizerAudioTap: AudioTap {
 
     /// Passthrough biquad coefficients [b0, b1, b2, a1, a2]
     private static let kUnity: [Double] = [1, 0, 0, 0, 0]
+
+    /// One biquad's coefficients (b0, b1, b2, a1, a2) as designed, before they are written in place.
+    private typealias Coeffs = (Double, Double, Double, Double, Double)
 
     // MARK: - Parameter Lock
 
@@ -89,20 +92,26 @@ public class EqualizerAudioTap: AudioTap {
     private var sampleRate: Double = 44100
     private var channelCount: Int = 2
 
-    // EQ: current (smoothed) and target coefficients, plus filter states
+    // Every biquad has its target coefficients, the coefficients in use (Cur) and the first of the
+    // two smoothing poles they reach the target through (Mid): see biquadD. Plus its filter states.
+    // EQ
     private var eqCur: [[Double]] = []     // [band][5]
+    private var eqMid: [[Double]] = []     // [band][5]
     private var eqTgt: [[Double]] = []     // [band][5]
     private var eqZ: [[[Double]]] = []     // [band][channel][2] (z1,z2)
 
     // Bass boost
     private var bbCur: [Double] = kUnity
+    private var bbMid: [Double] = kUnity
     private var bbTgt: [Double] = kUnity
     private var bbZ: [[Double]] = []       // [channel][2]
 
     // Loudness
     private var lnLoCur: [Double] = kUnity
+    private var lnLoMid: [Double] = kUnity
     private var lnLoTgt: [Double] = kUnity
     private var lnHiCur: [Double] = kUnity
+    private var lnHiMid: [Double] = kUnity
     private var lnHiTgt: [Double] = kUnity
     private var lnLoZ: [[Double]] = []     // [channel][2]
     private var lnHiZ: [[Double]] = []
@@ -133,7 +142,7 @@ public class EqualizerAudioTap: AudioTap {
     private var safetyAttCoeff: Double = 0              // computed from look-ahead length
     private var safetyRelCoeff: Double = 0              // computed from sample rate
 
-    // Coefficient smoothing alpha (computed from sample rate)
+    // Coefficient smoothing: per sample, each of the two poles (computed from sample rate)
     private var smoothAlpha: Double = 0.004
 
     // Frames left in the tail after all effects turned off. While the tail runs
@@ -157,16 +166,19 @@ public class EqualizerAudioTap: AudioTap {
     private var lnMix: Double = 0
     private var vzMix: Double = 0
 
-    // The virtualizer level and the balance as applied. Each follows its setting through two
-    // one-pole stages (so it starts and settles without a kink): a step moved the side signal, or
-    // a whole channel's level, at once. ~2 ms each for the level; ~10 ms each for the balance,
-    // whose pan law has a corner at the centre that a fast sweep across it would make audible.
+    // The virtualizer level and the channel gains of the balance as applied. Each follows its
+    // setting through two one-pole stages (so it starts and settles without a kink): a step moved
+    // the side signal, or a whole channel's level, at once. ~2 ms each for the level, ~10 ms each
+    // for the channel gains. The gains are smoothed, not the balance: the pan law min(1, 1∓b) has a
+    // corner at the centre, so a smoothed balance crossing it put a kink in a channel's gain.
     private var levelCoeff: Double = 1
     private var balanceCoeff: Double = 1
     private var vzLevelA: Double = 0.5
     private var vzLevel: Double = 0.5
-    private var balA: Double = 0
-    private var bal: Double = 0
+    private var gainLA: Double = 1
+    private var gainL: Double = 1
+    private var gainRA: Double = 1
+    private var gainR: Double = 1
 
     // The switches as read at the start of the buffer being processed: the UI thread can flip them
     // halfway through one.
@@ -263,7 +275,7 @@ public class EqualizerAudioTap: AudioTap {
     public override func finalize() {
         activeTapCount -= 1
         if activeTapCount <= 0 {
-            eqCur = []; eqTgt = []; eqZ = []
+            eqCur = []; eqMid = []; eqTgt = []; eqZ = []
             bbZ = []; lnLoZ = []; lnHiZ = []
             apStateL = []; apStateR = []; apCoeffsL = []; apCoeffsR = []
             dcXprev = []; dcYprev = []
@@ -284,27 +296,35 @@ public class EqualizerAudioTap: AudioTap {
         func zStates(_ count: Int) -> [[Double]] { (0..<count).map { _ in [Double](repeating: 0, count: 2) } }
         func own(_ c: [Double]) -> [Double] { c.map { $0 } }
 
-        // Smoothing alpha: ~5 ms time constant, adapted to sample rate
-        smoothAlpha = 1.0 - exp(-1.0 / (0.005 * sampleRate))
+        // Coefficient smoothing: two poles of ~3 ms each, adapted to sample rate
+        smoothAlpha = 1.0 - exp(-1.0 / (0.003 * sampleRate))
 
+        // The targets are rewritten in place by process() (see setCoeffs), so they need storage of
+        // their own too. Cur and Mid snap to them (no smoothing ramp on prepare).
         // ── EQ bands ──
-        eqCur = Array(repeating: Self.kUnity, count: Self.bandCount)
-        eqTgt = Array(repeating: Self.kUnity, count: Self.bandCount)
+        eqTgt = (0..<Self.bandCount).map { _ in own(Self.kUnity) }
         eqZ   = (0..<Self.bandCount).map { _ in zStates(ch) }
         refreshEQTargets()
-        eqCur = eqTgt.map(own)  // snap to initial values (no smoothing ramp on first prepare)
+        eqCur = eqTgt.map(own)
+        eqMid = eqTgt.map(own)
 
         // ── Bass boost ──
         bbZ = zStates(ch)
+        bbTgt = own(Self.kUnity)
         refreshBBTarget()
         bbCur = own(bbTgt)
+        bbMid = own(bbTgt)
 
         // ── Loudness ──
         lnLoZ = zStates(ch)
         lnHiZ = zStates(ch)
+        lnLoTgt = own(Self.kUnity)
+        lnHiTgt = own(Self.kUnity)
         refreshLnTargets()
         lnLoCur = own(lnLoTgt)
+        lnLoMid = own(lnLoTgt)
         lnHiCur = own(lnHiTgt)
+        lnHiMid = own(lnHiTgt)
 
         // ── Virtualizer all-pass (cross-channel) ──
         apCoeffsL = Self.apFreqsL.map { f in
@@ -429,47 +449,44 @@ public class EqualizerAudioTap: AudioTap {
         restEffectsThatAreOut()
         if mixing { copyIn(buffer, nCh, n, into: &chainDry) }
 
-        // ── 2. Smooth coefficients toward targets ──
-        // Uses exponential convergence equivalent to per-sample smoothing
-        let sf = 1.0 - pow(1.0 - smoothAlpha, Double(n))
+        // ── 2–5. The filters, Float64. Their coefficients move toward the targets sample by sample
+        // inside biquadD; afterwards they are advanced by the same n steps (advanceCoeffs). Moving
+        // them once per buffer put the whole change of a large buffer at its first sample.
+        let eqBands = min(Self.bandCount, eqCur.count, eqMid.count, eqTgt.count, eqZ.count)
 
-        if eqOn || eqMix > 0 { smoothCoeffs2D(&eqCur, toward: eqTgt, factor: sf) }
-        if bbOn || bbMix > 0 { smoothCoeffs(&bbCur, toward: bbTgt, factor: sf) }
-        if lnOn || lnMix > 0 {
-            smoothCoeffs(&lnLoCur, toward: lnLoTgt, factor: sf)
-            smoothCoeffs(&lnHiCur, toward: lnHiTgt, factor: sf)
-        }
-
-        // ── 3. EQ bands (cascaded peaking filters, Float64) ──
+        // ── 3. EQ bands (cascaded peaking filters) ──
         eqMix = stage(buffer, nCh, n, eqMix, eqOn) {
             for ch in 0..<nCh {
                 guard let data = buffer[ch].mData else { continue }
                 let samples = data.assumingMemoryBound(to: Float.self)
-                for band in 0..<Self.bandCount {
-                    guard band < eqCur.count, band < eqZ.count, ch < eqZ[band].count else { continue }
-                    biquadD(samples, n, eqCur[band], &eqZ[band][ch])
+                for band in 0..<eqBands where ch < eqZ[band].count {
+                    biquadD(samples, n, eqCur[band], eqMid[band], eqTgt[band], &eqZ[band][ch])
                 }
             }
         }
+        for band in 0..<eqBands { advanceCoeffs(&eqCur[band], &eqMid[band], eqTgt[band], n) }
 
-        // ── 4. Bass boost (low shelf, Float64) ──
+        // ── 4. Bass boost (low shelf) ──
         bbMix = stage(buffer, nCh, n, bbMix, bbOn) {
             for ch in 0..<nCh {
                 guard ch < bbZ.count, let data = buffer[ch].mData else { continue }
-                biquadD(data.assumingMemoryBound(to: Float.self), n, bbCur, &bbZ[ch])
+                biquadD(data.assumingMemoryBound(to: Float.self), n, bbCur, bbMid, bbTgt, &bbZ[ch])
             }
         }
+        advanceCoeffs(&bbCur, &bbMid, bbTgt, n)
 
-        // ── 5. Loudness enhancer (low shelf + high shelf, Float64) ──
+        // ── 5. Loudness enhancer (low shelf + high shelf) ──
         lnMix = stage(buffer, nCh, n, lnMix, lnOn) {
             for ch in 0..<nCh {
                 guard ch < lnLoZ.count, ch < lnHiZ.count,
                       let data = buffer[ch].mData else { continue }
                 let samples = data.assumingMemoryBound(to: Float.self)
-                biquadD(samples, n, lnLoCur, &lnLoZ[ch])
-                biquadD(samples, n, lnHiCur, &lnHiZ[ch])
+                biquadD(samples, n, lnLoCur, lnLoMid, lnLoTgt, &lnLoZ[ch])
+                biquadD(samples, n, lnHiCur, lnHiMid, lnHiTgt, &lnHiZ[ch])
             }
         }
+        advanceCoeffs(&lnLoCur, &lnLoMid, lnLoTgt, n)
+        advanceCoeffs(&lnHiCur, &lnHiMid, lnHiTgt, n)
 
         // ── 6. Virtualizer (mid-side + cross-channel all-pass, stereo only) ──
         if nCh >= 2
@@ -500,22 +517,29 @@ public class EqualizerAudioTap: AudioTap {
         }
 
         // ── 8. Balance (L/R panning, stereo only) ──
-        if nCh >= 2 && (balTarget != 0 || bal != 0 || balA != 0),
+        // Each channel's gain follows the pan law's value for the balance set (see gainL).
+        let tgtL = Self.panGainL(balTarget), tgtR = Self.panGainR(balTarget)
+        if nCh >= 2 && (tgtL != 1 || tgtR != 1 || gainLA != 1 || gainL != 1 || gainRA != 1 || gainR != 1),
            let lD = buffer[0].mData, let rD = buffer[1].mData
         {
             let L = lD.assumingMemoryBound(to: Float.self)
             let R = rD.assumingMemoryBound(to: Float.self)
             let k = balanceCoeff
-            var a = balA, b = bal
+            var la = gainLA, l = gainL, ra = gainRA, r = gainR
             for i in 0..<n {
-                a += k * (balTarget - a)
-                b += k * (a - b)
-                L[i] = Float(Double(L[i]) * min(1.0, 1.0 - b))
-                R[i] = Float(Double(R[i]) * min(1.0, 1.0 + b))
+                la += k * (tgtL - la)
+                l += k * (la - l)
+                ra += k * (tgtR - ra)
+                r += k * (ra - r)
+                L[i] = Float(Double(L[i]) * l)
+                R[i] = Float(Double(R[i]) * r)
             }
             // Back at the centre: stop applying a gain a hair under 1.
-            if balTarget == 0 && abs(a) < 1e-6 && abs(b) < 1e-6 { a = 0; b = 0 }
-            balA = a; bal = b
+            if tgtL == 1 && tgtR == 1
+                && abs(1 - la) < 1e-6 && abs(1 - l) < 1e-6 && abs(1 - ra) < 1e-6 && abs(1 - r) < 1e-6 {
+                la = 1; l = 1; ra = 1; r = 1
+            }
+            gainLA = la; gainL = l; gainRA = ra; gainR = r
         }
 
         // ── Crossfade with the dry input while entering or leaving bypass ──
@@ -529,6 +553,10 @@ public class EqualizerAudioTap: AudioTap {
     }
 
     // ═══════════════ Internal: Fades ═══════════════
+
+    /// The balance's pan law: each channel at full level up to the centre, then down to 0 at the far side.
+    private static func panGainL(_ b: Double) -> Double { min(1.0, 1.0 - b) }
+    private static func panGainR(_ b: Double) -> Double { min(1.0, 1.0 + b) }
 
     /// The fades move linearly but are heard through this S-curve (smoothstep):
     /// flat at both ends, so a fade does not start or stop with a kink.
@@ -615,15 +643,15 @@ public class EqualizerAudioTap: AudioTap {
     /// was last left.
     private func restEffectsThatAreOut() {
         if !eqOn && eqMix == 0 {
-            for b in 0..<min(eqCur.count, eqTgt.count) { copyCoeffs(&eqCur[b], eqTgt[b]) }
+            settleEQCoeffs()
             for b in 0..<eqZ.count { for c in 0..<eqZ[b].count { clearState(&eqZ[b][c]) } }
         }
         if !bbOn && bbMix == 0 {
-            copyCoeffs(&bbCur, bbTgt)
+            copyCoeffs(&bbCur, bbTgt); copyCoeffs(&bbMid, bbTgt)
             for c in 0..<bbZ.count { clearState(&bbZ[c]) }
         }
         if !lnOn && lnMix == 0 {
-            copyCoeffs(&lnLoCur, lnLoTgt); copyCoeffs(&lnHiCur, lnHiTgt)
+            settleLnCoeffs()
             for c in 0..<lnLoZ.count { clearState(&lnLoZ[c]) }
             for c in 0..<lnHiZ.count { clearState(&lnHiZ[c]) }
         }
@@ -641,11 +669,23 @@ public class EqualizerAudioTap: AudioTap {
         bbMix = bb ? 1 : 0
         lnMix = ln ? 1 : 0
         vzMix = vz ? 1 : 0
-        for b in 0..<min(eqCur.count, eqTgt.count) { copyCoeffs(&eqCur[b], eqTgt[b]) }
-        copyCoeffs(&bbCur, bbTgt)
-        copyCoeffs(&lnLoCur, lnLoTgt); copyCoeffs(&lnHiCur, lnHiTgt)
+        settleEQCoeffs()
+        copyCoeffs(&bbCur, bbTgt); copyCoeffs(&bbMid, bbTgt)
+        settleLnCoeffs()
         vzLevelA = Double(virtualizerLevel); vzLevel = vzLevelA
-        balA = balance; bal = balance
+        gainLA = Self.panGainL(balance); gainL = gainLA
+        gainRA = Self.panGainR(balance); gainR = gainRA
+    }
+
+    private func settleEQCoeffs() {
+        for b in 0..<min(eqCur.count, eqMid.count, eqTgt.count) {
+            copyCoeffs(&eqCur[b], eqTgt[b]); copyCoeffs(&eqMid[b], eqTgt[b])
+        }
+    }
+
+    private func settleLnCoeffs() {
+        copyCoeffs(&lnLoCur, lnLoTgt); copyCoeffs(&lnLoMid, lnLoTgt)
+        copyCoeffs(&lnHiCur, lnHiTgt); copyCoeffs(&lnHiMid, lnHiTgt)
     }
 
     /// Element by element, so the audio thread does not allocate a new array, and only where a
@@ -752,20 +792,43 @@ public class EqualizerAudioTap: AudioTap {
 
     /// Process Float32 samples through a biquad filter using Float64 arithmetic.
     /// Direct Form II Transposed for numerical stability.
+    ///
+    /// While its coefficients `c` are not yet at the target `t`, they move toward it every sample
+    /// through two one-pole stages (`m` is the first): smoothly, with no kink where a change starts.
+    /// The caller then advances the stored coefficients by the same steps (advanceCoeffs), so every
+    /// channel runs the same trajectory and the next buffer continues it.
     private func biquadD(
         _ samples: UnsafeMutablePointer<Float>, _ count: Int,
-        _ c: [Double], _ z: inout [Double]
+        _ c: [Double], _ m: [Double], _ t: [Double], _ z: inout [Double]
     ) {
-        guard c.count >= 5, z.count >= 2 else { return }
-        let b0 = c[0], b1 = c[1], b2 = c[2], a1 = c[3], a2 = c[4]
+        guard c.count >= 5, m.count >= 5, t.count >= 5, z.count >= 2 else { return }
+        var b0 = c[0], b1 = c[1], b2 = c[2], a1 = c[3], a2 = c[4]
         var z1 = z[0], z2 = z[1]
 
-        for i in 0..<count {
-            let x = Double(samples[i])
-            let y = b0 * x + z1
-            z1 = b1 * x - a1 * y + z2
-            z2 = b2 * x - a2 * y
-            samples[i] = Float(y)
+        if Self.settled(c, m, t) {
+            for i in 0..<count {
+                let x = Double(samples[i])
+                let y = b0 * x + z1
+                z1 = b1 * x - a1 * y + z2
+                z2 = b2 * x - a2 * y
+                samples[i] = Float(y)
+            }
+        } else {
+            let k = smoothAlpha
+            let t0 = t[0], t1 = t[1], t2 = t[2], t3 = t[3], t4 = t[4]
+            var m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4]
+            for i in 0..<count {
+                m0 += k * (t0 - m0); b0 += k * (m0 - b0)
+                m1 += k * (t1 - m1); b1 += k * (m1 - b1)
+                m2 += k * (t2 - m2); b2 += k * (m2 - b2)
+                m3 += k * (t3 - m3); a1 += k * (m3 - a1)
+                m4 += k * (t4 - m4); a2 += k * (m4 - a2)
+                let x = Double(samples[i])
+                let y = b0 * x + z1
+                z1 = b1 * x - a1 * y + z2
+                z2 = b2 * x - a2 * y
+                samples[i] = Float(y)
+            }
         }
 
         // Flush denormals to zero (prevents FPU slowdown on some architectures)
@@ -777,20 +840,48 @@ public class EqualizerAudioTap: AudioTap {
 
     // ═══════════════ Internal: Coefficient Smoothing ════════════
 
-    /// Smoothly interpolate a 1D coefficient vector toward target
-    private func smoothCoeffs(_ cur: inout [Double], toward tgt: [Double], factor sf: Double) {
-        for k in 0..<min(cur.count, tgt.count) {
-            cur[k] += (tgt[k] - cur[k]) * sf
-        }
+    private static func settled(_ c: [Double], _ m: [Double], _ t: [Double]) -> Bool {
+        c[0] == t[0] && c[1] == t[1] && c[2] == t[2] && c[3] == t[3] && c[4] == t[4]
+            && m[0] == t[0] && m[1] == t[1] && m[2] == t[2] && m[3] == t[3] && m[4] == t[4]
     }
 
-    /// Smoothly interpolate a 2D coefficient array toward target
-    private func smoothCoeffs2D(_ cur: inout [[Double]], toward tgt: [[Double]], factor sf: Double) {
-        for i in 0..<min(cur.count, tgt.count) {
-            for k in 0..<min(cur[i].count, tgt[i].count) {
-                cur[i][k] += (tgt[i][k] - cur[i][k]) * sf
-            }
+    /// Moves a biquad's coefficients `n` samples toward the target: the steps biquadD took inside
+    /// the buffer. Once they are within 1e-9 of it (far below anything a Float sample can show, and
+    /// above where the steps stop moving them at any sample rate) they snap onto it, and biquadD goes
+    /// back to fixed coefficients. In place: the render thread must not allocate.
+    private func advanceCoeffs(_ c: inout [Double], _ m: inout [Double], _ t: [Double], _ n: Int) {
+        guard c.count >= 5, m.count >= 5, t.count >= 5, !Self.settled(c, m, t) else { return }
+        let k = smoothAlpha
+        let t0 = t[0], t1 = t[1], t2 = t[2], t3 = t[3], t4 = t[4]
+        var m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4]
+        var c0 = c[0], c1 = c[1], c2 = c[2], c3 = c[3], c4 = c[4]
+        for _ in 0..<n {
+            m0 += k * (t0 - m0); c0 += k * (m0 - c0)
+            m1 += k * (t1 - m1); c1 += k * (m1 - c1)
+            m2 += k * (t2 - m2); c2 += k * (m2 - c2)
+            m3 += k * (t3 - m3); c3 += k * (m3 - c3)
+            m4 += k * (t4 - m4); c4 += k * (m4 - c4)
         }
+        let eps = 1e-9
+        if abs(t0 - c0) < eps && abs(t1 - c1) < eps && abs(t2 - c2) < eps && abs(t3 - c3) < eps
+            && abs(t4 - c4) < eps && abs(t0 - m0) < eps && abs(t1 - m1) < eps && abs(t2 - m2) < eps
+            && abs(t3 - m3) < eps && abs(t4 - m4) < eps {
+            copyCoeffs(&c, t); copyCoeffs(&m, t)
+            return
+        }
+        c[0] = c0; c[1] = c1; c[2] = c2; c[3] = c3; c[4] = c4
+        m[0] = m0; m[1] = m1; m[2] = m2; m[3] = m3; m[4] = m4
+    }
+
+    /// Writes a designed coefficient set into `dst` in place: process() calls this when a level
+    /// changes, and a new array would be allocated on the render thread.
+    private func setCoeffs(_ dst: inout [Double], _ c: Coeffs) {
+        guard dst.count >= 5 else { return }
+        if dst[0] != c.0 { dst[0] = c.0 }
+        if dst[1] != c.1 { dst[1] = c.1 }
+        if dst[2] != c.2 { dst[2] = c.2 }
+        if dst[3] != c.3 { dst[3] = c.3 }
+        if dst[4] != c.4 { dst[4] = c.4 }
     }
 
     // ═══════════════ Internal: Target Coefficient Calc ══════════
@@ -804,12 +895,12 @@ public class EqualizerAudioTap: AudioTap {
 
     /// Must be called with paramLock held
     private func refreshEQTargetsLocked() {
-        eqTgt = (0..<Self.bandCount).map { i in
-            Self.peakingEQ(
+        for i in 0..<min(Self.bandCount, eqTgt.count, _gains.count) {
+            setCoeffs(&eqTgt[i], Self.peakingEQ(
                 freq: Double(Self.frequencies[i]),
                 gainDB: Double(_gains[i]),
                 q: Self.eqQ, sr: sampleRate
-            )
+            ))
         }
     }
 
@@ -823,7 +914,7 @@ public class EqualizerAudioTap: AudioTap {
     /// Must be called with paramLock held
     private func refreshBBTargetLocked() {
         let g = Self.bbMinDB + (Self.bbMaxDB - Self.bbMinDB) * Double(bassBoostLevel)
-        bbTgt = Self.lowShelf(freq: Self.bbFreq, gainDB: g, q: Self.bbQ, sr: sampleRate)
+        setCoeffs(&bbTgt, Self.lowShelf(freq: Self.bbFreq, gainDB: g, q: Self.bbQ, sr: sampleRate))
     }
 
     private func refreshLnTargets() {
@@ -837,17 +928,20 @@ public class EqualizerAudioTap: AudioTap {
     private func refreshLnTargetsLocked() {
         let lo = Self.lnLoMaxDB * Double(loudnessLevel)
         let hi = Self.lnHiMaxDB * Double(loudnessLevel)
-        lnLoTgt = Self.lowShelf(freq: Self.lnLoFreq,  gainDB: lo, q: Self.lnQ, sr: sampleRate)
-        lnHiTgt = Self.highShelf(freq: Self.lnHiFreq, gainDB: hi, q: Self.lnQ, sr: sampleRate)
+        setCoeffs(&lnLoTgt, Self.lowShelf(freq: Self.lnLoFreq,  gainDB: lo, q: Self.lnQ, sr: sampleRate))
+        setCoeffs(&lnHiTgt, Self.highShelf(freq: Self.lnHiFreq, gainDB: hi, q: Self.lnQ, sr: sampleRate))
     }
 
     // ═══════════════ Filter Design (Audio EQ Cookbook) ═══════════
     // All calculations in Float64 for maximum precision.
     // Reference: Robert Bristow-Johnson's Audio EQ Cookbook
+    // At 0 dB every design is still the filter, not [1, 0, 0, 0, 0]: numerator and denominator come
+    // out identical, so it passes the signal through exactly, and a level change toward or away from
+    // 0 dB moves between two filters of the same shape. Smoothing toward [1, 0, 0, 0, 0] dragged the
+    // poles across the plane on the way (hundreds of LSB on a loudness change to 0).
 
     /// Peaking EQ (parametric bell)
-    private static func peakingEQ(freq: Double, gainDB: Double, q: Double, sr: Double) -> [Double] {
-        if abs(gainDB) < 0.01 { return kUnity }
+    private static func peakingEQ(freq: Double, gainDB: Double, q: Double, sr: Double) -> Coeffs {
         let A  = pow(10.0, gainDB / 40.0)
         let w0 = 2.0 * Double.pi * freq / sr
         let cw = cos(w0), sw = sin(w0)
@@ -860,12 +954,11 @@ public class EqualizerAudioTap: AudioTap {
         let a1 = -2.0 * cw
         let a2 =  1.0 - al / A
 
-        return [b0/a0, b1/a0, b2/a0, a1/a0, a2/a0]
+        return (b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 
     /// Low-shelf filter
-    private static func lowShelf(freq: Double, gainDB: Double, q: Double, sr: Double) -> [Double] {
-        if abs(gainDB) < 0.01 { return kUnity }
+    private static func lowShelf(freq: Double, gainDB: Double, q: Double, sr: Double) -> Coeffs {
         let A  = pow(10.0, gainDB / 40.0)
         let w0 = 2.0 * Double.pi * freq / sr
         let cw = cos(w0), sw = sin(w0)
@@ -879,12 +972,11 @@ public class EqualizerAudioTap: AudioTap {
         let a1 = -2 * ((A - 1) + (A + 1) * cw)
         let a2 = (A + 1) + (A - 1) * cw - s2a
 
-        return [b0/a0, b1/a0, b2/a0, a1/a0, a2/a0]
+        return (b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 
     /// High-shelf filter
-    private static func highShelf(freq: Double, gainDB: Double, q: Double, sr: Double) -> [Double] {
-        if abs(gainDB) < 0.01 { return kUnity }
+    private static func highShelf(freq: Double, gainDB: Double, q: Double, sr: Double) -> Coeffs {
         let A  = pow(10.0, gainDB / 40.0)
         let w0 = 2.0 * Double.pi * freq / sr
         let cw = cos(w0), sw = sin(w0)
@@ -898,7 +990,7 @@ public class EqualizerAudioTap: AudioTap {
         let a1 = 2 * ((A - 1) - (A + 1) * cw)
         let a2 = (A + 1) - (A - 1) * cw - s2a
 
-        return [b0/a0, b1/a0, b2/a0, a1/a0, a2/a0]
+        return (b0/a0, b1/a0, b2/a0, a1/a0, a2/a0)
     }
 }
 
