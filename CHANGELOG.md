@@ -1,3 +1,14 @@
+## 4.1.95
+
+### Bug Fixes
+
+* **android:** Play after a permanent audio-focus loss (another music app, a video, an ad) asks for the focus again.
+  The focus was requested only on the way into READY, which a resume from pause never goes through, so the app played
+  without the focus, over every other app, and never paused for one again. With autoHandleInterruptions off, entering
+  PLAYING without the focus now requests it; stop() gives it back like IDLE and ERROR; whatever ends the focus also
+  ends a duck, which a permanent loss, a stop, or a transient loss on top of a duck used to leave at a fifth of the
+  volume (124ckhdfxy6).
+
 ## 4.1.94
 
 ### Bug Fixes
