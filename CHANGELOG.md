@@ -1,3 +1,14 @@
+## 4.1.94
+
+### Bug Fixes
+
+* **android:** with no video on screen the player holds a stream to its smallest video rendition. A stream that is an
+  HLS master whose every variant carries video played at its best variant in audio mode (~4.8 Mbit/s for a song on a
+  Pixel 6a), so a mobile link that could not keep up stopped to buffer again and again; it now takes ~131 kbit/s.
+  The cap lifts when the video view comes on screen, without restarting the audio. The surface moves to the player
+  that takes over at a crossfade, a hidden window (Home, lock screen) counts as off screen, and a rebuilt player gets
+  the views back (124ckhdfxrp).
+
 ## 4.1.93
 
 ### Bug Fixes
