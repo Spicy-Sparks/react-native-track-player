@@ -1,3 +1,15 @@
+## 4.1.97
+
+### Bug Fixes
+
+* **android:** without `android.strictAudioFocus`, READY asks for the audio focus whatever `playWhenReady`, exactly as
+  4.1.95. 4.1.96 made a track prepared paused not ask on every contract; an app preparing this player paused for a
+  handover from another output (Lyra's warm handover from the embed WebView) reads that output stopping after READY as
+  this player having taken the focus, so a stop by another app was read that way too and the handover's play took the
+  audio back from it. Under the strict contract a track prepared paused still does not take the focus (124ckhdfyqe).
+* **android:** `getPlaybackState()` also returns `audioFocus` ("held", "lent" during a transient loss, "none"), so an
+  app can tell whether the player holds the focus (124ckhdfyqe).
+
 ## 4.1.96
 
 ### Bug Fixes

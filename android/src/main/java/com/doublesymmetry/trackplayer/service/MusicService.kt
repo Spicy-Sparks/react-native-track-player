@@ -1366,6 +1366,11 @@ class MusicService : HeadlessJsMediaService() {
     @MainThread
     fun getBufferedPositionInSeconds(): Double = player.bufferedPosition.toSeconds()
 
+    /** Whether the player holds the audio focus: "held", "lent" (a transient loss) or "none". */
+    val audioFocusState: String
+        @MainThread
+        get() = player.audioFocusState
+
     @MainThread
     fun getPlayerStateBundle(state: AudioPlayerState): Bundle {
         val bundle = Bundle()
