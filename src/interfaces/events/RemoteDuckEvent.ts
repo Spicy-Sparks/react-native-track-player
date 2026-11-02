@@ -24,4 +24,20 @@ export interface RemoteDuckEvent {
    * PlaybackPlayWhenReadyChanged.
    **/
   routeLost?: boolean;
+  /**
+   * Android only: whether the player was set to play when this happened, read
+   * before it paused for it. A track still buffering is not playing yet but is
+   * meant to — the app cannot tell the two apart from its own state, and needs
+   * this to decide whether to resume when the focus comes back (`paused: false`).
+   * Absent from older builds and from iOS.
+   **/
+  playWhenReady?: boolean;
+  /**
+   * Android only: not a change of focus but a refused request. The player was
+   * asked to start and the system said no — it refuses media while a call is
+   * up — so it did not start. Arrives with `paused: true`; `permanent` is false
+   * when an earlier transient loss still owes the focus back (its `paused: false`
+   * will come when the call ends), true when nothing will.
+   **/
+  denied?: boolean;
 }

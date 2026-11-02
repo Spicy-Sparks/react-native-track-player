@@ -1522,6 +1522,8 @@ class MusicService : HeadlessJsMediaService() {
                 Bundle().apply {
                     putBoolean(IS_FOCUS_LOSS_PERMANENT_KEY, it.isFocusLostPermanently)
                     putBoolean(IS_PAUSED_KEY, it.isPaused)
+                    it.playWhenReady?.let { intent -> putBoolean("playWhenReady", intent) }
+                    if (it.denied) putBoolean("denied", true)
                     emit(MusicEvents.BUTTON_DUCK, this)
                 }
             }

@@ -145,7 +145,7 @@ class QueuedAudioPlayer(
             return
         }
         load(item)
-        exoPlayer.playWhenReady = playWhenReady
+        exoPlayer.playWhenReady = playWhenReady && mayStartPlayback()
     }
 
     override fun load(item: AudioItem) {
@@ -206,7 +206,7 @@ class QueuedAudioPlayer(
      * @param item The [AudioItem] to add.
      */
     fun add(item: AudioItem, playWhenReady: Boolean) {
-        exoPlayer.playWhenReady = playWhenReady
+        exoPlayer.playWhenReady = playWhenReady && mayStartPlayback()
         add(item)
     }
 
@@ -227,7 +227,7 @@ class QueuedAudioPlayer(
      * @param playWhenReady Whether playback starts automatically.
      */
     fun add(items: List<AudioItem>, playWhenReady: Boolean) {
-        exoPlayer.playWhenReady = playWhenReady
+        exoPlayer.playWhenReady = playWhenReady && mayStartPlayback()
         add(items)
     }
 
@@ -314,7 +314,7 @@ class QueuedAudioPlayer(
      * @param playWhenReady Whether playback starts automatically.
      */
     fun jumpToItem(index: Int, playWhenReady: Boolean) {
-        exoPlayer.playWhenReady = playWhenReady
+        exoPlayer.playWhenReady = playWhenReady && mayStartPlayback()
         jumpToItem(index)
     }
 
