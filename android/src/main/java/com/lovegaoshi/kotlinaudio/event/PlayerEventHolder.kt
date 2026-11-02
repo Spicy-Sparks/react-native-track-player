@@ -91,9 +91,9 @@ class PlayerEventHolder {
         }
     }
 
-    internal fun updateOnAudioFocusChanged(isPaused: Boolean, isPermanent: Boolean) {
+    internal fun updateOnAudioFocusChanged(data: FocusChangeData) {
         coroutineScope.launch {
-            _onAudioFocusChanged.emit(FocusChangeData(isPaused, isPermanent))
+            _onAudioFocusChanged.emit(data)
         }
     }
 

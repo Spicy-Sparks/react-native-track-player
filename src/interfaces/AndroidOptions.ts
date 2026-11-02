@@ -22,6 +22,20 @@ export interface AndroidOptions {
   alwaysPauseOnInterruption?: boolean;
 
   /**
+   * The stricter audio-focus contract (with `autoHandleInterruptions: false`).
+   * Turn it on only when the app handles the `RemoteDuck` fields that come with
+   * it (`denied`, `playWhenReady`):
+   * - a start while a call is up does not happen: the player stays paused and
+   *   emits `RemoteDuck` with `denied: true` (`permanent: false` when the call
+   *   interrupted the music, whose `paused: false` comes when it ends);
+   * - a transient loss pauses a track meant to play, also while it buffers, and
+   *   `playWhenReady` tells the app it was meant to play, so it can resume it
+   *   when the focus comes back.
+   * @default false
+   */
+  strictAudioFocus?: boolean;
+
+  /**
    * Time in seconds to wait once the player should transition to not
    * considering the service as in the foreground. If playback resumes within
    * this grace period, the service remains in the foreground state.

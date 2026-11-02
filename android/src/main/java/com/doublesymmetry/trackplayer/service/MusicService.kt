@@ -157,6 +157,7 @@ class MusicService : HeadlessJsMediaService() {
         const val SHUFFLE_KEY = "shuffle"
         const val STOP_FOREGROUND_GRACE_PERIOD_KEY = "stopForegroundGracePeriod"
         const val PAUSE_ON_INTERRUPTION_KEY = "alwaysPauseOnInterruption"
+        const val STRICT_AUDIO_FOCUS_KEY = "strictAudioFocus"
         const val AUTO_UPDATE_METADATA = "autoUpdateMetadata"
         const val AUTO_HANDLE_INTERRUPTIONS = "autoHandleInterruptions"
         const val USE_FFT_PROCESSOR = "useFFTProcessor"
@@ -971,6 +972,8 @@ class MusicService : HeadlessJsMediaService() {
         }
 
         player.alwaysPauseOnInterruption = androidOptions?.getBoolean(PAUSE_ON_INTERRUPTION_KEY) ?: false
+        // Opt-in: only a JS side that reads RemoteDuck `denied`/`playWhenReady` may turn it on.
+        player.strictAudioFocus = androidOptions?.getBoolean(STRICT_AUDIO_FOCUS_KEY) ?: false
         val newShuffleState = androidOptions?.getBoolean(SHUFFLE_KEY) ?: false
         // Don't set player.shuffleMode - shuffle is managed by JS layer through queue reordering
         // Only track shuffleState for notification icon display
@@ -1522,6 +1525,8 @@ class MusicService : HeadlessJsMediaService() {
                 Bundle().apply {
                     putBoolean(IS_FOCUS_LOSS_PERMANENT_KEY, it.isFocusLostPermanently)
                     putBoolean(IS_PAUSED_KEY, it.isPaused)
+                    it.playWhenReady?.let { intent -> putBoolean("playWhenReady", intent) }
+                    if (it.denied) putBoolean("denied", true)
                     emit(MusicEvents.BUTTON_DUCK, this)
                 }
             }

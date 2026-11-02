@@ -163,6 +163,11 @@ abstract class AudioPlayer internal constructor(
         get() = focusManager.alwaysPauseOnInterruption
         set(v) { focusManager.alwaysPauseOnInterruption = v }
 
+    /** The stricter focus contract (FocusManager.strict); updateOptions android.strictAudioFocus. */
+    var strictAudioFocus: Boolean
+        get() = focusManager.strict
+        set(v) { focusManager.strict = v }
+
     open val currentItem: AudioItem?
         get() = mediaItem2AudioItem(exoPlayer.currentMediaItem)
 
@@ -177,15 +182,44 @@ abstract class AudioPlayer internal constructor(
                 // even when ExoPlayer handles focus internally (handleAudioFocus=true).
                 // This ensures RemoteDuck events reach JS for proper resume handling,
                 // especially on Android Auto where ExoPlayer's internal resume may fail.
-                focusManager.onPlayerStateChanged(value, options.handleAudioFocus)
+                // The last line of defence for a start that went round the gates below
+                // (mayStartPlayback): refused, the player stops where it is.
+                if (!focusManager.onPlayerStateChanged(value, options.handleAudioFocus, exoPlayer.playWhenReady)) {
+                    refuseToPlay()
+                }
             }
         }
 
     var playWhenReady: Boolean
         get() = exoPlayer.playWhenReady
         set(value) {
-            exoPlayer.playWhenReady = value
+            exoPlayer.playWhenReady = value && mayStartPlayback()
         }
+
+    /**
+     * Whether playback may start now as far as the audio focus goes, asking for it if it is not
+     * ours. Every way of starting goes through this BEFORE ExoPlayer is told to play.
+     *
+     * A refused request (the system refuses media during a call) used to be ignored: the player
+     * started anyway and the music came out over the call. Now it does not start, and JS hears a
+     * refusal (FocusManager.refusal) so the app shows paused and decides about resuming.
+     *
+     * Only under the stricter contract (strictAudioFocus); without it the focus is asked for on
+     * the way into READY/PLAYING as before. With ExoPlayer handling the focus it asks and refuses
+     * by itself.
+     */
+    protected fun mayStartPlayback(): Boolean {
+        if (options.handleAudioFocus || !focusManager.strict) return true
+        if (focusManager.mayStart()) return true
+        playerEventHolder.updateOnAudioFocusChanged(focusManager.refusal())
+        return false
+    }
+
+    /** A start that got past the gates was refused (FocusManager.onPlayerStateChanged). */
+    private fun refuseToPlay() {
+        playerEventHolder.updateOnAudioFocusChanged(focusManager.refusal())
+        pause()
+    }
 
     val duration: Long
         get() {
@@ -355,7 +389,7 @@ abstract class AudioPlayer internal constructor(
      * @param playWhenReady Whether playback starts automatically.
      */
     open fun load(item: AudioItem, playWhenReady: Boolean = true) {
-        exoPlayer.playWhenReady = playWhenReady
+        exoPlayer.playWhenReady = playWhenReady && mayStartPlayback()
         load(item)
     }
 
@@ -547,6 +581,9 @@ abstract class AudioPlayer internal constructor(
         }
 
     fun play() {
+        // Nothing loaded: nothing to take the focus for. A start once an item arrives goes
+        // through READY, which asks.
+        if (currentItem != null && !mayStartPlayback()) return
         exoPlayer.play()
         if (currentItem != null) {
             exoPlayer.prepare()
@@ -1156,36 +1193,13 @@ abstract class AudioPlayer internal constructor(
 
     private inner class APMFocusListener: AudioManager.OnAudioFocusChangeListener {
         override fun onAudioFocusChange(focusChange: Int) {
-            when (focusChange) {
-                AudioManager.AUDIOFOCUS_LOSS -> {
-                    playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = true)
-                    pause()
-                    // Also ends a duck: no GAIN follows a permanent loss.
-                    focusManager.onFocusLostPermanently()
-                }
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                    playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = false)
-                    if (isPlaying) {
-                        pause()
-                    }
-                }
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                    playerEventHolder.updateOnAudioFocusChanged(isPaused = true, isPermanent = false)
-                    if (alwaysPauseOnInterruption) {
-                        if (isPlaying) {
-                            pause()
-                        }
-                    } else {
-                        focusManager.onDuck()
-                    }
-                }
-                AudioManager.AUDIOFOCUS_GAIN -> {
-                    playerEventHolder.updateOnAudioFocusChanged(isPaused = false, isPermanent = false)
-                    // Ends any duck, also one a transient loss interrupted (a navigation prompt,
-                    // then a call): that loss used to forget the duck and leave the volume at 0.2.
-                    focusManager.onFocusGained()
-                }
-            }
+            // The intent is read before anything pauses: JS needs to know whether the music was
+            // meant to be playing, also while it was still buffering.
+            val reaction = focusManager.onAudioFocusChange(
+                focusChange, exoPlayer.playWhenReady, exoPlayer.isPlaying
+            ) ?: return
+            playerEventHolder.updateOnAudioFocusChanged(reaction.report)
+            if (reaction.pause) pause()
         }
     }
 }

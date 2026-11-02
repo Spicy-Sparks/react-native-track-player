@@ -1,3 +1,21 @@
+## 4.1.96
+
+### Bug Fixes
+
+* **android:** `android.strictAudioFocus` (updateOptions, opt-in, with autoHandleInterruptions off): a start while a
+  call is up does not happen. The focus request was refused and ignored, and the music came out over the call; now the
+  player stays paused and emits `RemoteDuck` with `denied: true`. The request accepts a delayed gain (Android 8+), so
+  the call ends with `AUDIOFOCUS_GAIN` (`paused: false`) even after an error or a stop took the player out of the focus
+  stack; `permanent` is true only when nothing will come back. Outside a call a refused request still starts (Android
+  15 refuses the focus to a background app before media3 promotes its service), and a start while a transient loss has
+  the focus lent out never asks for it, so an automatic start cannot take it from a voice note (124ckhdfyqe).
+* **android:** with `strictAudioFocus`, a transient loss pauses a track meant to play also while it is still buffering
+  (`isPlaying` false): it used to start over the call as soon as its data arrived. `RemoteDuck` carries
+  `playWhenReady`, read before the pause, so the app can resume after the call a track that was still loading
+  (124ckhdfyqe).
+* **android:** READY asks for the focus only when the player is about to play: a track prepared paused (restored at
+  launch, loaded behind a pause) no longer stops whatever else was playing (124ckhdfyqe).
+
 ## 4.1.95
 
 ### Bug Fixes
