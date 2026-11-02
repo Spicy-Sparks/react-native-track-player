@@ -163,6 +163,11 @@ abstract class AudioPlayer internal constructor(
         get() = focusManager.alwaysPauseOnInterruption
         set(v) { focusManager.alwaysPauseOnInterruption = v }
 
+    /** The stricter focus contract (FocusManager.strict); updateOptions android.strictAudioFocus. */
+    var strictAudioFocus: Boolean
+        get() = focusManager.strict
+        set(v) { focusManager.strict = v }
+
     open val currentItem: AudioItem?
         get() = mediaItem2AudioItem(exoPlayer.currentMediaItem)
 
@@ -199,11 +204,13 @@ abstract class AudioPlayer internal constructor(
      * started anyway and the music came out over the call. Now it does not start, and JS hears a
      * refusal (FocusManager.refusal) so the app shows paused and decides about resuming.
      *
-     * With ExoPlayer handling the focus it asks and refuses by itself.
+     * Only under the stricter contract (strictAudioFocus); without it the focus is asked for on
+     * the way into READY/PLAYING as before. With ExoPlayer handling the focus it asks and refuses
+     * by itself.
      */
     protected fun mayStartPlayback(): Boolean {
-        if (options.handleAudioFocus) return true
-        if (focusManager.requestAudioFocus()) return true
+        if (options.handleAudioFocus || !focusManager.strict) return true
+        if (focusManager.mayStart()) return true
         playerEventHolder.updateOnAudioFocusChanged(focusManager.refusal())
         return false
     }
@@ -1188,7 +1195,9 @@ abstract class AudioPlayer internal constructor(
         override fun onAudioFocusChange(focusChange: Int) {
             // The intent is read before anything pauses: JS needs to know whether the music was
             // meant to be playing, also while it was still buffering.
-            val reaction = focusManager.onAudioFocusChange(focusChange, exoPlayer.playWhenReady) ?: return
+            val reaction = focusManager.onAudioFocusChange(
+                focusChange, exoPlayer.playWhenReady, exoPlayer.isPlaying
+            ) ?: return
             playerEventHolder.updateOnAudioFocusChanged(reaction.report)
             if (reaction.pause) pause()
         }

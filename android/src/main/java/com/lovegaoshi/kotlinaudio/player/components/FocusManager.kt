@@ -17,6 +17,14 @@ interface AudioFocusGateway {
 
     /** Gives the focus last asked for back; returns an AudioManager.AUDIOFOCUS_REQUEST_* result. */
     fun abandon(): Int
+
+    /**
+     * Whether a call is up (ringing, in a phone call or a VoIP one): the one time a refused request
+     * means "do not play". Android 15 also refuses every request from an app that is neither on
+     * screen nor running a foreground service, which is how a background Play starts (media3
+     * promotes the service only once playback starts): that refusal must not stop it.
+     */
+    fun callActive(): Boolean
 }
 
 private class SystemAudioFocusGateway(
@@ -54,6 +62,13 @@ private class SystemAudioFocusGateway(
             AudioManager.AUDIOFOCUS_REQUEST_FAILED
         }
     }
+
+    override fun callActive(): Boolean {
+        val manager = ContextCompat.getSystemService(context, AudioManager::class.java) ?: return false
+        // RINGTONE, IN_CALL, IN_COMMUNICATION and the call-screening/redirect modes of newer
+        // releases: anything but NORMAL is a call in some state.
+        return manager.mode != AudioManager.MODE_NORMAL && manager.mode != AudioManager.MODE_INVALID
+    }
 }
 
 /**
@@ -74,7 +89,8 @@ class FocusManager(
     /**
      * Whether the focus is ours right now: granted and not lent to anybody. False after any loss
      * that pauses (permanent or transient) and before the first grant. While it is false a start
-     * has to ask again ([requestAudioFocus]), as ExoPlayer's own focus handling does.
+     * has to ask again ([requestAudioFocus]), as ExoPlayer's own focus handling does (under the
+     * old contract, not [strict], a transient loss is not asked about again).
      */
     var hasAudioFocus = false
         private set
@@ -92,6 +108,18 @@ class FocusManager(
         private set
 
     var alwaysPauseOnInterruption = options.alwaysPauseOnInterruption
+
+    /**
+     * The focus contract an app opts into once its JS side handles what comes with it
+     * (RemoteDuck `denied` and `playWhenReady`; updateOptions `android.strictAudioFocus`):
+     * - a start during a call does not happen: the request is refused, and JS hears `denied`;
+     * - a start while a transient loss has the focus lent out asks for it again (and is refused
+     *   during a call), where it used to play over whoever had it;
+     * - a transient loss pauses a track meant to play, also while it is still buffering.
+     * Off, the player keeps the old contract: an app whose JS reads `paused` off its own state
+     * would see a buffering track paused under it and never resume it.
+     */
+    var strict = false
 
     /**
      * Whether the output is ducked for an AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK. A duck can only
@@ -116,7 +144,8 @@ class FocusManager(
      * we are still in the stack and the GAIN that ends it still comes.
      */
     fun requestAudioFocus(): Boolean {
-        if (hasAudioFocus) return true
+        // Lent out counts as ours under the old contract: it never asked during a transient loss.
+        if (hasAudioFocus || (lentOut && !strict)) return true
         val granted = gateway.request(alwaysPauseOnInterruption) ==
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (granted) {
@@ -126,6 +155,17 @@ class FocusManager(
             ducked = false
         }
         return granted
+    }
+
+    /**
+     * Whether the player may start now, asking for the focus if it is not ours. Only a request
+     * refused while a call is up stops it, and only under the [strict] contract; any other refusal
+     * (Android 15's, of a Play from the background before the service is promoted) lets it start,
+     * and PLAYING asks again.
+     */
+    fun mayStart(): Boolean {
+        if (requestAudioFocus()) return true
+        return !(strict && gateway.callActive())
     }
 
     fun abandonAudioFocusIfHeld() {
@@ -143,8 +183,8 @@ class FocusManager(
 
     /**
      * Keeps the focus in step with the player. Returns false when the player must not play: it
-     * wants to (READY with playWhenReady, or PLAYING) and the request for the focus was refused.
-     * The player then pauses and reports [refusal].
+     * wants to (READY with playWhenReady, or PLAYING) and [mayStart] said no. The player then
+     * pauses and reports [refusal].
      *
      * The focus used to be asked for only on the way into READY. A resume from pause never goes
      * through READY (ExoPlayer stays in STATE_READY while paused), so after a permanent loss —
@@ -172,9 +212,9 @@ class FocusManager(
             AudioPlayerState.ERROR -> abandonAudioFocusIfHeld()
             AudioPlayerState.READY -> when {
                 exoPlayerHandlesFocus -> if (!lentOut) requestAudioFocus()
-                playWhenReady -> return requestAudioFocus()
+                playWhenReady -> return mayStart()
             }
-            AudioPlayerState.PLAYING -> if (!exoPlayerHandlesFocus) return requestAudioFocus()
+            AudioPlayerState.PLAYING -> if (!exoPlayerHandlesFocus) return mayStart()
             else -> {}
         }
         return true
@@ -196,9 +236,10 @@ class FocusManager(
     /**
      * The policy for a change of focus delivered by the system. [playWhenReady] is the player's
      * intent at that moment: a track still BUFFERING is not playing yet but is meant to, and a
-     * pause decided on `isPlaying` let it start over the call the moment its data arrived.
+     * pause decided on [isPlaying] let it start over the call the moment its data arrived. The old
+     * contract (not [strict]) still decides on [isPlaying].
      */
-    fun onAudioFocusChange(focusChange: Int, playWhenReady: Boolean): FocusReaction? =
+    fun onAudioFocusChange(focusChange: Int, playWhenReady: Boolean, isPlaying: Boolean): FocusReaction? =
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // Dropped from the stack. No GAIN follows, so this also ends a duck.
@@ -207,10 +248,10 @@ class FocusManager(
                 ducked = false
                 FocusReaction(pause = true, report = FocusChangeData(true, true, playWhenReady))
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> lendOut(playWhenReady)
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> lendOut(playWhenReady, isPlaying)
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK ->
                 if (alwaysPauseOnInterruption) {
-                    lendOut(playWhenReady)
+                    lendOut(playWhenReady, isPlaying)
                 } else {
                     // Only quieter: the focus stays ours, and playing on asks for nothing.
                     ducked = true
@@ -229,9 +270,10 @@ class FocusManager(
             else -> null
         }
 
-    private fun lendOut(playWhenReady: Boolean): FocusReaction {
+    private fun lendOut(playWhenReady: Boolean, isPlaying: Boolean): FocusReaction {
         hasAudioFocus = false
         lentOut = true
-        return FocusReaction(pause = playWhenReady, report = FocusChangeData(true, false, playWhenReady))
+        val pause = if (strict) playWhenReady else isPlaying
+        return FocusReaction(pause = pause, report = FocusChangeData(true, false, playWhenReady))
     }
 }

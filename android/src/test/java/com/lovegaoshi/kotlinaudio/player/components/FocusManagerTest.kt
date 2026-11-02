@@ -25,6 +25,11 @@ class FocusManagerTest {
         /** Whether our client is in the system focus stack. */
         var inStack = false
 
+        /** A call is up: AudioManager's mode is not NORMAL. */
+        var inCall = false
+
+        override fun callActive(): Boolean = inCall
+
         override fun request(willPauseWhenDucked: Boolean): Int {
             requests++
             lastWillPauseWhenDucked = willPauseWhenDucked
@@ -42,26 +47,45 @@ class FocusManagerTest {
         /** Another app takes AUDIOFOCUS_GAIN: the system drops us and sends AUDIOFOCUS_LOSS. */
         fun anotherAppTakesFocus(focus: FocusManager, playWhenReady: Boolean = true): FocusReaction? {
             inStack = false
-            return focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS, playWhenReady)
+            return focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS, playWhenReady, playWhenReady)
         }
 
         /** A call (or a voice note) takes AUDIOFOCUS_GAIN_TRANSIENT: we stay in the stack. */
-        fun callStarts(focus: FocusManager, playWhenReady: Boolean = true): FocusReaction? =
-            focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, playWhenReady)
+        fun callStarts(
+            focus: FocusManager,
+            playWhenReady: Boolean = true,
+            isPlaying: Boolean = playWhenReady,
+        ): FocusReaction? {
+            inCall = true
+            return focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, playWhenReady, isPlaying)
+        }
 
         /** The transient owner gives the focus back: AUDIOFOCUS_GAIN. */
-        fun callEnds(focus: FocusManager, playWhenReady: Boolean = false): FocusReaction? =
-            focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN, playWhenReady)
+        fun callEnds(focus: FocusManager, playWhenReady: Boolean = false): FocusReaction? {
+            inCall = false
+            return focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_GAIN, playWhenReady, playWhenReady)
+        }
+
+        /** A voice note or an assistant: a transient loss with no call. */
+        fun voiceNoteStarts(focus: FocusManager, playWhenReady: Boolean = true): FocusReaction? =
+            focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, playWhenReady, playWhenReady)
 
         /** A navigation prompt: AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK. */
-        fun promptStarts(focus: FocusManager, playWhenReady: Boolean = true): FocusReaction? =
-            focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK, playWhenReady)
+        fun promptStarts(
+            focus: FocusManager,
+            playWhenReady: Boolean = true,
+            isPlaying: Boolean = playWhenReady,
+        ): FocusReaction? =
+            focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK, playWhenReady, isPlaying)
     }
 
     private fun manager(
         system: FakeSystem,
         alwaysPauseOnInterruption: Boolean = false,
-    ) = FocusManager(system, PlayerOptions(alwaysPauseOnInterruption = alwaysPauseOnInterruption))
+        strict: Boolean = true,
+    ) = FocusManager(system, PlayerOptions(alwaysPauseOnInterruption = alwaysPauseOnInterruption)).apply {
+        this.strict = strict
+    }
 
     /**
      * Drives the states with the player meant to play (playWhenReady true), as a play does.
@@ -242,6 +266,7 @@ class FocusManagerTest {
         val system = FakeSystem()
         val focus = manager(system)
         system.grant = false
+        system.inCall = true
         // A start during a call: the request is refused and the player must not play. It used to
         // play anyway, over the call.
         assertFalse(focus.onPlayerStateChanged(AudioPlayerState.READY, false, true))
@@ -252,9 +277,63 @@ class FocusManagerTest {
         assertEquals(FocusChangeData(true, true, true, denied = true), focus.refusal())
 
         system.grant = true
+        system.inCall = false
         assertTrue(focus.enter(AudioPlayerState.PAUSED, AudioPlayerState.PLAYING))
         assertEquals(3, system.requests)
         assertTrue(focus.hasAudioFocus)
+    }
+
+    @Test
+    fun aRefusalWithNoCallUpLetsThePlayerStart() {
+        val system = FakeSystem()
+        val focus = manager(system)
+        // Android 15 refuses the focus to an app that is neither on screen nor running a
+        // foreground service: a Play from the lock screen or a car after the service went down.
+        // media3 promotes the service only once playback starts, so refusing here would leave the
+        // music stopped for good. PLAYING asks again once the service is promoted.
+        system.grant = false
+        assertTrue(focus.mayStart())
+        assertTrue(focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING))
+        assertFalse(focus.hasAudioFocus)
+        system.grant = true
+        assertTrue(focus.enter(AudioPlayerState.PAUSED, AudioPlayerState.PLAYING))
+        assertTrue(focus.hasAudioFocus)
+    }
+
+    @Test
+    fun underTheOldContractNothingIsRefused() {
+        val system = FakeSystem()
+        val focus = manager(system, strict = false)
+        system.grant = false
+        system.inCall = true
+        assertTrue(focus.mayStart())
+        assertTrue(focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING))
+    }
+
+    @Test
+    fun underTheOldContractATransientLossIsNotAskedAboutAgain() {
+        val system = FakeSystem()
+        val focus = manager(system, strict = false)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
+        system.callStarts(focus)
+        focus.enter(AudioPlayerState.PAUSED, AudioPlayerState.PLAYING)
+        assertEquals(1, system.requests)
+        assertTrue(focus.lentOut)
+    }
+
+    @Test
+    fun underTheOldContractABufferingTrackIsNotPaused() {
+        val system = FakeSystem()
+        val focus = manager(system, strict = false)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING, AudioPlayerState.BUFFERING)
+        // A JS side that reads `paused` off its own state would never resume it: it keeps the old
+        // behaviour until the app opts in (updateOptions android.strictAudioFocus).
+        val loss = system.callStarts(focus, playWhenReady = true, isPlaying = false)!!
+        assertFalse(loss.pause)
+        assertEquals(true, loss.report.playWhenReady)
+        // Playing, it pauses as it always did.
+        system.callEnds(focus)
+        assertTrue(system.callStarts(focus, playWhenReady = true, isPlaying = true)!!.pause)
     }
 
     @Test
@@ -286,7 +365,7 @@ class FocusManagerTest {
         val duck = focus.duckLog()
         focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
         system.promptStarts(focus)
-        system.callStarts(focus) // a voice note, transient, on top of a navigation duck
+        system.voiceNoteStarts(focus) // transient, on top of a navigation duck
         focus.enter(AudioPlayerState.PAUSED)
         // Pressing play asks again, as ExoPlayer does; granted, the focus is ours and at full
         // volume: whoever had us ducked is below us now. It used to play over the voice note.
@@ -305,7 +384,7 @@ class FocusManagerTest {
         focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING, AudioPlayerState.BUFFERING)
         // Buffering is not playing (isPlaying false) but the player is meant to play: a pause
         // decided on isPlaying let it start over the call as soon as its data arrived.
-        val loss = system.callStarts(focus, playWhenReady = true)!!
+        val loss = system.callStarts(focus, playWhenReady = true, isPlaying = false)!!
         assertTrue(loss.pause)
         // And JS hears that it was meant to play, so it can resume it on GAIN.
         assertEquals(true, loss.report.playWhenReady)
@@ -327,7 +406,7 @@ class FocusManagerTest {
         val system = FakeSystem()
         val focus = manager(system, alwaysPauseOnInterruption = true)
         focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING, AudioPlayerState.BUFFERING)
-        val loss = system.promptStarts(focus, playWhenReady = true)!!
+        val loss = system.promptStarts(focus, playWhenReady = true, isPlaying = false)!!
         assertTrue(loss.pause)
         assertFalse(focus.ducked)
         assertTrue(focus.lentOut)
