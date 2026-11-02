@@ -343,11 +343,12 @@ class FocusManagerTest {
         focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
         system.callStarts(focus)
         focus.enter(AudioPlayerState.PAUSED)
-        // The user presses play during the call. Lent out is not leave to play: it asks again,
-        // and the system refuses media requests while a call is up.
+        // The user presses play during the call. Lent out is not leave to play: refused (the
+        // system would refuse the request anyway while a call is up), without asking.
         system.grant = false
+        assertFalse(focus.mayStart())
         assertFalse(focus.enter(AudioPlayerState.PLAYING))
-        assertEquals(2, system.requests)
+        assertEquals(1, system.requests)
         assertFalse(focus.hasAudioFocus)
         assertTrue(focus.lentOut)
         // Still in the stack: the GAIN at the end of the call comes, so the refusal is not final
@@ -355,26 +356,26 @@ class FocusManagerTest {
         assertEquals(FocusChangeData(true, false, true, denied = true), focus.refusal())
         system.callEnds(focus)
         assertTrue(focus.enter(AudioPlayerState.PLAYING))
-        assertEquals(2, system.requests)
+        assertEquals(1, system.requests)
     }
 
     @Test
-    fun aPlayDuringAVoiceNoteTakesTheFocusBack() {
+    fun aStartDuringAVoiceNoteDoesNotTakeTheFocusFromIt() {
         val system = FakeSystem()
         val focus = manager(system)
-        val duck = focus.duckLog()
         focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
-        system.promptStarts(focus)
-        system.voiceNoteStarts(focus) // transient, on top of a navigation duck
+        system.voiceNoteStarts(focus)
         focus.enter(AudioPlayerState.PAUSED)
-        // Pressing play asks again, as ExoPlayer does; granted, the focus is ours and at full
-        // volume: whoever had us ducked is below us now. It used to play over the voice note.
+        // A start now may be nobody's: a track that finishes loading, a pending crossfade, an
+        // error retry. Asking would be granted and stop the voice note; it starts as it always
+        // did, without asking, and the focus stays lent until the GAIN.
+        assertTrue(focus.mayStart())
         assertTrue(focus.enter(AudioPlayerState.PLAYING))
-        assertEquals(2, system.requests)
+        assertEquals(1, system.requests)
+        assertTrue(focus.lentOut)
+        system.callEnds(focus)
         assertTrue(focus.hasAudioFocus)
         assertFalse(focus.lentOut)
-        assertFalse(focus.ducked)
-        assertEquals(listOf(true, false), duck)
     }
 
     @Test

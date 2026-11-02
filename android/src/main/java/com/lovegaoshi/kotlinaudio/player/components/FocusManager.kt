@@ -88,9 +88,8 @@ class FocusManager(
 
     /**
      * Whether the focus is ours right now: granted and not lent to anybody. False after any loss
-     * that pauses (permanent or transient) and before the first grant. While it is false a start
-     * has to ask again ([requestAudioFocus]), as ExoPlayer's own focus handling does (under the
-     * old contract, not [strict], a transient loss is not asked about again).
+     * that pauses (permanent or transient) and before the first grant. Out of the stack, a start
+     * asks again ([requestAudioFocus]); lent out, it does not ([mayStart]).
      */
     var hasAudioFocus = false
         private set
@@ -101,8 +100,8 @@ class FocusManager(
      * stack instead, and nothing comes back.
      *
      * Kept apart from [hasAudioFocus] because the two mean different things to the player: being
-     * in the stack is not leave to play. Before, a transient loss left "has the focus" true, so a
-     * play during a call never asked for anything and the music came out over the call.
+     * in the stack is not leave to play. Before, a transient loss left "has the focus" true, and a
+     * play during a call came out over the call (see [mayStart]).
      */
     var lentOut = false
         private set
@@ -112,9 +111,8 @@ class FocusManager(
     /**
      * The focus contract an app opts into once its JS side handles what comes with it
      * (RemoteDuck `denied` and `playWhenReady`; updateOptions `android.strictAudioFocus`):
-     * - a start during a call does not happen: the request is refused, and JS hears `denied`;
-     * - a start while a transient loss has the focus lent out asks for it again (and is refused
-     *   during a call), where it used to play over whoever had it;
+     * - a start during a call does not happen (the system refuses the focus then), and JS hears
+     *   `denied`; it used to play over the call;
      * - a transient loss pauses a track meant to play, also while it is still buffering.
      * Off, the player keeps the old contract: an app whose JS reads `paused` off its own state
      * would see a buffering track paused under it and never resume it.
@@ -144,8 +142,8 @@ class FocusManager(
      * we are still in the stack and the GAIN that ends it still comes.
      */
     fun requestAudioFocus(): Boolean {
-        // Lent out counts as ours under the old contract: it never asked during a transient loss.
-        if (hasAudioFocus || (lentOut && !strict)) return true
+        // Lent out is never asked about: see mayStart.
+        if (hasAudioFocus || lentOut) return true
         val granted = gateway.request(alwaysPauseOnInterruption) ==
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (granted) {
@@ -158,14 +156,24 @@ class FocusManager(
     }
 
     /**
-     * Whether the player may start now, asking for the focus if it is not ours. Only a request
-     * refused while a call is up stops it, and only under the [strict] contract; any other refusal
-     * (Android 15's, of a Play from the background before the service is promoted) lets it start,
-     * and PLAYING asks again.
+     * Whether the player may start now, asking for the focus if it is not ours.
+     *
+     * Only a call stops a start, and only under the [strict] contract. Any other refusal (Android
+     * 15's, of a Play from the background before the service is promoted) lets it start, and
+     * PLAYING asks again.
+     *
+     * While a transient loss has the focus lent out nothing is asked: a request there would be
+     * granted to any start, also the automatic ones (a track that finishes loading, a pending
+     * crossfade, an error retry), and take the focus from the voice note or the assistant that has
+     * it. Such a start goes ahead as it always did; during a call it is refused, and the GAIN at
+     * the end of the call is what brings the music back.
      */
     fun mayStart(): Boolean {
+        if (hasAudioFocus) return true
+        val callUp = strict && gateway.callActive()
+        if (lentOut) return !callUp
         if (requestAudioFocus()) return true
-        return !(strict && gateway.callActive())
+        return !callUp
     }
 
     fun abandonAudioFocusIfHeld() {
