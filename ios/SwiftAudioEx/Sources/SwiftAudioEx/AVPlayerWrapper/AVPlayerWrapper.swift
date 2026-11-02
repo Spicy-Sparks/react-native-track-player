@@ -196,9 +196,9 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
     // view as well. Measured on an iOS 27 simulator with one such master: a
     // song started in audio mode took a 240p variant (313 kbit/s), and one that
     // left video mode kept its 720p (2.6 Mbit/s), more than a weak mobile link
-    // carries. Without a view the item is held to its smallest rendition
-    // (there, 144p at 173 kbit/s). Held, not cut off: lifting the hold brought
-    // the picture back to 720p in ~11 s, with no restart of the audio.
+    // carries. Without a view the item is held to a small rendition (at the
+    // smallest, there, 144p at 173 kbit/s). Held, not cut off: lifting the hold
+    // brought the picture back to 720p in ~11 s, with no restart of the audio.
     var videoOnScreen: Bool = false {
         didSet {
             guard videoOnScreen != oldValue, let item = avPlayer.currentItem else { return }
@@ -206,11 +206,18 @@ class AVPlayerWrapper: AVPlayerWrapperProtocol {
         }
     }
 
+    // The 240p rung in any orientation (426x240, 240x240, 240x426). Not smaller:
+    // AVPlayer plays the audio group of the variant it picks, and on the masters
+    // these streams come from only the 144p variants carry nothing but the
+    // HE-AAC group (~48 kbit/s); from 240p up the 128 kbit/s AAC group is there.
+    // Held at 1x1, the music itself would drop to 48 kbit/s.
+    static let audioModeMaximumResolution = CGSize(width: 427, height: 427)
+
     private func applyVideoRendition(to item: AVPlayerItem) {
-        // No video variant fits in 1x1, so the smallest one is taken. A limit on
-        // resolution, not on bit rate: it leaves an audio-only master free to
-        // pick its best audio.
-        item.preferredMaximumResolution = videoOnScreen ? .zero : CGSize(width: 1, height: 1)
+        // A limit on resolution, not on bit rate: it leaves an audio-only master
+        // free to pick its best audio, and the variants under the limit free to
+        // carry the best audio group they have.
+        item.preferredMaximumResolution = videoOnScreen ? .zero : AVPlayerWrapper.audioModeMaximumResolution
     }
     
     func play() {

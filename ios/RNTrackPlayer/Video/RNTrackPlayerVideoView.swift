@@ -12,8 +12,11 @@ class RNTrackPlayerVideoView: UIView {
 
     weak var bridge: RCTBridge?
 
-    // Views on screen. While none is, the player holds HLS video to its
-    // smallest rendition (AudioPlayer.videoOnScreen).
+    // Views on screen. While none is, the player holds HLS video to the 240p
+    // rung (AudioPlayer.videoOnScreen). On screen means in a window with the app
+    // in the foreground: the apps unmount this view in audio mode. One kept
+    // mounted but hidden (opacity 0, a hidden ancestor) would count as shown and
+    // keep the hold lifted.
     private static var shown = Set<ObjectIdentifier>()
     static var anyShown: Bool { !shown.isEmpty }
 
