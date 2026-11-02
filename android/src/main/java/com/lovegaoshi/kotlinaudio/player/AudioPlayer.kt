@@ -163,6 +163,10 @@ abstract class AudioPlayer internal constructor(
         get() = focusManager.alwaysPauseOnInterruption
         set(v) { focusManager.alwaysPauseOnInterruption = v }
 
+    /** "held", "lent" or "none": FocusManager.state, for getPlaybackState. */
+    val audioFocusState: String
+        get() = focusManager.state
+
     /** The stricter focus contract (FocusManager.strict); updateOptions android.strictAudioFocus. */
     var strictAudioFocus: Boolean
         get() = focusManager.strict

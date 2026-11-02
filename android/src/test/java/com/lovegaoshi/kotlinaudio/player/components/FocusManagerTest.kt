@@ -493,11 +493,53 @@ class FocusManagerTest {
     }
 
     @Test
+    fun underTheOldContractATrackPreparedPausedTakesTheFocusAtReady() {
+        // 4.1.95 asked at READY whatever playWhenReady, and apps rely on it: a warm handover from
+        // a WebView prepares this player paused and reads the page stopping after READY as this
+        // player having taken the focus. Without the strict contract READY asks exactly as then.
+        val system = FakeSystem()
+        val focus = manager(system, strict = false)
+        assertTrue(focus.enter(AudioPlayerState.LOADING, AudioPlayerState.BUFFERING, AudioPlayerState.READY, playWhenReady = false))
+        assertEquals(1, system.requests)
+        assertTrue(focus.hasAudioFocus)
+        assertEquals("held", focus.state)
+        // And not again while it holds it.
+        focus.enter(AudioPlayerState.PAUSED, AudioPlayerState.READY, playWhenReady = false)
+        assertEquals(1, system.requests)
+    }
+
+    @Test
+    fun underTheOldContractReadyDoesNotAskDuringATransientLoss() {
+        val system = FakeSystem()
+        val focus = manager(system, strict = false)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
+        system.callStarts(focus)
+        focus.enter(AudioPlayerState.PAUSED, AudioPlayerState.READY, playWhenReady = false)
+        assertEquals(1, system.requests)
+        assertEquals("lent", focus.state)
+    }
+
+    @Test
+    fun theFocusStateSaysWhereThePlayerStands() {
+        val system = FakeSystem()
+        val focus = manager(system)
+        assertEquals("none", focus.state)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
+        assertEquals("held", focus.state)
+        system.voiceNoteStarts(focus)
+        assertEquals("lent", focus.state)
+        system.callEnds(focus)
+        assertEquals("held", focus.state)
+        system.anotherAppTakesFocus(focus)
+        assertEquals("none", focus.state)
+    }
+
+    @Test
     fun aTrackPreparedPausedDoesNotTakeTheFocus() {
         val system = FakeSystem()
         val focus = manager(system)
-        // A track restored at launch, or loaded behind a pause, reaches READY not meant to play.
-        // It used to ask for the focus there and stop whatever else was playing.
+        // Strict contract: a track restored at launch, or loaded behind a pause, reaches READY not
+        // meant to play. It used to ask for the focus there and stop whatever else was playing.
         assertTrue(focus.enter(AudioPlayerState.LOADING, AudioPlayerState.BUFFERING, AudioPlayerState.READY, playWhenReady = false))
         assertEquals(0, system.requests)
         assertFalse(focus.hasAudioFocus)

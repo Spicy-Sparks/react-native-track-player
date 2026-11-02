@@ -200,8 +200,9 @@ class FocusManager(
      * then played over everything else and never paused for anyone again, until the player was
      * recreated. Entering PLAYING without the focus now asks for it.
      *
-     * READY asks only when the player is about to play. A track prepared paused (restored at
-     * launch, loaded behind a pause) used to take the focus from whatever else was playing.
+     * Under the strict contract READY asks only when the player is about to play: a track
+     * prepared paused (restored at launch, loaded behind a pause) used to take the focus from
+     * whatever else was playing. The old contract still asks there, as 4.1.95 did.
      *
      * When ExoPlayer handles the focus itself ([exoPlayerHandlesFocus], autoHandleInterruptions
      * on), its own client asks on every play and refuses to start without it; a second request
@@ -226,6 +227,13 @@ class FocusManager(
             AudioPlayerState.READY -> when {
                 exoPlayerHandlesFocus -> if (!lentOut) requestAudioFocus()
                 playWhenReady -> return mayStart()
+                // Prepared paused. The old contract asks here as 4.1.95 did, and apps rely on
+                // it: a warm handover from a WebView prepares this player paused and reads the
+                // page stopping after READY as this player having taken the focus. Under the
+                // strict contract a track prepared paused (restored at launch, a handover being
+                // prepared) does not take the focus from anybody; `audioFocus` in
+                // getPlaybackState says whether it holds it.
+                !strict -> requestAudioFocus()
             }
             AudioPlayerState.PLAYING -> if (!exoPlayerHandlesFocus) return mayStart()
             else -> {}
@@ -281,6 +289,14 @@ class FocusManager(
                 FocusReaction(pause = false, report = FocusChangeData(false, false, playWhenReady))
             }
             else -> null
+        }
+
+    /** Where this player stands with the focus: "held", "lent" (a transient loss), or "none". */
+    val state: String
+        get() = when {
+            hasAudioFocus -> "held"
+            lentOut -> "lent"
+            else -> "none"
         }
 
     private fun lendOut(playWhenReady: Boolean, isPlaying: Boolean): FocusReaction {

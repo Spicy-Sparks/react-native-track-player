@@ -885,7 +885,12 @@ class MusicModule(reactContext: ReactApplicationContext) : NativeTrackPlayerSpec
 
     override fun getPlaybackState(callback: Promise) = launchInScope {
         if (verifyServiceBoundOrReject(callback)) return@launchInScope
-        callback.resolve(Arguments.fromBundle(musicService.getPlayerStateBundle(musicService.state)))
+        // Plus where the player stands with the audio focus (Android only): an app preparing
+        // this player paused can tell a stop of its other output caused by this player taking
+        // the focus from one caused by another app.
+        val bundle = musicService.getPlayerStateBundle(musicService.state)
+        bundle.putString("audioFocus", musicService.audioFocusState)
+        callback.resolve(Arguments.fromBundle(bundle))
     }
 
     override fun setAnimatedVolume(volume: Double, duration: Double, interval: Double, msg: String, callback: Promise) = launchInScope {
