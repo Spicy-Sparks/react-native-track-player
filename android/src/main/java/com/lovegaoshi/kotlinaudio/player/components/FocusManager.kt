@@ -216,8 +216,13 @@ class FocusManager(
     ): Boolean {
         when (state) {
             AudioPlayerState.IDLE,
-            AudioPlayerState.STOPPED,
-            AudioPlayerState.ERROR -> abandonAudioFocusIfHeld()
+            AudioPlayerState.STOPPED -> abandonAudioFocusIfHeld()
+            // A stream that fails while a call has the focus lent out keeps our place in the stack
+            // under the strict contract: JS retries the track, and the GAIN at the end of the call
+            // is what brings it back. Given back, nothing would come back (a request then is
+            // refused during a call, or refused outright from the background on Android 15), and
+            // the music would stay off after the call.
+            AudioPlayerState.ERROR -> if (!(strict && lentOut)) abandonAudioFocusIfHeld()
             AudioPlayerState.READY -> when {
                 exoPlayerHandlesFocus -> if (!lentOut) requestAudioFocus()
                 playWhenReady -> return mayStart()

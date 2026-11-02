@@ -284,6 +284,60 @@ class FocusManagerTest {
     }
 
     @Test
+    fun aStreamErrorDuringACallKeepsThePlaceInTheStack() {
+        val system = FakeSystem()
+        val focus = manager(system)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
+        system.callStarts(focus)
+        focus.enter(AudioPlayerState.PAUSED)
+        // The stream fails while the call is up. Giving the focus back here left nothing to bring
+        // the music back after the call.
+        focus.enter(AudioPlayerState.ERROR)
+        assertEquals(0, system.abandons)
+        assertTrue(focus.lentOut)
+        assertTrue(system.inStack)
+        // JS retries the track during the call: refused without asking, and not for good.
+        system.grant = false
+        assertFalse(focus.mayStart())
+        assertEquals(1, system.requests)
+        assertEquals(FocusChangeData(true, false, true, denied = true), focus.refusal())
+        // The call ends: the focus is ours, the retry plays without asking.
+        system.callEnds(focus)
+        assertTrue(focus.enter(AudioPlayerState.LOADING, AudioPlayerState.READY, AudioPlayerState.PLAYING))
+        assertEquals(1, system.requests)
+    }
+
+    @Test
+    fun aStopDuringACallStillGivesTheFocusBack() {
+        val system = FakeSystem()
+        val focus = manager(system)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
+        system.callStarts(focus)
+        focus.enter(AudioPlayerState.STOPPED)
+        assertEquals(1, system.abandons)
+        assertFalse(focus.lentOut)
+    }
+
+    @Test
+    fun anErrorWithTheFocusOursGivesItBack() {
+        val system = FakeSystem()
+        val focus = manager(system)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING, AudioPlayerState.ERROR)
+        assertEquals(1, system.abandons)
+        assertFalse(focus.hasAudioFocus)
+    }
+
+    @Test
+    fun underTheOldContractAnErrorDuringACallGivesTheFocusBack() {
+        val system = FakeSystem()
+        val focus = manager(system, strict = false)
+        focus.enter(AudioPlayerState.READY, AudioPlayerState.PLAYING)
+        system.callStarts(focus)
+        focus.enter(AudioPlayerState.ERROR)
+        assertEquals(1, system.abandons)
+    }
+
+    @Test
     fun aRefusalWithNoCallUpLetsThePlayerStart() {
         val system = FakeSystem()
         val focus = manager(system)
