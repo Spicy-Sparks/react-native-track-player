@@ -1,3 +1,15 @@
+## 4.1.98
+
+### Bug Fixes
+
+* **ios:** while no video view is on screen (in a window, with the app in the foreground) both players hold an HLS stream
+  to a 427×427 box through `preferredMaximumResolution`, so a master whose every variant carries video is not fetched at
+  full video size in audio mode or in the background: a song that left video mode used to keep its 720p (2.6 Mbit/s).
+  The box is the 240p rung in any orientation, where the ~128 kbit/s AAC audio group starts; the 144p variants carry
+  only the ~48 kbit/s HE-AAC group. A limit on resolution, not on bit rate, so an audio-only master keeps its best audio.
+  A video view coming on screen lifts the hold on the current and the preloaded item. A view that is mounted but hidden
+  counts as on screen: unmount it when no video is shown (124ckhdfxrp).
+
 ## 4.1.97
 
 ### Bug Fixes
