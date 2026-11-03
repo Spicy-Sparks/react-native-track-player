@@ -74,6 +74,16 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     public override init() {
         super.init()
         audioSessionController.delegate = self
+        // Posted on the main thread by the video views, where the player's items
+        // are made. This module can be set up off it, so the first reading goes
+        // there too.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleVideoOnScreenChanged),
+            name: .RNTPVideoOnScreenChanged,
+            object: nil
+        )
+        DispatchQueue.main.async { [weak self] in self?.handleVideoOnScreenChanged() }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAudioRouteChange(_:)),
@@ -107,6 +117,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .RNTPVideoOnScreenChanged, object: nil)
         if #available(iOS 18.0, tvOS 18.0, macOS 15.0, *) {
             NotificationCenter.default.removeObserver(
                 self,
@@ -117,6 +128,10 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         reset(resolve: { _ in }, reject: { _, _, _  in })
 
         RNTrackPlayer.sharedAVPlayer = nil
+    }
+
+    @objc private func handleVideoOnScreenChanged() {
+        player.videoOnScreen = RNTrackPlayerVideoView.anyShown
     }
 
     private func emit(event: EventType, body: Any? = nil) {

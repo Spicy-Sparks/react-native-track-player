@@ -46,6 +46,8 @@ protocol AVPlayerWrapperProtocol: AnyObject {
     var isMuted: Bool { get set }
     
     var automaticallyWaitsToMinimizeStalling: Bool { get set }
+
+    var videoOnScreen: Bool { get set }
     
     func play()
     
