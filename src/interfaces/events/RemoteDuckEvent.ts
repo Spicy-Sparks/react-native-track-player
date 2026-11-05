@@ -25,11 +25,11 @@ export interface RemoteDuckEvent {
    **/
   routeLost?: boolean;
   /**
-   * Android only: whether the player was set to play when this happened, read
+   * Whether the player was set to play when this happened, read
    * before it paused for it. A track still buffering is not playing yet but is
    * meant to — the app cannot tell the two apart from its own state, and needs
    * this to decide whether to resume when the focus comes back (`paused: false`).
-   * Absent from older builds and from iOS.
+   * Available on Android and on iOS from 4.1.99; absent from older iOS builds.
    **/
   playWhenReady?: boolean;
   /**

@@ -213,12 +213,13 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         case .began:
             // Interruption began, take appropriate actions (save state, update user interface)
             emit(event: EventType.RemoteDuck, body: [
-                "paused": true
+                "paused": true,
+                "playWhenReady": player.playWhenReady
             ])
         case let .ended(shouldResume):
             if shouldResume {
                 if (shouldResumePlaybackAfterInterruptionEnds) {
-                    player.play()
+                    playWithAudioSession()
                 }
                 // Interruption Ended - playback should resume
                 emit(event: EventType.RemoteDuck, body: [
@@ -451,13 +452,29 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
         // activate the audio session when there is an item to be played
         // and the player has been configured to start when it is ready loading:
         if (player.playWhenReady) {
-            try? audioSessionController.activateSession()
-            if #available(iOS 11.0, *) {
-                try? AVAudioSession.sharedInstance().setCategory(sessionCategory, mode: sessionCategoryMode, policy: sessionCategoryPolicy, options: sessionCategoryOptions)
-            } else {
-                try? AVAudioSession.sharedInstance().setCategory(sessionCategory, mode: sessionCategoryMode, options: sessionCategoryOptions)
+            do {
+                // Restore the music category before activation. A call or another
+                // audio owner may have left the process on a communication route.
+                if #available(iOS 11.0, *) {
+                    try AVAudioSession.sharedInstance().setCategory(sessionCategory, mode: sessionCategoryMode, policy: sessionCategoryPolicy, options: sessionCategoryOptions)
+                } else {
+                    try AVAudioSession.sharedInstance().setCategory(sessionCategory, mode: sessionCategoryMode, options: sessionCategoryOptions)
+                }
+                try audioSessionController.activateSession()
+            } catch {
+                // Do not activate an old category if restoring the music route failed.
+                print("[RNTrackPlayer] Failed to restore the audio session: \(error)")
             }
         }
+    }
+
+    private func playWithAudioSession() {
+        let wasAlreadyPlaying = player.playWhenReady
+        player.play()
+        // AVPlayer can keep its play intent through an OS interruption. Setting
+        // true again emits no playWhenReady change, but the session still needs
+        // activation when the caller explicitly resumes after that interruption.
+        if wasAlreadyPlaying { configureAudioSession() }
     }
 
     @objc(isServiceRunning:rejecter:)
@@ -706,7 +723,7 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     @objc(play:rejecter:)
     public func play(resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
-        player.play()
+        playWithAudioSession()
         resolve(NSNull())
     }
 
@@ -721,7 +738,9 @@ public class RNTrackPlayer: NSObject, AudioSessionControllerDelegate {
     @objc(setPlayWhenReady:resolver:rejecter:)
     public func setPlayWhenReady(playWhenReady: Bool, resolve: RCTPromiseResolveBlock, reject: RCTPromiseRejectBlock) {
         if (rejectWhenNotInitialized(reject: reject)) { return }
+        let needsSessionRestore = playWhenReady && player.playWhenReady
         player.playWhenReady = playWhenReady
+        if needsSessionRestore { configureAudioSession() }
         resolve(NSNull())
     }
 
